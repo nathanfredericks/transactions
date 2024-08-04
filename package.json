@@ -1,0 +1,23 @@
+{
+  "name": "transactions",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "prettier": "prettier . --write"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "aws-sdk": "^2.1667.0",
+    "html-to-text": "^9.0.5",
+    "mailparser": "^3.7.1",
+    "uuid": "^10.0.0",
+    "ynab": "^2.4.0"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.4",
+    "prettier": "^3.3.3"
+  }
+}
