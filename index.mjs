@@ -2,9 +2,13 @@ import AWS from "aws-sdk";
 import * as ynab from "ynab";
 import { simpleParser } from "mailparser";
 import { convert } from "html-to-text";
+import OpenAI from "openai";
 
 const s3 = new AWS.S3();
 const ynabAPI = new ynab.API(process.env.YNAB_ACCESS_TOKEN);
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 const bucketName = "nathanfredericks-transactions";
 const budgetId = "e0e7f122-6f2f-41f3-9b84-6d8f49fd5eab";
@@ -29,6 +33,36 @@ const newTransaction = async ({
   amount,
   payee,
 }) => {
+  const payees = (await ynabAPI.payees.getPayees(budgetId)).data.payees.map((payee) => `"${payee.name}"`).join(",")
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini-2024-07-18",
+    messages: [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text":`You will be given a list of comma-separated payees from my YNAB budget and a specific payee to categorize. Your task is to categorize this specific payee using the list provided. If there are no appropriate payees in the comma-separated list, create a new payee. Payee names must be less than 200 characters. Only output the payee name.\n${payees}`
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": payee
+          }
+        ]
+      },
+    ],
+    temperature: 1,
+    max_tokens: 75,
+    top_p: 1,
+    frequency_penalty: 0,
+    presence_penalty: 0,
+  });
+
   return await ynabAPI.transactions.createTransaction(budgetId, {
     transaction: {
       account_id: accountId,
@@ -37,7 +71,7 @@ const newTransaction = async ({
         .split(",")[0],
       amount: parseFloat(amount) * -1000,
       payee_id: null,
-      payee_name: payee.replace(/(\r\n|\n|\r)/gm, " ").trim(), // Replace newlines with spaces and trim extra from start/end
+      payee_name: response.choices[0].message.content,
       category_id: null,
       memo: null,
       cleared: "uncleared",

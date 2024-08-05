@@ -18,6 +18,7 @@ Resources:
       Environment:
         Variables:
           YNAB_ACCESS_TOKEN: FM-2LTzdeJ4j61uMYT3swjzM-Yf3HS0Kj9gLWs95kuc
+          OPENAI_API_KEY: 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
       EventInvokeConfig:
         MaximumEventAgeInSeconds: 21600
         MaximumRetryAttempts: 2
