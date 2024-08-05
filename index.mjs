@@ -27,33 +27,30 @@ const bmoCreditCard = {
   emailPayeeRegex: /of.*\sat\s(?<payee>.*)\swas\s/s,
 };
 
-const newTransaction = async ({
-  accountId,
-  date,
-  amount,
-  payee,
-}) => {
-  const payees = (await ynabAPI.payees.getPayees(budgetId)).data.payees.map((payee) => `"${payee.name}"`).join(",")
+const newTransaction = async ({ accountId, date, amount, payee }) => {
+  const payees = (await ynabAPI.payees.getPayees(budgetId)).data.payees
+    .map((payee) => `"${payee.name}"`)
+    .join(",");
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini-2024-07-18",
     messages: [
       {
-        "role": "system",
-        "content": [
+        role: "system",
+        content: [
           {
-            "type": "text",
-            "text":`You will be given a list of comma-separated payees from my YNAB budget and a specific payee to categorize. Your task is to categorize this specific payee using the list provided. If there are no appropriate payees in the comma-separated list, create a new payee. Payee names must be less than 200 characters. Only output the payee name.\n${payees}`
-          }
-        ]
+            type: "text",
+            text: `You will be given a list of comma-separated payees from my YNAB budget and a specific payee to categorize. Your task is to categorize this specific payee using the list provided. If there are no appropriate payees in the comma-separated list, create a new payee. Payee names must be less than 200 characters. Only output the payee name.\n${payees}`,
+          },
+        ],
       },
       {
-        "role": "user",
-        "content": [
+        role: "user",
+        content: [
           {
-            "type": "text",
-            "text": payee
-          }
-        ]
+            type: "text",
+            text: payee,
+          },
+        ],
       },
     ],
     temperature: 1,
@@ -108,7 +105,7 @@ export const handler = async (event) => {
     } catch (e) {
       console.error("Error importing transaction to YNAB", e);
     }
-  // BMO
+    // BMO
   } else if (message.subject === bmoCreditCard.emailSubject) {
     const text = convert(message.html);
     const { amount } = amountRegex.exec(text).groups;
