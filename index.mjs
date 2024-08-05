@@ -15,13 +15,13 @@ const amountRegex = /\$(?<amount>[0-9]+\.[0-9]{2})/;
 const tangerineCreditCard = {
   ynabAccountId: "b8df1b5f-4163-43ce-9bd0-01cb1f824cf7",
   emailSubject: "A new Credit Card transaction has been made",
-  emailPayeeRegex: /\sat\s(?<payee>.*)\son\s/s,
+  emailPayeeRegex: /of.*\sat\s(?<payee>.*)\son\s/s,
 };
 
 const bmoCreditCard = {
   ynabAccountId: "7920fe4c-4deb-4b33-a860-3b2b0d80085f",
   emailSubject: "BMO Credit Card Alert",
-  emailPayeeRegex: /\sat\s(?<payee>.*)\swas\s/s,
+  emailPayeeRegex: /of.*\sat\s(?<payee>.*)\swas\s/s,
 };
 
 const newTransaction = async ({
@@ -91,7 +91,7 @@ export const handler = async (event) => {
       });
       return null;
     } catch (e) {
-      throw new Error("Error importing transaction to YNAB", e);
+      console.error("Error importing transaction to YNAB", e);
     }
     // BMO
   } else if (message.subject === bmoCreditCard.emailSubject) {
@@ -123,9 +123,9 @@ export const handler = async (event) => {
       });
       return null;
     } catch (e) {
-      throw new Error("Error importing transaction to YNAB", e);
+      console.error("Error importing transaction to YNAB", e);
     }
+  } else {
+    console.error("Transaction notification not supported");
   }
-
-  throw new Error("Transaction notification not supported");
 };
