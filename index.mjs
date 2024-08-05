@@ -39,7 +39,15 @@ const newTransaction = async ({ accountId, date, amount, payee }) => {
         content: [
           {
             type: "text",
-            text: `You will be given a list of comma-separated payees from my YNAB budget and a specific payee to categorize. Your task is to categorize this specific payee using the list provided. If there are no appropriate payees in the comma-separated list, create a new payee. Payee names must be less than 200 characters. Only output the payee name.\n${payees}`,
+            text: `You will receive a list of comma-separated payees from my YNAB budget and a credit card transaction. Your task is to match the credit card transaction to a payee from the provided list. If no match is found, create a new payee using the merchant name, ensuring the name is less than 200 characters. Output only the payee name.
+Overrides:
+"PayPal", "Paddle", and "FS" are payment processesors, not merchants.
+"WOLFVILLE SAVE EASY" or "HEATHER'S YIG" = "Independent"
+"NEW MINAS SUPERS" or "Atlantic Superstore" = "Real Canadian Superstore"
+"SOBEYS FAST FUEL" or "NEEDS CAR WASH" = "Fast Fuel"
+"SOBEY'S" = "Sobey's"
+"CIRCLE K / IRVING" = "Irving Oil"
+${payees}`,
           },
         ],
       },
@@ -105,7 +113,7 @@ export const handler = async (event) => {
     } catch (e) {
       console.error("Error importing transaction to YNAB", e);
     }
-    // BMO
+  // BMO
   } else if (message.subject === bmoCreditCard.emailSubject) {
     const text = convert(message.html);
     const { amount } = amountRegex.exec(text).groups;
