@@ -29,8 +29,9 @@ const bmoCreditCard = {
 
 const newTransaction = async ({ accountId, date, amount, payee }) => {
   const payees = (await ynabAPI.payees.getPayees(budgetId)).data.payees
-    .map((payee) => `"${payee.name}"`)
-    .join(",");
+    .filter((payee) => !payee.transfer_account_id && !payee.deleted)
+    .map((payee) => payee.name)
+    .join("\n");
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini-2024-07-18",
     messages: [
@@ -39,14 +40,15 @@ const newTransaction = async ({ accountId, date, amount, payee }) => {
         content: [
           {
             type: "text",
-            text: `You will receive a list of comma-separated payees from my YNAB budget and a credit card transaction. Your task is to match the credit card transaction to a payee from the provided list. If no match is found, create a new payee using the merchant name, ensuring the name is less than 200 characters. Output only the payee name.
+            text: `Match the credit card transaction to a payee from the list provided. If no match is found, create a new payee using the merchant name, ensuring it's less than 200 characters. Output only the payee name.
 Overrides:
-"PayPal", "Paddle", and "FS" are payment processesors, not merchants.
-"WOLFVILLE SAVE EASY" or "HEATHER'S YIG" = "Independent"
-"NEW MINAS SUPERS" or "Atlantic Superstore" = "Real Canadian Superstore"
-"SOBEYS FAST FUEL" or "NEEDS CAR WASH" = "Fast Fuel"
-"SOBEY'S" = "Sobey's"
-"CIRCLE K / IRVING" = "Irving Oil"
+PayPal, Paddle, and FS are payment processesors, not merchants.
+WOLFVILLE SAVE EASY or HEATHER'S YIG = Independent
+NEW MINAS SUPERS or Atlantic Superstore = Real Canadian Superstore
+SOBEYS FAST FUEL or NEEDS CAR WASH = Fast Fuel
+SOBEY'S = Sobey's
+CIRCLE K / IRVING = Irving Oil
+Payees:
 ${payees}`,
           },
         ],
