@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: An AWS Serverless Application Model template describing your function.
 Resources:
@@ -6,9 +6,9 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: .
-      Description: ''
+      Description: ""
       MemorySize: 128
-      Timeout: 10
+      Timeout: 15
       Handler: index.handler
       Runtime: nodejs20.x
       Architectures:
