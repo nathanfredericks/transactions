@@ -2,7 +2,6 @@ import AWS from "aws-sdk";
 import * as ynab from "ynab";
 import { simpleParser } from "mailparser";
 import { convert } from "html-to-text";
-import { v4 as uuidv4 } from "uuid";
 
 const s3 = new AWS.S3();
 const ynabAPI = new ynab.API(process.env.YNAB_ACCESS_TOKEN);
@@ -29,7 +28,6 @@ const newTransaction = async ({
   date,
   amount,
   payee,
-  imported = false,
 }) => {
   return await ynabAPI.transactions.createTransaction(budgetId, {
     transaction: {
@@ -39,14 +37,14 @@ const newTransaction = async ({
         .split(",")[0],
       amount: parseFloat(amount) * -1000,
       payee_id: null,
-      payee_name: payee,
+      payee_name: payee.replace(/(\r\n|\n|\r)/gm, " ").trim(), // Replace newlines with spaces and trim extra from start/end
       category_id: null,
       memo: null,
       cleared: "uncleared",
       approved: false,
       flag_color: null,
       subtransactions: [],
-      import_id: imported ? uuidv4() : null,
+      import_id: null,
     },
   });
 };
@@ -67,61 +65,27 @@ export const handler = async (event) => {
     const { amount } = amountRegex.exec(text).groups;
     const { payee } = tangerineCreditCard.emailPayeeRegex.exec(text).groups;
     try {
-      const transaction = {
+      await newTransaction({
         accountId: tangerineCreditCard.ynabAccountId,
         date: message.date,
         amount: amount,
         payee: payee,
-      };
-      // Create new imported transaction
-      const importedTransaction = await newTransaction({
-        ...transaction,
-        imported: true,
       });
-      // Delete imported transaction
-      await ynabAPI.transactions.deleteTransaction(
-        budgetId,
-        importedTransaction.data.transaction.id,
-      );
-      // Create new user-entered transaction with imported transaction payee
-      // User-entered transactions do not follow payee naming rules
-      await newTransaction({
-        ...transaction,
-        payee: importedTransaction.data.transaction.payee_name,
-      });
-      return null;
     } catch (e) {
       console.error("Error importing transaction to YNAB", e);
     }
-    // BMO
+  // BMO
   } else if (message.subject === bmoCreditCard.emailSubject) {
     const text = convert(message.html);
     const { amount } = amountRegex.exec(text).groups;
     const { payee } = bmoCreditCard.emailPayeeRegex.exec(text).groups;
     try {
-      const transaction = {
+      await newTransaction({
         accountId: bmoCreditCard.ynabAccountId,
         date: message.date,
         amount: amount,
         payee: payee,
-      };
-      // Create new imported transaction
-      const importedTransaction = await newTransaction({
-        ...transaction,
-        imported: true,
       });
-      // Delete imported transaction
-      await ynabAPI.transactions.deleteTransaction(
-        budgetId,
-        importedTransaction.data.transaction.id,
-      );
-      // Create new user-entered transaction with imported transaction payee
-      // User-entered transactions do not follow payee naming rules
-      await newTransaction({
-        ...transaction,
-        payee: importedTransaction.data.transaction.payee_name,
-      });
-      return null;
     } catch (e) {
       console.error("Error importing transaction to YNAB", e);
     }

@@ -16,7 +16,6 @@
     "aws-sdk": "^2.1667.0",
     "html-to-text": "^9.0.5",
     "mailparser": "^3.7.1",
-    "uuid": "^10.0.0",
     "ynab": "^2.4.0"
   },
   "devDependencies": {
