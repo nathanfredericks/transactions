@@ -1,0 +1,9 @@
+{
+  "Records": [
+    {
+      "Sns": {
+        "Message": "{\"mail\":{\"messageId\":\"tangerine\"}}"
+      }
+    }
+  ]
+}

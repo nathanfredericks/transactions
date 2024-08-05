@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
+    "start:tangerine": "sam local invoke -e events/tangerine.json",
+    "start:bmo": "sam local invoke -e events/bmo.json",
+    "deploy": "sam deploy",
     "prettier": "prettier . --write"
   },
   "keywords": [],
