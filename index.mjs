@@ -141,7 +141,7 @@ ${payees}`,
         date: date
           .toLocaleString("en-CA", { timeZone: process.env.TZ })
           .split(",")[0],
-        amount: parseFloat(amount) * -1000,
+        amount: Math.ceil(parseFloat(amount) * -1000),
         payee_id: null,
         payee_name: response.choices[0].message.content,
         category_id: null,
