@@ -44,7 +44,7 @@ const newTransaction = async ({ accountId, date, amount, payee }) => {
 Overrides:
 PayPal, Paddle, and FS are payment processesors, not merchants.
 WOLFVILLE SAVE EASY or HEATHER'S YIG = Independent
-NEW MINAS SUPERS or Atlantic Superstore = Real Canadian Superstore
+NEW MINAS SUPERS or Superstore = Real Canadian Superstore
 SOBEYS FAST FUEL or NEEDS CAR WASH = Fast Fuel
 SOBEY'S = Sobey's
 CIRCLE K / IRVING = Irving Oil
