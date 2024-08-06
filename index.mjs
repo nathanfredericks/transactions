@@ -48,6 +48,7 @@ NEW MINAS SUPERS or Atlantic Superstore = Real Canadian Superstore
 SOBEYS FAST FUEL or NEEDS CAR WASH = Fast Fuel
 SOBEY'S = Sobey's
 CIRCLE K / IRVING = Irving Oil
+WF = Wayfair
 Payees:
 ${payees}`,
           },
