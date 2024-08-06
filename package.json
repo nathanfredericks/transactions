@@ -13,11 +13,10 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "airtable": "^0.12.2",
+    "@google/generative-ai": "^0.16.0",
     "aws-sdk": "^2.1667.0",
     "html-to-text": "^9.0.5",
     "mailparser": "^3.7.1",
-    "openai": "^4.54.0",
     "ynab": "^2.4.0"
   },
   "devDependencies": {

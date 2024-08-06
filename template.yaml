@@ -18,13 +18,11 @@ Resources:
       Timeout: 10
       Environment:
         Variables:
-          BUCKET_NAME: nathanfredericks-transactions
+          S3_BUCKET_NAME: nathanfredericks-transactions
           YNAB_BUDGET_ID: e0e7f122-6f2f-41f3-9b84-6d8f49fd5eab
           YNAB_TANGERINE_ACCOUNT_ID: b8df1b5f-4163-43ce-9bd0-01cb1f824cf7
           YNAB_BMO_ACCOUNT_ID: 7920fe4c-4deb-4b33-a860-3b2b0d80085f
-          AIRTABLE_BASE_ID: appXgCSY7pBOAbKh8
-          TZ: America/Halifax
-          SECRET: transactions
+          SECRET_NAME: transactions
       Policies:
         - Statement:
             - Sid: VisualEditor0
