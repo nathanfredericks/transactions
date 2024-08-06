@@ -40,7 +40,7 @@ const newTransaction = async ({ accountId, date, amount, payee }) => {
         content: [
           {
             type: "text",
-            text: `Match the credit card transaction to a payee from the list provided. If no match is found, create a new payee using the merchant name, ensuring it's less than 200 characters. Output only the payee name.
+            text: `Match the credit card transaction to a payee from the list provided. If no match is found, create a new payee using the merchant or company name, ensuring it's less than 200 characters. Output only the payee name.
 Overrides:
 PayPal, Paddle, and FS are payment processesors, not merchants.
 WOLFVILLE SAVE EASY or HEATHER'S YIG = Independent
