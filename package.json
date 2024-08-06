@@ -13,6 +13,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "airtable": "^0.12.2",
     "aws-sdk": "^2.1667.0",
     "html-to-text": "^9.0.5",
     "mailparser": "^3.7.1",

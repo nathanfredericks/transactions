@@ -1,24 +1,30 @@
-AWSTemplateFormatVersion: "2010-09-09"
+AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
-Description: An AWS Serverless Application Model template describing your function.
 Resources:
   transactions:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: .
-      Description: ""
-      MemorySize: 256
-      Timeout: 10
-      Handler: index.handler
       Runtime: nodejs20.x
       Architectures:
         - arm64
-      EphemeralStorage:
-        Size: 512
-      EventInvokeConfig:
-        MaximumEventAgeInSeconds: 21600
-        MaximumRetryAttempts: 2
-      PackageType: Zip
+      Handler: index.handler
+      Events:
+        SNS:
+          Type: SNS
+          Properties:
+            Topic:
+              Ref: SNSTopic
+      MemorySize: 128
+      Timeout: 10
+      Environment:
+        Variables:
+          BUCKET_NAME: nathanfredericks-transactions
+          YNAB_BUDGET_ID: e0e7f122-6f2f-41f3-9b84-6d8f49fd5eab
+          YNAB_TANGERINE_ACCOUNT_ID: b8df1b5f-4163-43ce-9bd0-01cb1f824cf7
+          YNAB_BMO_ACCOUNT_ID: 7920fe4c-4deb-4b33-a860-3b2b0d80085f
+          AIRTABLE_BASE_ID: appXgCSY7pBOAbKh8
+          TZ: America/Halifax
+          SECRET: transactions
       Policies:
         - Statement:
             - Sid: VisualEditor0
@@ -38,15 +44,9 @@ Resources:
                 - >-
                   arn:aws:logs:ca-central-1:187489282488:log-group:/aws/lambda/transactions:*
         - AWSSecretsManagerGetSecretValuePolicy:
-            SecretArn: arn:aws:secretsmanager:ca-central-1:187489282488:secret:prod/transactions-hK2wf2
+            SecretArn: arn:aws:secretsmanager:ca-central-1:187489282488:secret:transactions-ZuMkXL
       SnapStart:
         ApplyOn: None
-      Events:
-        SNS:
-          Type: SNS
-          Properties:
-            Topic:
-              Ref: SNSTopic
       RuntimeManagementConfig:
         UpdateRuntimeOn: Auto
   SNSTopic:
