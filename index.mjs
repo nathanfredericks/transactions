@@ -5,9 +5,14 @@ import { convert } from "html-to-text";
 import OpenAI from "openai";
 
 const s3 = new AWS.S3();
-const ynabAPI = new ynab.API(process.env.YNAB_ACCESS_TOKEN);
+const secretsManager = new AWS.SecretsManager();
+const { SecretString } = await secretsManager.getSecretValue({
+  SecretId: 'prod/transactions'
+}).promise()
+const { OPENAI_API_KEY, YNAB_ACCESS_TOKEN } = JSON.parse(SecretString);
+const ynabAPI = new ynab.API(YNAB_ACCESS_TOKEN);
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: OPENAI_API_KEY,
 });
 
 const bucketName = "nathanfredericks-transactions";
@@ -32,6 +37,7 @@ const newTransaction = async ({ accountId, date, amount, payee }) => {
     .filter((payee) => !payee.transfer_account_id && !payee.deleted)
     .map((payee) => payee.name)
     .join("\n");
+
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini-2024-07-18",
     messages: [

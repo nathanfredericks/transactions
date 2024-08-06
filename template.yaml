@@ -15,10 +15,6 @@ Resources:
         - arm64
       EphemeralStorage:
         Size: 512
-      Environment:
-        Variables:
-          YNAB_ACCESS_TOKEN: FM-2LTzdeJ4j61uMYT3swjzM-Yf3HS0Kj9gLWs95kuc
-          OPENAI_API_KEY: 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
       EventInvokeConfig:
         MaximumEventAgeInSeconds: 21600
         MaximumRetryAttempts: 2
@@ -41,6 +37,8 @@ Resources:
               Resource:
                 - >-
                   arn:aws:logs:ca-central-1:187489282488:log-group:/aws/lambda/transactions:*
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: arn:aws:secretsmanager:ca-central-1:187489282488:secret:prod/transactions-hK2wf2
       SnapStart:
         ApplyOn: None
       Events:
