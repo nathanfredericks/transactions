@@ -96,7 +96,7 @@ export const handler = async (event) => {
       date: message.date
         .toLocaleString("en-CA", { timeZone: "America/Halifax" })
         .split(",")[0],
-      amount: Math.ceil(parseFloat(amount) * -1000),
+      amount: Math.round(parseFloat(amount) * -1000),
       payee_name: payee,
       cleared: "uncleared",
     },
