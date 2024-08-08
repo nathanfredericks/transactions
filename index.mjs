@@ -27,42 +27,43 @@ const bmoCreditCard = {
 };
 
 export const handler = async (event) => {
-  const notification = JSON.parse(event.Records[0].Sns.Message);
-  const object = await s3
-    .getObject({
-      Bucket: process.env.S3_BUCKET_NAME,
-      Key: notification.mail.messageId,
-    })
-    .promise();
-  const message = await simpleParser(object.Body);
-  const text = convert(message.html);
+  try {
+    const notification = JSON.parse(event.Records[0].Sns.Message);
+    const object = await s3
+      .getObject({
+        Bucket: process.env.S3_BUCKET_NAME,
+        Key: notification.mail.messageId,
+      })
+      .promise();
+    const message = await simpleParser(object.Body);
+    const text = convert(message.html);
 
-  const isTangerineNotification =
-    message.from.value[0].address === tangerineCreditCard.emailAddress &&
-    message.subject === tangerineCreditCard.emailSubject;
-  const isBmoNotification =
-    message.from.value[0].address === bmoCreditCard.emailAddress &&
-    message.subject === bmoCreditCard.emailSubject;
+    const isTangerineNotification =
+      message.from.value[0].address === tangerineCreditCard.emailAddress &&
+      message.subject === tangerineCreditCard.emailSubject;
+    const isBmoNotification =
+      message.from.value[0].address === bmoCreditCard.emailAddress &&
+      message.subject === bmoCreditCard.emailSubject;
 
-  if (!isTangerineNotification && !isBmoNotification) {
-    return console.error("Bank not supported");
-  }
+    if (!isTangerineNotification && !isBmoNotification) {
+      return console.error("Bank not supported");
+    }
 
-  const accountId = isTangerineNotification
-    ? tangerineCreditCard.ynabAccountId
-    : bmoCreditCard.ynabAccountId;
+    const accountId = isTangerineNotification
+      ? tangerineCreditCard.ynabAccountId
+      : bmoCreditCard.ynabAccountId;
 
-  const payees = (
-    await ynabAPI.payees.getPayees(process.env.YNAB_BUDGET_ID)
-  ).data.payees
-    .filter((payee) => !payee.transfer_account_id && !payee.deleted)
-    .map((payee) => payee.name)
-    .join("\n");
+    const payees = (
+      await ynabAPI.payees.getPayees(process.env.YNAB_BUDGET_ID)
+    ).data.payees
+      .filter((payee) => !payee.transfer_account_id && !payee.deleted)
+      .map((payee) => payee.name)
+      .join("\n");
 
-  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
-    systemInstruction: `You will be provided with a credit card alert, and your task is to extract the amount and merchant from it. Once you have extracted the merchant, match it to a payee from the provided list. If no match is found, create a new human-readable payee using the merchant name, ensuring it's less than 200 characters. PayPal, Paddle (PADDLE.NET), FastSpring (FS), and Square (SQ) are payment processors, not merchants. Write your output in JSON format with "amount" and "payee" keys.
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-pro",
+      systemInstruction: `You will be provided with a credit card alert, and your task is to extract the amount and merchant from it. Once you have extracted the merchant, match it to a payee from the provided list. If no match is found, create a new human-readable payee using the merchant name, ensuring it's less than 200 characters. PayPal, Paddle (PADDLE.NET), FastSpring (FS), and Square (SQ) are payment processors, not merchants. Write your output in JSON format with "amount" and "payee" keys.
     Payee overrides:
     SOBEY'S = Sobeys
     HEATHER'S YIG or WOLFVILLE SAVE EASY = Independent
@@ -73,32 +74,35 @@ export const handler = async (event) => {
     NEEDS CAR WASH = Fast Fuel
     Payees:
     ${payees}`,
-  });
+    });
 
-  const generationConfig = {
-    temperature: 1,
-    topP: 0.95,
-    topK: 64,
-    maxOutputTokens: 8192,
-    responseMimeType: "application/json",
-  };
+    const generationConfig = {
+      temperature: 1,
+      topP: 0.95,
+      topK: 64,
+      maxOutputTokens: 8192,
+      responseMimeType: "application/json",
+    };
 
-  const chatSession = model.startChat({
-    generationConfig,
-  });
+    const chatSession = model.startChat({
+      generationConfig,
+    });
 
-  const { response } = await chatSession.sendMessage(text);
-  const { amount, payee } = JSON.parse(response.text());
+    const { response } = await chatSession.sendMessage(text);
+    const { amount, payee } = JSON.parse(response.text());
 
-  await ynabAPI.transactions.createTransaction(process.env.YNAB_BUDGET_ID, {
-    transaction: {
-      account_id: accountId,
-      date: message.date
-        .toLocaleString("en-CA", { timeZone: "America/Halifax" })
-        .split(",")[0],
-      amount: Math.round(parseFloat(amount) * -1000),
-      payee_name: payee,
-      cleared: "uncleared",
-    },
-  });
+    await ynabAPI.transactions.createTransaction(process.env.YNAB_BUDGET_ID, {
+      transaction: {
+        account_id: accountId,
+        date: message.date
+          .toLocaleString("en-CA", { timeZone: "America/Halifax" })
+          .split(",")[0],
+        amount: Math.round(parseFloat(amount) * -1000),
+        payee_name: payee,
+        cleared: "uncleared",
+      },
+    });
+  } catch (e) {
+    console.error(e);
+  }
 };
