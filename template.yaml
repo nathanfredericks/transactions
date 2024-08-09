@@ -16,7 +16,7 @@ Resources:
             Topic:
               Ref: SNSTopic
       MemorySize: 128
-      Timeout: 10
+      Timeout: 15
       Environment:
         Variables:
           S3_BUCKET_NAME: nathanfredericks-transactions
