@@ -13,11 +13,14 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@google/generative-ai": "^0.16.0",
-    "aws-sdk": "^2.1667.0",
+    "@aws-sdk/client-dynamodb": "^3.624.0",
+    "@aws-sdk/client-s3": "^3.627.0",
+    "@aws-sdk/client-secrets-manager": "^3.624.0",
     "html-to-text": "^9.0.5",
     "mailparser": "^3.7.1",
-    "ynab": "^2.4.0"
+    "openai": "^4.55.3",
+    "ynab": "^2.4.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/mailparser": "^3.4.4",

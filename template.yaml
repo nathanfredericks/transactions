@@ -3,6 +3,7 @@ Transform: AWS::Serverless-2016-10-31
 Resources:
   transactions:
     Type: AWS::Serverless::Function
+
     Properties:
       Runtime: nodejs20.x
       Architectures:
@@ -19,10 +20,13 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME: nathanfredericks-transactions
+          DYNAMODB_TABLE_NAME: TransactionOverrides
           YNAB_BUDGET_ID: e0e7f122-6f2f-41f3-9b84-6d8f49fd5eab
           YNAB_TANGERINE_ACCOUNT_ID: b8df1b5f-4163-43ce-9bd0-01cb1f824cf7
           YNAB_BMO_ACCOUNT_ID: 7920fe4c-4deb-4b33-a860-3b2b0d80085f
           SECRET_NAME: transactions
+      EventInvokeConfig:
+        MaximumRetryAttempts: 2
       Policies:
         - Statement:
             - Sid: VisualEditor0
@@ -41,8 +45,16 @@ Resources:
               Resource:
                 - >-
                   arn:aws:logs:ca-central-1:187489282488:log-group:/aws/lambda/transactions:*
-        - AWSSecretsManagerGetSecretValuePolicy:
-            SecretArn: arn:aws:secretsmanager:ca-central-1:187489282488:secret:transactions-ZuMkXL
+            - Effect: Allow
+              Action:
+                - dynamodb:Scan
+              Resource:
+                - arn:aws:dynamodb:ca-central-1:187489282488:table/TransactionOverrides/index/*
+                - arn:aws:dynamodb:ca-central-1:187489282488:table/TransactionOverrides
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: arn:aws:secretsmanager:ca-central-1:187489282488:secret:transactions-ZuMkXL
       SnapStart:
         ApplyOn: None
       RuntimeManagementConfig:
