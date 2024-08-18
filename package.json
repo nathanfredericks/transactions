@@ -1,7 +1,7 @@
 {
   "name": "transactions",
   "version": "1.0.0",
-  "main": "app.js",
+  "main": "output/app.mjs",
   "scripts": {
     "start:tangerine": "npm run compile && sam local invoke -e events/tangerine.json",
     "start:bmo": "npm run compile && sam local invoke -e events/bmo.json",
