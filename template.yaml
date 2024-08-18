@@ -8,7 +8,7 @@ Resources:
       Runtime: nodejs20.x
       Architectures:
         - arm64
-      Handler: index.handler
+      Handler: output/app.handler
       Events:
         SNS:
           Type: SNS

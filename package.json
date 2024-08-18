@@ -1,12 +1,13 @@
 {
   "name": "transactions",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "app.js",
   "scripts": {
-    "start:tangerine": "sam local invoke -e events/tangerine.json",
-    "start:bmo": "sam local invoke -e events/bmo.json",
-    "deploy": "sam deploy",
-    "prettier": "prettier . --write"
+    "start:tangerine": "npm run compile && sam local invoke -e events/tangerine.json",
+    "start:bmo": "npm run compile && sam local invoke -e events/bmo.json",
+    "deploy": "npm run compile && sam deploy",
+    "prettier": "prettier . --write",
+    "compile": "swc app.ts -o output/app.mjs"
   },
   "keywords": [],
   "author": "",
@@ -16,6 +17,7 @@
     "@aws-sdk/client-dynamodb": "^3.624.0",
     "@aws-sdk/client-s3": "^3.627.0",
     "@aws-sdk/client-secrets-manager": "^3.624.0",
+    "aws-lambda": "^1.0.7",
     "html-to-text": "^9.0.5",
     "mailparser": "^3.7.1",
     "openai": "^4.55.3",
@@ -23,7 +25,12 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@swc/cli": "^0.4.0",
+    "@swc/core": "^1.7.11",
+    "@types/aws-lambda": "^8.10.143",
+    "@types/html-to-text": "^9.0.4",
     "@types/mailparser": "^3.4.4",
-    "prettier": "^3.3.3"
+    "prettier": "^3.3.3",
+    "typescript": "^5.5.4"
   }
 }
