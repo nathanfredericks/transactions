@@ -120,12 +120,23 @@ export const handler = async (event: SNSEvent) => {
       payee: z.string(),
     });
 
+    const paymentProcessors = [
+      "PayPal",
+      "Paddle (PADDLE.NET)",
+      "FastSpring (FS)",
+      "Square (SQ)",
+      "Shop Pay (SP)",
+      "Google (GOOGLE)",
+    ];
+
     const completion = await openai.beta.chat.completions.parse({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `You will be provided with a credit card alert, and your task is to extract the amount and merchant from it. Once you have extracted the merchant, match it to a payee from the provided list. If no match is found, create a new human-readable payee using the merchant name, ensuring it's less than 200 characters. PayPal, Paddle (PADDLE.NET), FastSpring (FS), Square (SQ) and Shop Pay (SP) are payment processors, not merchants. You should convert the amount and payee to the given structure.
+          content: `You will be provided with a credit card alert, and your task is to extract the amount and merchant from it. Once you have extracted the merchant, match it to a payee from the provided list. If no match is found, create a new human-readable payee using the merchant name, ensuring it's less than 200 characters. You should convert the amount and payee to the given structure.
+Payment Processors:
+${JSON.stringify(paymentProcessors)}
 Payees:
 ${JSON.stringify(payees)}
 Overrides:
