@@ -153,7 +153,7 @@ ${JSON.stringify(overrides)}`,
       return console.error("Error parsing message");
     }
     const { amount, payee } = completion.choices[0].message.parsed;
-    
+
     if (!message.date) {
       return console.error("Message has no date");
     }
@@ -187,12 +187,7 @@ ${JSON.stringify(overrides)}`,
             break;
         }
         break;
-      case "Cloudflare":
-      case "Backblaze":
-      case "Oracle Cloud":
-      case "Hetzner Cloud":
       case "Amazon Web Services":
-      case "DigitalOcean":
         const messageDate = message.date;
         messageDate.setMonth(messageDate.getMonth() - 1);
         const months = [
