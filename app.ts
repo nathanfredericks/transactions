@@ -153,9 +153,65 @@ ${JSON.stringify(overrides)}`,
       return console.error("Error parsing message");
     }
     const { amount, payee } = completion.choices[0].message.parsed;
-
+    
     if (!message.date) {
       return console.error("Message has no date");
+    }
+
+    let category_id;
+    let memo;
+    switch (payee) {
+      case "Apple":
+        switch (message.date.getDate()) {
+          case 21:
+            if (amount === 6.89) {
+              memo = "Apple Music";
+              category_id = process.env.YNAB_MONTHLY_SUBSCRIPTIONS_CATEGORY_ID;
+            }
+            break;
+          case 22:
+            if (amount === 1.48) {
+              memo = "iCloud Storage";
+              category_id = process.env.YNAB_MONTHLY_SUBSCRIPTIONS_CATEGORY_ID;
+            }
+            break;
+        }
+        break;
+      case "Amazon":
+        switch (message.date.getDate()) {
+          case 5:
+            if (amount === 5.74) {
+              memo = "Amazon Prime";
+              category_id = process.env.YNAB_MONTHLY_SUBSCRIPTIONS_CATEGORY_ID;
+            }
+            break;
+        }
+        break;
+      case "Cloudflare":
+      case "Backblaze":
+      case "Oracle Cloud":
+      case "Hetzner Cloud":
+      case "Amazon Web Services":
+      case "DigitalOcean":
+        const messageDate = message.date;
+        messageDate.setMonth(messageDate.getMonth() - 1);
+        const months = [
+          "January",
+          "February",
+          "March",
+          "April",
+          "May",
+          "June",
+          "July",
+          "August",
+          "September",
+          "October",
+          "November",
+          "December",
+        ];
+        memo = `${months[messageDate.getMonth()]} ${messageDate.getFullYear()}`;
+        category_id = process.env.YNAB_CLOUD_SERVICES_CATEGORY_ID;
+        break;
     }
 
     await ynabAPI.transactions.createTransaction(
@@ -169,6 +225,8 @@ ${JSON.stringify(overrides)}`,
           amount: Math.round(amount * -1000),
           payee_name: payee,
           cleared: "uncleared",
+          category_id,
+          memo,
         },
       },
     );
