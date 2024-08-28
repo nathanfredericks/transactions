@@ -130,16 +130,16 @@ export const handler = async (event: SNSEvent) => {
     ];
 
     const completion = await openai.beta.chat.completions.parse({
-      model: "gpt-4o-mini",
+      model: "gpt-4o-2024-08-06",
       messages: [
         {
           role: "system",
           content: `You will be provided with a credit card alert, and your task is to extract the amount and merchant from it. Once you have extracted the merchant, match it to a payee from the provided list. If no match is found, create a new human-readable payee using the merchant name, ensuring it's less than 200 characters. You should convert the amount and payee to the given structure.
-Payment Processors:
+Payment processors:
 ${JSON.stringify(paymentProcessors)}
 Payees:
 ${JSON.stringify(payees)}
-Overrides:
+Payee overrides:
 ${JSON.stringify(overrides)}`,
         },
         { role: "user", content: text },
