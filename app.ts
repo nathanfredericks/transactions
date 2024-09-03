@@ -163,6 +163,12 @@ ${JSON.stringify(overrides)}`,
     switch (payee) {
       case "Apple":
         switch (message.date.getDate()) {
+          case 9:
+            if (amount === 28.74) {
+              memo = "ChatGPT Plus";
+              category_id = process.env.YNAB_MONTHLY_SUBSCRIPTIONS_CATEGORY_ID;
+            }
+            break;
           case 21:
             if (amount === 6.89) {
               memo = "Apple Music";
@@ -172,6 +178,12 @@ ${JSON.stringify(overrides)}`,
           case 22:
             if (amount === 1.48) {
               memo = "iCloud Storage";
+              category_id = process.env.YNAB_MONTHLY_SUBSCRIPTIONS_CATEGORY_ID;
+            }
+            break;
+          case 29:
+            if (amount === 17.24) {
+              memo = "StrongLifts";
               category_id = process.env.YNAB_MONTHLY_SUBSCRIPTIONS_CATEGORY_ID;
             }
             break;
@@ -188,6 +200,8 @@ ${JSON.stringify(overrides)}`,
         }
         break;
       case "Amazon Web Services":
+      case "Oracle Cloud":
+      case "Hetzner Cloud":
         const messageDate = message.date;
         messageDate.setMonth(messageDate.getMonth() - 1);
         const months = [
