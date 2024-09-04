@@ -184,7 +184,7 @@ ${JSON.stringify(overrides)}`,
           case 29:
             if (amount === 17.24) {
               memo = "StrongLifts";
-              category_id = process.env.YNAB_MONTHLY_SUBSCRIPTIONS_CATEGORY_ID;
+              category_id = process.env.YNAB_CERTN_FLEXFUND_CATEGORY_ID;
             }
             break;
         }

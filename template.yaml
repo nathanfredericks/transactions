@@ -26,6 +26,7 @@ Resources:
           YNAB_BMO_ACCOUNT_ID: 7920fe4c-4deb-4b33-a860-3b2b0d80085f
           YNAB_MONTHLY_SUBSCRIPTIONS_CATEGORY_ID: 21bffaa4-79e8-46e1-aefa-7e121e3fb3e5
           YNAB_CLOUD_SERVICES_CATEGORY_ID: 186c7184-a1b3-484b-a18e-c7b27e8bb79e
+          YNAB_CERTN_FLEXFUND_CATEGORY_ID: e5551b35-afc5-437c-8075-1f6d7b120637
           SECRET_NAME: transactions
       EventInvokeConfig:
         MaximumRetryAttempts: 2
