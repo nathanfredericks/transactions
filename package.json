@@ -6,7 +6,7 @@
     "start:tangerine": "npm run compile && sam local invoke -e events/tangerine.json",
     "start:bmo": "npm run compile && sam local invoke -e events/bmo.json",
     "deploy": "npm run compile && sam deploy",
-    "prettier": "prettier . --write",
+    "fix": "prettier . --write && eslint --fix app.ts",
     "compile": "swc app.ts -o output/app.mjs"
   },
   "keywords": [],
@@ -18,9 +18,13 @@
     "@aws-sdk/client-s3": "^3.627.0",
     "@aws-sdk/client-secrets-manager": "^3.624.0",
     "aws-lambda": "^1.0.7",
+    "handlebars": "^4.7.8",
     "html-to-text": "^9.0.5",
+    "json-logic-js": "^2.0.5",
+    "luxon": "^3.5.0",
     "mailparser": "^3.7.1",
     "openai": "^4.55.3",
+    "react-querybuilder": "^7.6.1",
     "ynab": "^2.4.0",
     "zod": "^3.23.8"
   },
@@ -29,7 +33,13 @@
     "@swc/core": "^1.7.11",
     "@types/aws-lambda": "^8.10.143",
     "@types/html-to-text": "^9.0.4",
+    "@types/json-logic-js": "^2.0.7",
+    "@types/luxon": "^3.4.2",
     "@types/mailparser": "^3.4.4",
+    "@typescript-eslint/eslint-plugin": "^8.5.0",
+    "@typescript-eslint/parser": "^8.5.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-import": "^2.30.0",
     "prettier": "^3.3.3",
     "typescript": "^5.5.4"
   }

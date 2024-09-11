@@ -11,6 +11,9 @@ import OpenAI from "openai";
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { SNSEvent } from "aws-lambda";
+import jsonLogic from "json-logic-js";
+import { DateTime } from "luxon";
+import Handlebars from "handlebars";
 
 const s3Client = new S3Client();
 const dynamoDBClient = new DynamoDBClient();
@@ -68,9 +71,14 @@ export const handler = async (event: SNSEvent) => {
         },
       ],
     });
+
     if (!message.from) {
       return console.error("Message has no sender");
     }
+    if (!message.date) {
+      return console.error("Message has no date");
+    }
+
     const isTangerineNotification =
       message.from.value[0].address === tangerineCreditCard.emailAddress &&
       message.subject === tangerineCreditCard.emailSubject;
@@ -86,40 +94,10 @@ export const handler = async (event: SNSEvent) => {
       ? tangerineCreditCard.ynabAccountId
       : bmoCreditCard.ynabAccountId;
 
-    const { Items } = await dynamoDBClient.send(
-      new ScanCommand({
-        TableName: process.env.DYNAMODB_TABLE_NAME || "",
-      }),
-    );
-    const formatOverrides = (overrides: typeof Items | undefined) => {
-      if (!overrides) {
-        return {};
-      }
-      return overrides.reduce(
-        (accumulator: Record<string, string>, currentValue) => {
-          if (!currentValue.merchant.S || !currentValue.payee.S) {
-            return accumulator;
-          }
-          const merchant = currentValue.merchant.S;
-          accumulator[merchant] = currentValue.payee.S;
-          return accumulator;
-        },
-        {},
-      );
-    };
-    const overrides = formatOverrides(Items);
-
-    const payees = (
-      await ynabAPI.payees.getPayees(process.env.YNAB_BUDGET_ID || "")
-    ).data.payees
-      .filter((payee) => !payee.transfer_account_id && !payee.deleted)
-      .map((payee) => payee.name);
-
     const TransactionExtraction = z.object({
       amount: z.number(),
-      payee: z.string(),
+      merchant: z.string(),
     });
-
     const paymentProcessors = [
       "PayPal",
       "Paddle (PADDLE.NET)",
@@ -128,114 +106,132 @@ export const handler = async (event: SNSEvent) => {
       "Shop Pay (SP)",
       "Google (GOOGLE)",
     ];
+    const extractMerchantAmountCompletion =
+      await openai.beta.chat.completions.parse({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You will be provided with a credit card alert, and your task is to extract the amount and merchant from it. ${paymentProcessors.join(", ")} are payment processors, not merchants. You should convert the amount and merchant to the given structure.`,
+          },
+          { role: "user", content: text },
+        ],
+        response_format: zodResponseFormat(
+          TransactionExtraction,
+          "transaction_extraction",
+        ),
+      });
+    if (!extractMerchantAmountCompletion.choices[0].message.parsed) {
+      return console.error("Error parsing message");
+    }
+    const { amount, merchant } =
+      extractMerchantAmountCompletion.choices[0].message.parsed;
 
-    const completion = await openai.beta.chat.completions.parse({
-      model: "gpt-4o-2024-08-06",
+    const { Items } = await dynamoDBClient.send(
+      new ScanCommand({
+        TableName: process.env.DYNAMODB_TABLE_NAME || "",
+      }),
+    );
+    const overrides =
+      Items?.map((item) => ({
+        payee: item.payee?.S || "",
+        category: item.category?.S || "",
+        memo: item.memo?.S || "",
+        query: item.query?.S || "",
+        updatedAt: item.updatedAt?.S || "",
+      })) || [];
+    const sortedOverrides = overrides.sort(
+      (a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+    );
+
+    const override = sortedOverrides.find((override) => {
+      const query = JSON.parse(override.query);
+      const now = DateTime.fromJSDate(message.date || new Date()).setZone(
+        "America/Halifax",
+      );
+      return jsonLogic.apply(query, {
+        amount,
+        merchant: merchant.toUpperCase(),
+        day: now.day,
+        month: now.month,
+      });
+    });
+
+    if (override) {
+      const template = Handlebars.compile(override.memo);
+      Handlebars.registerHelper("formatDate", function (date, format) {
+        return DateTime.fromISO(date).toFormat(format);
+      });
+      Handlebars.registerHelper("subtractMonthFromDate", function (date) {
+        return DateTime.fromISO(date).minus({ month: 1 }).toISODate();
+      });
+
+      return await ynabAPI.transactions.createTransaction(
+        process.env.YNAB_BUDGET_ID || "",
+        {
+          transaction: {
+            account_id: accountId,
+            date:
+              DateTime.fromJSDate(message.date || new Date())
+                .setZone("America/Halifax")
+                .toISODate() || undefined,
+            amount: Math.round(amount * -1000),
+            payee_id: override.payee,
+            cleared: "uncleared",
+            category_id: override.category || undefined,
+            memo: override.memo
+              ? template({
+                  date: DateTime.fromJSDate(message.date || new Date())
+                    .setZone("America/Halifax")
+                    .toISODate(),
+                })
+              : undefined,
+          },
+        },
+      );
+    }
+
+    const payees = (
+      await ynabAPI.payees.getPayees(process.env.YNAB_BUDGET_ID || "")
+    ).data.payees
+      .filter((payee) => !payee.transfer_account_id && !payee.deleted)
+      .map((payee) => payee.name);
+
+    const Payee = z.object({
+      payee: z.string(),
+    });
+
+    const matchPayeeCompletion = await openai.beta.chat.completions.parse({
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `You will be provided with a credit card alert, and your task is to extract the amount and merchant from it. Once you have extracted the merchant, check if the merchant has an override. If the merchant does not have an override, match it to a similar payee from the provided list. If no match is found, create a new human-readable payee using the merchant name, ensuring it's less than 200 characters. You should convert the amount and payee to the given structure.
-Payment processors:
-${JSON.stringify(paymentProcessors)}
+          content: `You will be provided with a merchant from a credit card alert, and your task is to match it to a similar payee from the provided list. If no match is found, create a new human-readable payee using the merchant name. You should convert the payee to the given structure.
 Payees:
-${JSON.stringify(payees)}
-Payee overrides:
-${JSON.stringify(overrides)}`,
+${JSON.stringify(payees)}`,
         },
-        { role: "user", content: text },
+        { role: "user", content: merchant },
       ],
-      response_format: zodResponseFormat(
-        TransactionExtraction,
-        "transaction_extraction",
-      ),
+      response_format: zodResponseFormat(Payee, "payee"),
     });
-    if (!completion.choices[0].message.parsed) {
-      return console.error("Error parsing message");
+    if (!matchPayeeCompletion.choices[0].message.parsed) {
+      return console.error("Error matching payee");
     }
-    const { amount, payee } = completion.choices[0].message.parsed;
+    const { payee } = matchPayeeCompletion.choices[0].message.parsed;
 
-    if (!message.date) {
-      return console.error("Message has no date");
-    }
-
-    let category_id;
-    let memo;
-    switch (payee) {
-      case "Apple":
-        switch (message.date.getDate()) {
-          case 9:
-            if (amount === 28.74) {
-              memo = "ChatGPT Plus";
-              category_id = process.env.YNAB_MONTHLY_SUBSCRIPTIONS_CATEGORY_ID;
-            }
-            break;
-          case 21:
-            if (amount === 6.89) {
-              memo = "Apple Music";
-              category_id = process.env.YNAB_MONTHLY_SUBSCRIPTIONS_CATEGORY_ID;
-            }
-            break;
-          case 22:
-            if (amount === 1.48) {
-              memo = "iCloud Storage";
-              category_id = process.env.YNAB_MONTHLY_SUBSCRIPTIONS_CATEGORY_ID;
-            }
-            break;
-          case 29:
-            if (amount === 17.24) {
-              memo = "StrongLifts";
-              category_id = process.env.YNAB_CERTN_FLEXFUND_CATEGORY_ID;
-            }
-            break;
-        }
-        break;
-      case "Amazon":
-        switch (message.date.getDate()) {
-          case 5:
-            if (amount === 5.74) {
-              memo = "Amazon Prime";
-              category_id = process.env.YNAB_MONTHLY_SUBSCRIPTIONS_CATEGORY_ID;
-            }
-            break;
-        }
-        break;
-      case "Amazon Web Services":
-      case "Oracle Cloud":
-      case "Hetzner Cloud":
-        const messageDate = message.date;
-        messageDate.setMonth(messageDate.getMonth() - 1);
-        const months = [
-          "January",
-          "February",
-          "March",
-          "April",
-          "May",
-          "June",
-          "July",
-          "August",
-          "September",
-          "October",
-          "November",
-          "December",
-        ];
-        memo = `${months[messageDate.getMonth()]} ${messageDate.getFullYear()}`;
-        category_id = process.env.YNAB_CLOUD_SERVICES_CATEGORY_ID;
-        break;
-    }
-
-    await ynabAPI.transactions.createTransaction(
+    return await ynabAPI.transactions.createTransaction(
       process.env.YNAB_BUDGET_ID || "",
       {
         transaction: {
           account_id: accountId,
-          date: message.date
-            .toLocaleString("en-CA", { timeZone: "America/Halifax" })
-            .split(",")[0],
+          date:
+            DateTime.fromJSDate(message.date || new Date())
+              .setZone("America/Halifax")
+              .toISODate() || undefined,
           amount: Math.round(amount * -1000),
           payee_name: payee,
           cleared: "uncleared",
-          category_id,
-          memo,
         },
       },
     );
