@@ -14,6 +14,7 @@ import { SNSEvent } from "aws-lambda";
 import jsonLogic from "json-logic-js";
 import { DateTime } from "luxon";
 import Handlebars from "handlebars";
+import he from "he";
 
 const s3Client = new S3Client();
 const dynamoDBClient = new DynamoDBClient();
@@ -150,9 +151,10 @@ export const handler = async (event: SNSEvent) => {
       const now = DateTime.fromJSDate(message.date || new Date()).setZone(
         "America/Halifax",
       );
+      const formattedMerchant = he.decode(merchant).toUpperCase();
       return jsonLogic.apply(query, {
         amount,
-        merchant: merchant.toUpperCase(),
+        merchant: formattedMerchant,
         day: now.day,
         month: now.month,
       });
