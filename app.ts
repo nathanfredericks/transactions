@@ -106,6 +106,7 @@ export const handler = async (event: SNSEvent) => {
       "Square (SQ)",
       "Shop Pay (SP)",
       "Google (GOOGLE)",
+      "DoorDash (DOORDASH)",
     ];
     const extractMerchantAmountCompletion =
       await openai.beta.chat.completions.parse({
