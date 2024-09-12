@@ -99,22 +99,13 @@ export const handler = async (event: SNSEvent) => {
       amount: z.number(),
       merchant: z.string(),
     });
-    const paymentProcessors = [
-      "PayPal",
-      "Paddle (PADDLE.NET)",
-      "FastSpring (FS)",
-      "Square (SQ)",
-      "Shop Pay (SP)",
-      "Google (GOOGLE)",
-      "DoorDash (DOORDASH)",
-    ];
     const extractMerchantAmountCompletion =
       await openai.beta.chat.completions.parse({
         model: "gpt-4o-mini",
         messages: [
           {
             role: "system",
-            content: `You will be provided with a credit card alert, and your task is to extract the amount and merchant from it. ${paymentProcessors.join(", ")} are payment processors, not merchants. You should convert the amount and merchant to the given structure.`,
+            content: `You will be provided with a credit card alert, and your task is to extract the amount and merchant from it. You should convert the amount and merchant to the given structure.`,
           },
           { role: "user", content: text },
         ],
@@ -204,13 +195,21 @@ export const handler = async (event: SNSEvent) => {
     const Payee = z.object({
       payee: z.string(),
     });
-
+    const paymentProcessors = [
+      "PayPal",
+      "Paddle (PADDLE.NET)",
+      "FastSpring (FS)",
+      "Square (SQ)",
+      "Shop Pay (SP)",
+      "Google (GOOGLE)",
+      "DoorDash (DOORDASH)",
+    ];
     const matchPayeeCompletion = await openai.beta.chat.completions.parse({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: `You will be provided with a merchant from a credit card alert, and your task is to match it to a similar payee from the provided list. If no match is found, create a new human-readable payee using the merchant name. You should convert the payee to the given structure.
+          content: `You will be provided with a merchant from a credit card alert, and your task is to match it to a similar payee from the provided list. ${paymentProcessors.join(", ")} are payment processors, not merchants. If no match is found, create a new human-readable payee using the merchant name. You should convert the payee to the given structure.
 Payees:
 ${JSON.stringify(payees)}`,
         },
