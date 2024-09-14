@@ -107,6 +107,7 @@ export const handler = async (event: SNSEvent) => {
       "SP",
       "GOOGLE",
       "DOORDASH",
+      "TST"
     ];
     const extractMerchantAmountCompletion =
       await openai.beta.chat.completions.parse({
