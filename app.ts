@@ -14,7 +14,6 @@ import { SNSEvent } from "aws-lambda";
 import jsonLogic from "json-logic-js";
 import { DateTime } from "luxon";
 import Handlebars from "handlebars";
-import he from "he";
 
 const s3Client = new S3Client();
 const dynamoDBClient = new DynamoDBClient();
@@ -107,7 +106,7 @@ export const handler = async (event: SNSEvent) => {
       "SP",
       "GOOGLE",
       "DOORDASH",
-      "TST"
+      "TST",
     ];
     const extractMerchantAmountCompletion =
       await openai.beta.chat.completions.parse({
@@ -115,7 +114,7 @@ export const handler = async (event: SNSEvent) => {
         messages: [
           {
             role: "system",
-            content: `You will be provided with a credit card alert, and your task is to extract the amount and merchant from it. ${paymentProcessors.join(", ")} are payment processors, not merchants. You should convert the amount and merchant to the given structure.`,
+            content: `You will be provided with a credit card alert. Your task is to extract the amount and merchant from it. ${paymentProcessors.join(", ")} are payment processors, not merchants. You should convert the amount and merchant to the given structure.`,
           },
           { role: "user", content: text },
         ],
@@ -152,10 +151,9 @@ export const handler = async (event: SNSEvent) => {
       const now = DateTime.fromJSDate(message.date || new Date()).setZone(
         "America/Halifax",
       );
-      const formattedMerchant = he.decode(merchant).toUpperCase();
       return jsonLogic.apply(query, {
         amount,
-        merchant: formattedMerchant,
+        merchant: merchant.toUpperCase(),
         day: now.day,
         month: now.month,
       });
@@ -209,9 +207,9 @@ export const handler = async (event: SNSEvent) => {
       messages: [
         {
           role: "system",
-          content: `You will be provided with a merchant from a credit card alert, and your task is to match it to a similar payee from the provided list. If no match is found, create a new human-readable payee using the merchant name. You should convert the payee to the given structure.
-Payees:
-${JSON.stringify(payees)}`,
+          content: `Payees:
+${JSON.stringify(payees)}
+You will be provided with a merchant. Your task is to identify and select the most similar payee from the list. If no match is found, create a new human-readable payee using the merchant name. You should convert the payee to the given structure.`,
         },
         { role: "user", content: merchant },
       ],
