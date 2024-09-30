@@ -47,6 +47,10 @@ const bmoCreditCard = {
 export const handler = async (event: SNSEvent) => {
   try {
     const notification = JSON.parse(event.Records[0].Sns.Message);
+    if (!notification.mail.messageId) {
+      console.error(JSON.stringify(event));
+      return console.error("Message ID not found");
+    }
     const { Body } = await s3Client.send(
       new GetObjectCommand({
         Bucket: process.env.S3_BUCKET_NAME || "",
