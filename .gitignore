@@ -1,0 +1,5 @@
+.aws-sam
+.gocache
+cdk.out
+go.work
+go.work.sum

@@ -1,0 +1,9 @@
+{
+  "Records": [
+    {
+      "Sns": {
+        "Message": "{\"mail\":{\"messageId\":\"S3_KEY\"}}"
+      }
+    }
+  ]
+}

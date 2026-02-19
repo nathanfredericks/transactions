@@ -1,0 +1,28 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Local testing template for the Transactions Lambda.
+
+Resources:
+  TransactionsFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      CodeUri: .
+      Handler: bootstrap
+      Runtime: provided.al2023
+      Architectures:
+        - arm64
+      MemorySize: 128
+      Timeout: 30
+      Environment:
+        Variables:
+          OPENAI_ENDPOINT: https://openrouter.ai/api/v1
+          OPENAI_MODEL: openai/gpt-5-mini
+          AWS_S3_BUCKET_NAME: nathanfredericks-transactions
+          YNAB_BUDGET_ID: e0e7f122-6f2f-41f3-9b84-6d8f49fd5eab
+          AWS_SECRET_ARN: arn:aws:secretsmanager:ca-central-1:187489282488:secret:transactions-ZuMkXL
+          APPCONFIG_APPLICATION: fvwbvsa
+          APPCONFIG_ENVIRONMENT: yu292q7
+          APPCONFIG_CONFIGURATION: 59dpaji
+          AWS_TRANSACTION_OVERRIDES_DYNAMODB_TABLE_NAME: TransactionOverrides
