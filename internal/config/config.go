@@ -9,13 +9,7 @@ import (
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 
-var cachedConfig *types.Config
-
-func GetConfig(ctx context.Context) (*types.Config, error) {
-	if cachedConfig != nil {
-		return cachedConfig, nil
-	}
-	env := GetEnv()
+var loadLatestConfiguration = func(ctx context.Context, env *types.Env) ([]byte, error) {
 	cfg, err := GetAWSConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("loading AWS config: %w", err)
@@ -35,10 +29,25 @@ func GetConfig(ctx context.Context) (*types.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting latest configuration: %w", err)
 	}
+	return latest.Configuration, nil
+}
+
+func GetConfig(ctx context.Context) (*types.Config, error) {
+	if cache := getInvocationCache(ctx); cache != nil && cache.config != nil {
+		return cache.config, nil
+	}
+	env := GetEnv()
+	content, err := loadLatestConfiguration(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+
 	var c types.Config
-	if err := json.Unmarshal(latest.Configuration, &c); err != nil {
+	if err := json.Unmarshal(content, &c); err != nil {
 		return nil, fmt.Errorf("parsing config JSON: %w", err)
 	}
-	cachedConfig = &c
-	return cachedConfig, nil
+	if cache := getInvocationCache(ctx); cache != nil {
+		cache.config = &c
+	}
+	return &c, nil
 }

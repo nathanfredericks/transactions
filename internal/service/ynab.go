@@ -61,6 +61,10 @@ type ynabPayloadTransaction struct {
 	Memo       *string `json:"memo,omitempty"`
 }
 
+func toYNABExpenseMilliunits(amount float64) int64 {
+	return int64(math.Round(amount * -1000))
+}
+
 func newYNABClient(ctx context.Context) (*ynabClient, error) {
 	secrets, err := config.GetSecrets(ctx)
 	if err != nil {
@@ -205,7 +209,7 @@ func CheckForRecentTransaction(ctx context.Context, accountID string, amount flo
 		return false, fmt.Errorf("fetching transactions: %w", err)
 	}
 
-	targetAmount := int64(math.Round(amount * 1000))
+	targetAmount := toYNABExpenseMilliunits(amount)
 	for _, t := range response.Data.Transactions {
 		if t.Amount == targetAmount {
 			return true, nil
@@ -237,7 +241,7 @@ func CreateTransaction(ctx context.Context, accountID string, amount float64, pa
 	payload := ynabPayloadTransaction{
 		AccountID: accountID,
 		Date:      dateStr,
-		Amount:    int64(math.Round(amount * -1000)),
+		Amount:    toYNABExpenseMilliunits(amount),
 		PayeeName: &payee,
 		Cleared:   ynabClearingStatusUncleared,
 	}
@@ -266,7 +270,7 @@ func CreateTransactionWithOverride(ctx context.Context, accountID string, amount
 	payload := ynabPayloadTransaction{
 		AccountID: accountID,
 		Date:      dateStr,
-		Amount:    int64(math.Round(amount * -1000)),
+		Amount:    toYNABExpenseMilliunits(amount),
 		PayeeID:   &override.Payee,
 		Cleared:   ynabClearingStatusUncleared,
 	}

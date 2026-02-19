@@ -26,15 +26,25 @@ func GetTransactionOverrides(ctx context.Context) ([]types.TransactionOverride, 
 	}
 
 	client := dynamodb.NewFromConfig(cfg)
-	out, err := client.Scan(ctx, &dynamodb.ScanInput{
-		TableName: &env.AWSTransactionOverridesDynamoDBTable,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("scanning overrides table: %w", err)
+	var items []map[string]ddbtypes.AttributeValue
+	var startKey map[string]ddbtypes.AttributeValue
+	for {
+		out, err := client.Scan(ctx, &dynamodb.ScanInput{
+			TableName:         &env.AWSTransactionOverridesDynamoDBTable,
+			ExclusiveStartKey: startKey,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("scanning overrides table: %w", err)
+		}
+		items = append(items, out.Items...)
+		if len(out.LastEvaluatedKey) == 0 {
+			break
+		}
+		startKey = out.LastEvaluatedKey
 	}
 
 	var overrides []types.TransactionOverride
-	for _, item := range out.Items {
+	for _, item := range items {
 		o := types.TransactionOverride{}
 		if v, ok := item["payee"]; ok {
 			o.Payee = attrToString(v)

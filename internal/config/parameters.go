@@ -9,42 +9,98 @@ import (
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 
-var cachedParameters *types.Parameters
+const (
+	paymentProcessorsParameterName = "/transactions/payment-processors"
+	timezoneParameterName          = "/transactions/timezone"
+	openAIEndpointParameterName    = "/transactions/openai-endpoint"
+	openAIModelParameterName       = "/transactions/openai-model"
+	defaultOpenAIEndpoint          = "https://openrouter.ai/api/v1"
+	defaultOpenAIModel             = "openai/gpt-5-mini"
+)
 
-func GetParameters(ctx context.Context) (*types.Parameters, error) {
-	if cachedParameters != nil {
-		return cachedParameters, nil
-	}
+var loadParameters = func(ctx context.Context) (map[string]string, error) {
 	cfg, err := GetAWSConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("loading AWS config: %w", err)
 	}
 	client := ssm.NewFromConfig(cfg)
-	ppName := "/transactions/payment-processors"
-	ppOut, err := client.GetParameter(ctx, &ssm.GetParameterInput{
-		Name: &ppName,
+	names := []string{
+		paymentProcessorsParameterName,
+		timezoneParameterName,
+		openAIEndpointParameterName,
+		openAIModelParameterName,
+	}
+	out, err := client.GetParameters(ctx, &ssm.GetParametersInput{
+		Names: names,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("getting payment-processors parameter: %w", err)
+		return nil, fmt.Errorf("getting parameters: %w", err)
 	}
-	tzName := "/transactions/timezone"
-	tzOut, err := client.GetParameter(ctx, &ssm.GetParameterInput{
-		Name: &tzName,
-	})
+	if len(out.InvalidParameters) > 0 {
+		return nil, fmt.Errorf("missing required parameters: %s", strings.Join(out.InvalidParameters, ", "))
+	}
+
+	values := make(map[string]string, len(out.Parameters))
+	for _, p := range out.Parameters {
+		if p.Name != nil && p.Value != nil {
+			values[*p.Name] = *p.Value
+		}
+	}
+	return values, nil
+}
+
+func GetParameters(ctx context.Context) (*types.Parameters, error) {
+	if cache := getInvocationCache(ctx); cache != nil && cache.parameters != nil {
+		return cache.parameters, nil
+	}
+
+	values, err := loadParameters(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("getting timezone parameter: %w", err)
+		return nil, err
 	}
+
+	params := parametersFromValues(values)
+	if cache := getInvocationCache(ctx); cache != nil {
+		cache.parameters = params
+	}
+	return params, nil
+}
+
+func parametersFromValues(values map[string]string) *types.Parameters {
 	tz := "UTC"
-	if tzOut.Parameter != nil && tzOut.Parameter.Value != nil {
-		tz = *tzOut.Parameter.Value
+	if val := strings.TrimSpace(values[timezoneParameterName]); val != "" {
+		tz = val
 	}
-	var processors []string
-	if ppOut.Parameter != nil && ppOut.Parameter.Value != nil {
-		processors = strings.Split(*ppOut.Parameter.Value, ",")
+
+	endpoint := defaultOpenAIEndpoint
+	if val := strings.TrimSpace(values[openAIEndpointParameterName]); val != "" {
+		endpoint = val
 	}
-	cachedParameters = &types.Parameters{
-		PaymentProcessors: processors,
+
+	model := defaultOpenAIModel
+	if val := strings.TrimSpace(values[openAIModelParameterName]); val != "" {
+		model = val
+	}
+
+	return &types.Parameters{
+		PaymentProcessors: splitCommaValues(values[paymentProcessorsParameterName]),
 		Timezone:          tz,
+		OpenAIEndpoint:    endpoint,
+		OpenAIModel:       model,
 	}
-	return cachedParameters, nil
+}
+
+func splitCommaValues(value string) []string {
+	if value == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	cleaned := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	return cleaned
 }

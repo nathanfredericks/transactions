@@ -42,6 +42,8 @@ type Secrets struct {
 type Parameters struct {
 	PaymentProcessors []string
 	Timezone          string
+	OpenAIEndpoint    string
+	OpenAIModel       string
 }
 
 type Env struct {
@@ -52,8 +54,6 @@ type Env struct {
 	AWSS3BucketName                      string
 	YNABBudgetID                         string
 	AWSTransactionOverridesDynamoDBTable string
-	OpenAIEndpoint                       string
-	OpenAIModel                          string
 }
 
 type TransactionOverride struct {

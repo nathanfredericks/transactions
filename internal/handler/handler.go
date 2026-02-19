@@ -7,9 +7,12 @@ import (
 	"log/slog"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/nathanfredericks/transactions/internal/config"
 )
 
 func Handle(ctx context.Context, raw json.RawMessage) (any, error) {
+	ctx = config.WithInvocationCache(ctx)
+
 	var apiCheck struct {
 		HTTPMethod string `json:"httpMethod"`
 	}

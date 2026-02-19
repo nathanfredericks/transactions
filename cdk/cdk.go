@@ -123,7 +123,6 @@ func main() {
 		Architecture: awslambda.Architecture_ARM_64(),
 		Timeout:      awscdk.Duration_Seconds(jsii.Number(30)),
 		Environment: &map[string]*string{
-			"OPENAI_ENDPOINT":                               jsii.String("https://openrouter.ai/api/v1"),
 			"AWS_S3_BUCKET_NAME":                            jsii.String(bucketName),
 			"YNAB_BUDGET_ID":                                jsii.String(ynabBudgetID),
 			"AWS_SECRET_ARN":                                jsii.String(secretArn),
@@ -131,7 +130,6 @@ func main() {
 			"APPCONFIG_ENVIRONMENT":                         jsii.String(appconfigEnvironment),
 			"AWS_TRANSACTION_OVERRIDES_DYNAMODB_TABLE_NAME": jsii.String(tableName),
 			"APPCONFIG_CONFIGURATION":                       jsii.String(appconfigConfig),
-			"OPENAI_MODEL":                                  jsii.String("anthropic/claude-haiku-4.5"),
 		},
 	})
 
@@ -147,6 +145,8 @@ func main() {
 		Resources: &[]*string{
 			jsii.String(ssmBase + "/payment-processors"),
 			jsii.String(ssmBase + "/timezone"),
+			jsii.String(ssmBase + "/openai-endpoint"),
+			jsii.String(ssmBase + "/openai-model"),
 		},
 	}))
 

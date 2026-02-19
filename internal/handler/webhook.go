@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -20,11 +21,6 @@ import (
 func handleIncomingWebhook(ctx context.Context, event events.APIGatewayProxyRequest) (any, error) {
 	slog.Debug("Received webhook event", "event", event)
 
-	cfg, err := config.GetConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("loading config: %w", err)
-	}
-
 	if event.Body == "" {
 		return events.APIGatewayProxyResponse{
 			StatusCode: 400,
@@ -32,14 +28,31 @@ func handleIncomingWebhook(ctx context.Context, event events.APIGatewayProxyRequ
 		}, nil
 	}
 
+	bodyBytes := []byte(event.Body)
+	if event.IsBase64Encoded {
+		decodedBody, err := base64.StdEncoding.DecodeString(event.Body)
+		if err != nil {
+			return events.APIGatewayProxyResponse{
+				StatusCode: 400,
+				Body:       `{"error":"Invalid base64-encoded webhook payload"}`,
+			}, nil
+		}
+		bodyBytes = decodedBody
+	}
+
 	var payload types.WebhookPayload
-	if err := json.Unmarshal([]byte(event.Body), &payload); err != nil {
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
 		return events.APIGatewayProxyResponse{
 			StatusCode: 400,
 			Body:       `{"error":"Invalid webhook payload"}`,
 		}, nil
 	}
 	slog.Debug("Parsed webhook payload", "payload", payload)
+
+	cfg, err := config.GetConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("loading config: %w", err)
+	}
 
 	var matchedNotification *types.WebhookConfig
 	for i, n := range cfg.Webhook {

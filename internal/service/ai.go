@@ -37,19 +37,22 @@ var payeeSchema = map[string]any{
 var merchantPrefixRe = regexp.MustCompile(`.+\* `)
 
 func callResponsesAPI(ctx context.Context, instructions string, userMessage string, schemaName string, schema map[string]any) (string, error) {
-	env := config.GetEnv()
+	params, err := config.GetParameters(ctx)
+	if err != nil {
+		return "", fmt.Errorf("getting parameters: %w", err)
+	}
 	secrets, err := config.GetSecrets(ctx)
 	if err != nil {
 		return "", fmt.Errorf("getting secrets: %w", err)
 	}
 
 	client := openai.NewClient(
-		option.WithBaseURL(env.OpenAIEndpoint),
+		option.WithBaseURL(params.OpenAIEndpoint),
 		option.WithAPIKey(secrets.OpenAIAPIKey),
 	)
 
 	resp, err := client.Responses.New(ctx, responses.ResponseNewParams{
-		Model:        env.OpenAIModel,
+		Model:        params.OpenAIModel,
 		Instructions: openai.String(instructions),
 		Input: responses.ResponseNewParamsInputUnion{
 			OfString: openai.String(userMessage),
