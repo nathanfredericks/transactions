@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/nathanfredericks/transactions/internal/state"
 	"log/slog"
 	"math"
+	"os"
 	"sort"
 	"strings"
 	"text/template"
@@ -20,31 +22,30 @@ import (
 )
 
 func GetTransactionOverrides(ctx context.Context) ([]types.TransactionOverride, error) {
-	env := config.GetEnv()
 	cfg, err := config.GetAWSConfig(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("loading AWS config: %w", err)
+		return nil, err
 	}
-
-	client := dynamodb.NewFromConfig(cfg)
-	var items []map[string]ddbtypes.AttributeValue
-	var startKey map[string]ddbtypes.AttributeValue
-	for {
-		out, err := client.Scan(ctx, &dynamodb.ScanInput{
-			TableName:         &env.AWSTransactionOverridesDynamoDBTable,
-			ExclusiveStartKey: startKey,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("scanning overrides table: %w", err)
-		}
-		items = append(items, out.Items...)
-		if len(out.LastEvaluatedKey) == 0 {
-			break
-		}
-		startKey = out.LastEvaluatedKey
+	store := state.Store{DB: dynamodb.NewFromConfig(cfg), Table: os.Getenv("STATE_TABLE")}
+	rows, err := store.List(ctx, "RULES", "RULE#")
+	if err != nil {
+		return nil, err
 	}
-
-	return DecodeOverrides(items), nil
+	var rules []types.TransactionOverride
+	for _, raw := range rows {
+		var r types.TransactionOverride
+		if err = json.Unmarshal(raw, &r); err != nil {
+			return nil, err
+		}
+		rules = append(rules, r)
+	}
+	sort.SliceStable(rules, func(i, j int) bool {
+		if rules[i].UpdatedAt == rules[j].UpdatedAt {
+			return rules[i].ID < rules[j].ID
+		}
+		return rules[i].UpdatedAt > rules[j].UpdatedAt
+	})
+	return rules, nil
 }
 
 // DecodeOverrides is shared by the DynamoDB reader and contract tests.

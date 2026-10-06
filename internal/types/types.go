@@ -15,6 +15,7 @@ type WebhookPayload struct {
 }
 
 type EmailConfig struct {
+	Bank          string   `json:"bank"`
 	YNABAccountID string   `json:"ynabAccountId"`
 	EmailAddress  string   `json:"emailAddress"`
 	EmailSubject  string   `json:"emailSubject"`
@@ -33,6 +34,7 @@ type Config struct {
 }
 
 type Secrets struct {
+	WebhookToken    string `json:"WEBHOOK_TOKEN"`
 	YNABAccessToken string `json:"YNAB_ACCESS_TOKEN"`
 	OpenAIAPIKey    string `json:"OPENAI_API_KEY"`
 	PushoverToken   string `json:"PUSHOVER_TOKEN"`
@@ -64,6 +66,7 @@ type TransactionOverride struct {
 	Memo      string `json:"memo"`
 	Query     string `json:"query"`
 	UpdatedAt string `json:"updatedAt"`
+	Revision  string `json:"revision"`
 }
 
 type YNABTransaction struct {

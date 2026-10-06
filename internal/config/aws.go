@@ -16,7 +16,7 @@ var (
 
 func GetAWSConfig(ctx context.Context) (aws.Config, error) {
 	awsOnce.Do(func() {
-		awsCfg, awsErr = awsconfig.LoadDefaultConfig(ctx)
+		awsCfg, awsErr = awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRetryMaxAttempts(3))
 	})
 	return awsCfg, awsErr
 }

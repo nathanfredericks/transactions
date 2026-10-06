@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
-	"github.com/nathanfredericks/transactions/internal/config"
+
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/types"
 	"net/http"
@@ -13,6 +13,7 @@ type YNABAccount struct {
 	ID      string  `json:"id"`
 	Name    string  `json:"name"`
 	Note    *string `json:"note"`
+	Balance int64   `json:"balance"`
 	Closed  bool    `json:"closed"`
 	Deleted bool    `json:"deleted"`
 }
@@ -27,7 +28,7 @@ func GetAccounts(ctx context.Context) ([]YNABAccount, error) {
 			Accounts []YNABAccount `json:"accounts"`
 		} `json:"data"`
 	}
-	err = client.do(ctx, http.MethodGet, fmt.Sprintf("/budgets/%s/accounts", config.GetEnv().YNABBudgetID), nil, &response)
+	err = client.do(ctx, http.MethodGet, fmt.Sprintf("/budgets/%s/accounts", client.budgetID), nil, &response)
 	return response.Data.Accounts, err
 }
 func GetAccountTransactions(ctx context.Context, account string) ([]*types.YNABTransaction, error) {
@@ -40,10 +41,14 @@ func GetAccountTransactions(ctx context.Context, account string) ([]*types.YNABT
 			Transactions []*types.YNABTransaction `json:"transactions"`
 		} `json:"data"`
 	}
-	err = client.do(ctx, http.MethodGet, fmt.Sprintf("/budgets/%s/accounts/%s/transactions?since_date=2026-10-02", config.GetEnv().YNABBudgetID, account), nil, &response)
+	err = client.do(ctx, http.MethodGet, fmt.Sprintf("/budgets/%s/accounts/%s/transactions", client.budgetID, account), nil, &response)
 	return response.Data.Transactions, err
 }
 func CreateEQTransaction(ctx context.Context, account, date string, amount int64, payee, importID, status string, rule *types.TransactionOverride) (*types.YNABTransaction, error) {
+	client, err := newYNABClient(ctx)
+	if err != nil {
+		return nil, err
+	}
 	cleared := "uncleared"
 	if status == "posted" {
 		cleared = "cleared"
@@ -63,7 +68,7 @@ func CreateEQTransaction(ctx context.Context, account, date string, amount int64
 			payload.Memo = &memo
 		}
 	}
-	tx, err := createTransaction(ctx, config.GetEnv().YNABBudgetID, payload)
+	tx, err := createTransaction(ctx, client.budgetID, payload)
 	if err == nil {
 		return tx, nil
 	}
@@ -97,6 +102,124 @@ func UpdateEQTransaction(ctx context.Context, tx *types.YNABTransaction, date st
 			Transaction *types.YNABTransaction `json:"transaction"`
 		} `json:"data"`
 	}
-	err = client.do(ctx, http.MethodPut, fmt.Sprintf("/budgets/%s/transactions/%s", config.GetEnv().YNABBudgetID, tx.ID), request, &response)
+	err = client.do(ctx, http.MethodPut, fmt.Sprintf("/budgets/%s/transactions/%s", client.budgetID, tx.ID), request, &response)
 	return response.Data.Transaction, err
+}
+
+func ValidateAdjustmentPayee(ctx context.Context, id string) error {
+	client, err := newYNABClient(ctx)
+	if err != nil {
+		return err
+	}
+	var response struct {
+		Data struct {
+			Payees []ynabPayee `json:"payees"`
+		} `json:"data"`
+	}
+	if err = client.do(ctx, "GET", fmt.Sprintf("/budgets/%s/payees", client.budgetID), nil, &response); err != nil {
+		return err
+	}
+	for _, p := range response.Data.Payees {
+		if p.ID == id && !p.Deleted && p.TransferAccountID == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid adjustment payee")
+}
+func CreateBalanceAdjustment(ctx context.Context, account, date string, amount int64, payee string) (*types.YNABTransaction, error) {
+	client, err := newYNABClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	memo := "Entered automatically from NBDB"
+	return createTransaction(ctx, client.budgetID, ynabPayloadTransaction{AccountID: account, Date: date, Amount: amount, PayeeID: &payee, Memo: &memo, Cleared: "reconciled", Approved: true})
+}
+
+type LookupPayee struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+type LookupCategory struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Deleted bool   `json:"deleted"`
+}
+type LookupGroup struct {
+	ID         string           `json:"id"`
+	Name       string           `json:"name"`
+	Deleted    bool             `json:"deleted"`
+	Categories []LookupCategory `json:"categories"`
+}
+type LookupResult struct {
+	Payees     []LookupPayee `json:"payees"`
+	Categories []LookupGroup `json:"categories"`
+}
+
+func Lookups(ctx context.Context) (LookupResult, error) {
+	out := LookupResult{Payees: []LookupPayee{}, Categories: []LookupGroup{}}
+	c, e := newYNABClient(ctx)
+	if e != nil {
+		return out, e
+	}
+	base := fmt.Sprintf("/budgets/%s", c.budgetID)
+	var payees struct {
+		Data struct {
+			Payees []ynabPayee `json:"payees"`
+		} `json:"data"`
+	}
+	if e = c.do(ctx, "GET", base+"/payees", nil, &payees); e != nil {
+		return out, e
+	}
+	for _, p := range payees.Data.Payees {
+		if !p.Deleted && p.TransferAccountID == nil {
+			out.Payees = append(out.Payees, LookupPayee{p.ID, p.Name})
+		}
+	}
+	var categories struct {
+		Data struct {
+			Groups []LookupGroup `json:"category_groups"`
+		} `json:"data"`
+	}
+	if e = c.do(ctx, "GET", base+"/categories", nil, &categories); e != nil {
+		return out, e
+	}
+	for _, g := range categories.Data.Groups {
+		if g.Deleted || g.Name == "Internal Master Category" || g.Name == "Credit Card Payments" || g.Name == "Hidden Categories" {
+			continue
+		}
+		kept := []LookupCategory{}
+		for _, v := range g.Categories {
+			if !v.Deleted {
+				kept = append(kept, v)
+			}
+		}
+		g.Categories = kept
+		out.Categories = append(out.Categories, g)
+	}
+	return out, nil
+}
+func ValidateRuleReferences(ctx context.Context, payee, category string) error {
+	v, e := Lookups(ctx)
+	if e != nil {
+		return e
+	}
+	found := false
+	for _, p := range v.Payees {
+		found = found || p.ID == payee
+	}
+	if !found {
+		return fmt.Errorf("invalid payee")
+	}
+	if category != "" {
+		found = false
+		for _, g := range v.Categories {
+			for _, c := range g.Categories {
+				found = found || c.ID == category
+			}
+		}
+		if !found {
+			return fmt.Errorf("invalid category")
+		}
+	}
+	return nil
 }

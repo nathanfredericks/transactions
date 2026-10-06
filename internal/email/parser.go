@@ -2,160 +2,74 @@ package email
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
+	_ "github.com/emersion/go-message/charset"
+	message "github.com/emersion/go-message/mail"
+	"github.com/k3a/html2text"
 	"io"
-	"mime"
-	"mime/multipart"
-	"mime/quotedprintable"
-	"net/mail"
-	"regexp"
 	"strings"
 	"time"
-
-	"github.com/k3a/html2text"
 )
 
 type ParsedEmail struct {
-	MessageID string
-	From      string
-	Subject   string
-	Date      time.Time
-	HTML      string
+	MessageID, From, Subject, HTML, Text string
+	Date                                 time.Time
 }
 
 func Parse(raw []byte) (*ParsedEmail, error) {
-	msg, err := mail.ReadMessage(bytes.NewReader(raw))
-	if err != nil {
-		return nil, fmt.Errorf("reading email message: %w", err)
+	r, e := message.CreateReader(bytes.NewReader(raw))
+	if e != nil {
+		return nil, fmt.Errorf("reading email: %w", e)
 	}
-
-	from := msg.Header.Get("From")
-	if addr, err := mail.ParseAddress(from); err == nil {
-		from = addr.Address
+	defer r.Close()
+	from, e := r.Header.AddressList("From")
+	if e != nil || len(from) != 1 {
+		return nil, fmt.Errorf("invalid email sender")
 	}
-
-	subject := msg.Header.Get("Subject")
-	dec := new(mime.WordDecoder)
-	if decoded, err := dec.DecodeHeader(subject); err == nil {
-		subject = decoded
+	date, e := r.Header.Date()
+	if e != nil {
+		return nil, e
 	}
-
-	date, err := msg.Header.Date()
-	if err != nil {
-		return nil, fmt.Errorf("parsing email date: %w", err)
+	subject, e := r.Header.Subject()
+	if e != nil {
+		return nil, e
 	}
-
-	htmlBody, err := findHTMLBody(msg.Header, msg.Body)
-	if err != nil {
-		return nil, fmt.Errorf("finding HTML body: %w", err)
-	}
-
-	return &ParsedEmail{
-		MessageID: strings.Trim(msg.Header.Get("Message-ID"), "<> \t"),
-		From:      from,
-		Subject:   subject,
-		Date:      date,
-		HTML:      htmlBody,
-	}, nil
-}
-
-func findHTMLBody(header mail.Header, body io.Reader) (string, error) {
-	contentType := header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "text/plain"
-	}
-
-	mediaType, params, err := mime.ParseMediaType(contentType)
-	if err != nil {
-		return "", fmt.Errorf("parsing content type: %w", err)
-	}
-
-	if strings.HasPrefix(mediaType, "multipart/") {
-		return walkMultipart(params["boundary"], body)
-	}
-
-	decoded, err := decodeBody(header.Get("Content-Transfer-Encoding"), body)
-	if err != nil {
-		return "", err
-	}
-
-	if mediaType == "text/html" {
-		return decoded, nil
-	}
-
-	return "", nil
-}
-
-func walkMultipart(boundary string, body io.Reader) (string, error) {
-	reader := multipart.NewReader(body, boundary)
+	result := &ParsedEmail{MessageID: strings.Trim(r.Header.Get("Message-ID"), "<> \t"), From: from[0].Address, Subject: subject, Date: date}
 	for {
-		part, err := reader.NextPart()
-		if err == io.EOF {
+		part, e := r.NextPart()
+		if e == io.EOF {
 			break
 		}
-		if err != nil {
-			return "", fmt.Errorf("reading MIME part: %w", err)
+		if e != nil {
+			return nil, e
 		}
-
-		contentType := part.Header.Get("Content-Type")
-		if contentType == "" {
-			contentType = "text/plain"
-		}
-
-		mediaType, params, err := mime.ParseMediaType(contentType)
-		if err != nil {
-			continue
-		}
-
-		if strings.HasPrefix(mediaType, "multipart/") {
-			result, err := walkMultipart(params["boundary"], part)
-			if err != nil {
-				return "", err
+		if h, ok := part.Header.(*message.InlineHeader); ok {
+			kind, _, e := h.ContentType()
+			if e != nil {
+				return nil, e
 			}
-			if result != "" {
-				return result, nil
+			if kind != "text/plain" && kind != "text/html" {
+				continue
 			}
-			continue
-		}
-
-		if mediaType == "text/html" {
-			decoded, err := decodeBody(part.Header.Get("Content-Transfer-Encoding"), part)
-			if err != nil {
-				return "", err
+			body, e := io.ReadAll(io.LimitReader(part.Body, 1024*1024+1))
+			if e != nil || len(body) > 1024*1024 {
+				return nil, fmt.Errorf("email part too large or unreadable")
 			}
-			return decoded, nil
+			if kind == "text/html" {
+				result.HTML = string(body)
+			} else {
+				result.Text = string(body)
+			}
 		}
 	}
-	return "", nil
+	if result.Text == "" {
+		result.Text = HTMLToText(result.HTML)
+	}
+	if result.Text == "" {
+		return nil, fmt.Errorf("email has no readable body")
+	}
+	return result, nil
 }
-
-func decodeBody(encoding string, r io.Reader) (string, error) {
-	var reader io.Reader
-	switch strings.ToLower(strings.TrimSpace(encoding)) {
-	case "quoted-printable":
-		reader = quotedprintable.NewReader(r)
-	case "base64":
-		reader = base64.NewDecoder(base64.StdEncoding, r)
-	default:
-		reader = r
-	}
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return "", fmt.Errorf("decoding body: %w", err)
-	}
-	return string(data), nil
-}
-
-func HTMLToText(htmlContent string) string {
-	text := html2text.HTML2Text(htmlContent)
-
-	spaceRe := regexp.MustCompile(`[ \t]+`)
-	text = spaceRe.ReplaceAllString(text, " ")
-
-	newlineRe := regexp.MustCompile(`\n{3,}`)
-	text = newlineRe.ReplaceAllString(text, "\n\n")
-
-	text = strings.TrimSpace(text)
-	return text
+func HTMLToText(value string) string {
+	return strings.Join(strings.Fields(html2text.HTML2Text(value)), " ")
 }

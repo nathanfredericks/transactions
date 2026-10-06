@@ -1,0 +1,44 @@
+{
+  "name": "transactions-admin",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "fix": "prettier --write . && eslint . --fix",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-querybuilder/bootstrap": "^8.5.0",
+    "bootstrap": "^5.3.5",
+    "bootstrap-icons": "^1.11.3",
+    "formik": "^2.4.6",
+    "next": "^15.5.27",
+    "react": "^19",
+    "react-bootstrap": "^2.10.9",
+    "react-dom": "^19",
+    "react-querybuilder": "^8.5.0",
+    "yup": "^1.6.1",
+    "@aws-sdk/client-lambda": "3.1032.0",
+    "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
+    "@svgr/webpack": "^8.1.0",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "^15.5.27",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-react": "^7.37.5",
+    "prettier": "^3.5.3",
+    "tsx": "^4.23.15",
+    "typescript": "^5"
+  },
+  "overrides": {
+    "postcss": "8.5.29"
+  }
+}

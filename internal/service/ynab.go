@@ -9,7 +9,6 @@ import (
 	"math"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/nathanfredericks/transactions/internal/config"
@@ -24,6 +23,7 @@ const (
 
 type ynabClient struct {
 	accessToken string
+	budgetID    string
 	httpClient  *http.Client
 }
 
@@ -72,9 +72,14 @@ func newYNABClient(ctx context.Context) (*ynabClient, error) {
 		return nil, fmt.Errorf("getting secrets: %w", err)
 	}
 
+	settings, err := config.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return &ynabClient{
+		budgetID:    settings.BudgetID,
 		accessToken: secrets.YNABAccessToken,
-		httpClient:  http.DefaultClient,
+		httpClient:  &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}, nil
 }
 
@@ -105,7 +110,7 @@ func (c *ynabClient) do(ctx context.Context, method string, path string, request
 	}
 	defer res.Body.Close()
 
-	body, err := io.ReadAll(res.Body)
+	body, err := io.ReadAll(io.LimitReader(res.Body, 20*1024*1024))
 	if err != nil {
 		return fmt.Errorf("reading response: %w", err)
 	}
@@ -115,7 +120,7 @@ func (c *ynabClient) do(ctx context.Context, method string, path string, request
 		if err := json.Unmarshal(body, apiErr); err == nil && apiErr.APIError != nil {
 			return apiErr
 		}
-		return fmt.Errorf("ynab api: status=%d body=%s", res.StatusCode, strings.TrimSpace(string(body)))
+		return fmt.Errorf("ynab api: status=%d", res.StatusCode)
 	}
 
 	if responseBody == nil || len(body) == 0 {
@@ -162,7 +167,7 @@ func createTransaction(ctx context.Context, budgetID string, payload ynabPayload
 }
 
 func GetPayees(ctx context.Context) ([]string, error) {
-	env := config.GetEnv()
+
 	client, err := newYNABClient(ctx)
 	if err != nil {
 		return nil, err
@@ -174,7 +179,7 @@ func GetPayees(ctx context.Context) ([]string, error) {
 		} `json:"data"`
 	}{}
 
-	path := fmt.Sprintf("/budgets/%s/payees", env.YNABBudgetID)
+	path := fmt.Sprintf("/budgets/%s/payees", client.budgetID)
 	if err := client.do(ctx, http.MethodGet, path, nil, &response); err != nil {
 		return nil, fmt.Errorf("fetching payees: %w", err)
 	}
@@ -189,7 +194,7 @@ func GetPayees(ctx context.Context) ([]string, error) {
 }
 
 func CheckForRecentTransaction(ctx context.Context, accountID string, amount float64, daysBack int) (bool, error) {
-	env := config.GetEnv()
+
 	client, err := newYNABClient(ctx)
 	if err != nil {
 		return false, err
@@ -205,7 +210,7 @@ func CheckForRecentTransaction(ctx context.Context, accountID string, amount flo
 		} `json:"data"`
 	}{}
 
-	path := fmt.Sprintf("/budgets/%s/accounts/%s/transactions?%s", env.YNABBudgetID, accountID, values.Encode())
+	path := fmt.Sprintf("/budgets/%s/accounts/%s/transactions?%s", client.budgetID, accountID, values.Encode())
 	if err := client.do(ctx, http.MethodGet, path, nil, &response); err != nil {
 		return false, fmt.Errorf("fetching transactions: %w", err)
 	}
@@ -232,8 +237,11 @@ func formatDate(ctx context.Context, t time.Time) (string, error) {
 }
 
 func CreateTransaction(ctx context.Context, accountID string, amount float64, payee string, date time.Time, category string, memo string) (*types.YNABTransaction, error) {
-	env := config.GetEnv()
 
+	client, err := newYNABClient(ctx)
+	if err != nil {
+		return nil, err
+	}
 	dateStr, err := formatDate(ctx, date)
 	if err != nil {
 		return nil, err
@@ -253,7 +261,7 @@ func CreateTransaction(ctx context.Context, accountID string, amount float64, pa
 		payload.Memo = &memo
 	}
 
-	tx, err := createTransaction(ctx, env.YNABBudgetID, payload)
+	tx, err := createTransaction(ctx, client.budgetID, payload)
 	if err != nil {
 		return nil, fmt.Errorf("creating transaction: %w", err)
 	}
@@ -261,8 +269,11 @@ func CreateTransaction(ctx context.Context, accountID string, amount float64, pa
 }
 
 func CreateTransactionWithOverride(ctx context.Context, accountID string, amount float64, date time.Time, override *types.TransactionOverride) (*types.YNABTransaction, error) {
-	env := config.GetEnv()
 
+	client, err := newYNABClient(ctx)
+	if err != nil {
+		return nil, err
+	}
 	dateStr, err := formatDate(ctx, date)
 	if err != nil {
 		return nil, err
@@ -286,7 +297,7 @@ func CreateTransactionWithOverride(ctx context.Context, accountID string, amount
 		payload.Memo = &memoStr
 	}
 
-	tx, err := createTransaction(ctx, env.YNABBudgetID, payload)
+	tx, err := createTransaction(ctx, client.budgetID, payload)
 	if err != nil {
 		return nil, fmt.Errorf("creating transaction with override: %w", err)
 	}

@@ -3,10 +3,16 @@ package notify
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/gregdel/pushover"
 	"github.com/nathanfredericks/transactions/internal/config"
 )
+
+func init() {
+	http.DefaultClient = &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
 
 type NotificationOptions struct {
 	Priority int    `json:"priority,omitempty"`
