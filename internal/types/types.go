@@ -65,18 +65,20 @@ type TransactionOverride struct {
 }
 
 type YNABTransaction struct {
-	ID          string  `json:"id"`
-	Date        string  `json:"date"`
-	Amount      int64   `json:"amount"`
-	Cleared     string  `json:"cleared"`
-	Approved    bool    `json:"approved"`
-	AccountID   string  `json:"account_id"`
-	AccountName string  `json:"account_name"`
-	Deleted     bool    `json:"deleted"`
-	PayeeID     *string `json:"payee_id"`
-	PayeeName   *string `json:"payee_name"`
-	CategoryID  *string `json:"category_id"`
-	Memo        *string `json:"memo"`
+	ImportID          *string `json:"import_id"`
+	TransferAccountID *string `json:"transfer_account_id"`
+	ID                string  `json:"id"`
+	Date              string  `json:"date"`
+	Amount            int64   `json:"amount"`
+	Cleared           string  `json:"cleared"`
+	Approved          bool    `json:"approved"`
+	AccountID         string  `json:"account_id"`
+	AccountName       string  `json:"account_name"`
+	Deleted           bool    `json:"deleted"`
+	PayeeID           *string `json:"payee_id"`
+	PayeeName         *string `json:"payee_name"`
+	CategoryID        *string `json:"category_id"`
+	Memo              *string `json:"memo"`
 }
 
 type SESNotification struct {

@@ -50,6 +50,7 @@ type ynabPayee struct {
 }
 
 type ynabPayloadTransaction struct {
+	ImportID   *string `json:"import_id,omitempty"`
 	AccountID  string  `json:"account_id"`
 	Date       string  `json:"date"`
 	Amount     int64   `json:"amount"`

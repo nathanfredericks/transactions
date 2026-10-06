@@ -5,13 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/nathanfredericks/transactions/internal/config"
+	"github.com/nathanfredericks/transactions/internal/eq"
 )
 
 func Handle(ctx context.Context, raw json.RawMessage) (any, error) {
 	ctx = config.WithInvocationCache(ctx)
+	if os.Getenv("EQ_INTERNAL") == "true" {
+		return eq.Handle(ctx, raw)
+	}
 
 	var apiCheck struct {
 		HTTPMethod string `json:"httpMethod"`

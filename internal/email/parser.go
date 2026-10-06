@@ -17,10 +17,11 @@ import (
 )
 
 type ParsedEmail struct {
-	From    string
-	Subject string
-	Date    time.Time
-	HTML    string
+	MessageID string
+	From      string
+	Subject   string
+	Date      time.Time
+	HTML      string
 }
 
 func Parse(raw []byte) (*ParsedEmail, error) {
@@ -51,10 +52,11 @@ func Parse(raw []byte) (*ParsedEmail, error) {
 	}
 
 	return &ParsedEmail{
-		From:    from,
-		Subject: subject,
-		Date:    date,
-		HTML:    htmlBody,
+		MessageID: strings.Trim(msg.Header.Get("Message-ID"), "<> \t"),
+		From:      from,
+		Subject:   subject,
+		Date:      date,
+		HTML:      htmlBody,
 	}, nil
 }
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/nathanfredericks/transactions/internal/config"
 	"github.com/nathanfredericks/transactions/internal/email"
+	"github.com/nathanfredericks/transactions/internal/eq"
 	"github.com/nathanfredericks/transactions/internal/notify"
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/service"
@@ -27,10 +28,6 @@ func handleIncomingEmail(ctx context.Context, event events.SNSEvent) (any, error
 	slog.Debug("Received SNS event", "event", event)
 
 	env := config.GetEnv()
-	cfg, err := config.GetConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("loading config: %w", err)
-	}
 
 	var notification types.SESNotification
 	if err := json.Unmarshal([]byte(event.Records[0].SNS.Message), &notification); err != nil {
@@ -79,6 +76,20 @@ func handleIncomingEmail(ctx context.Context, event events.SNSEvent) (any, error
 	text = multiNewlineRe.ReplaceAllString(text, "\n\n")
 	text = strings.ReplaceAll(text, "\t", " ")
 	text = strings.TrimSpace(text)
+
+	// EQ alerts have no last four digits or merchant. Only this exact purchase
+	// allowlist may initiate a bank lookup; passcodes and sign-in alerts never do.
+	if strings.EqualFold(parsed.From, "alert@eqbank.ca") {
+		if parsed.Subject != "Purchase made on your EQ Bank Card" {
+			return map[string]any{"ignored": true}, nil
+		}
+		return eq.StartAlert(ctx, parsed, text)
+	}
+
+	cfg, err := config.GetConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("loading config: %w", err)
+	}
 
 	var matchedNotification *types.EmailConfig
 	for i, n := range cfg.Email {
