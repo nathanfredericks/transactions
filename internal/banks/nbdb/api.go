@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"github.com/nathanfredericks/transactions/internal/bank"
+	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -55,17 +56,33 @@ func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, erro
 		if status >= 500 {
 			return s, bank.Fail(bank.Temporary, "authorization")
 		}
+		if status == 401 || status == 419 || status == 440 {
+			return s, bank.Fail(bank.Authentication, "authorization")
+		}
+		if status < 300 || status >= 400 {
+			return s, bank.Fail(bank.Invalid, "authorization-response")
+		}
 		location := headers.Get("Location")
 		if location == "" {
-			return s, bank.Fail(bank.Authentication, "authorization")
+			return s, bank.Fail(bank.Invalid, "authorization-redirect")
 		}
 		next, e := target.Parse(location)
 		if e != nil {
 			return s, bank.Fail(bank.Invalid, "redirect")
 		}
 		if next.Scheme == redirect.Scheme && next.Host == redirect.Host && next.Path == redirect.Path {
-			if next.Query().Get("state") != state || next.Query().Get("error") != "" || next.Query().Get("code") == "" {
+			if next.Query().Get("state") != state {
+				return s, bank.Fail(bank.Invalid, "authorization-state")
+			}
+			switch next.Query().Get("error") {
+			case "login_required", "interaction_required":
 				return s, bank.Fail(bank.Authentication, "authorization")
+			case "":
+			default:
+				return s, bank.Fail(bank.Invalid, "authorization-error")
+			}
+			if next.Query().Get("code") == "" {
+				return s, bank.Fail(bank.Invalid, "authorization-code")
 			}
 			body := url.Values{"grant_type": {"authorization_code"}, "client_id": {c.ClientID}, "redirect_uri": {c.RedirectURI}, "code_verifier": {verifier}, "code": {next.Query().Get("code")}}
 			var data struct {
@@ -122,10 +139,13 @@ func (a *Adapter) Fetch(ctx context.Context, s bank.Session, r bank.FetchRequest
 		if v.Number == "" || v.Name == "" || v.Value.CAD == nil {
 			return out, s, bank.Fail(bank.Invalid, "portfolio-account")
 		}
-		n, e := bank.Milliunits(string(v.Value.CAD.Total))
-		if e != nil {
-			return out, s, e
+		// Portfolio valuations can have fractional cents. Match the existing JS
+		// importer's Math.round(value * 1000), including ties toward +infinity.
+		value, err := v.Value.CAD.Total.Float64()
+		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || math.Abs(value*1000) > (1<<53)-1 {
+			return out, s, bank.Fail(bank.Invalid, "portfolio-value")
 		}
+		n := int64(math.Floor(value*1000 + 0.5))
 		out.Accounts = append(out.Accounts, bank.Account{ID: bank.AccountID(v.Number), Number: v.Number, Name: v.Name, Balance: n})
 	}
 	if len(out.Accounts) == 0 {

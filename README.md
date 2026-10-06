@@ -60,6 +60,8 @@ The one configuration document is `/transactions-engine/settings`. Application c
 
 Initial CDK deployment disables all schedules and creates a settings placeholder with imports disabled. Complete configuration before invoking it. Admin hosting is enabled with the `repository` and `githubTokenSecretArn` CDK contexts, using a Secrets Manager JSON `token` field. Its generated basic-auth password is in `transactions-engine/admin-password`. Set the `alarmEmail` context to the operator address and confirm the SNS subscription. Infrastructure email is independent of Pushover.
 
+Use the [local verification loop](docs/local-verification.md) to fix authentication and exercise real API calls without redeploying.
+
 See [cutover and verification](docs/cutover.md) and [adding a bank](docs/adding-a-bank.md). Do not enable production imports until the real-account verification and reviewed baseline gates have passed.
 
 ## Build and inspect

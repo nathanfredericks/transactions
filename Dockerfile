@@ -15,6 +15,6 @@ RUN mkdir /opt/browsers && ln -s "$(cat /opt/cloak-path)" /opt/browsers/cloak &&
 FROM browsers AS release
 COPY --from=build /browser /usr/local/bin/bank-browser
 RUN rm -rf /tmp/browser-install /usr/local/lib/node_modules /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx /usr/bin/node /usr/bin/npm /usr/bin/npx
-ENV CHROMIUM_PATH=/opt/browsers/chromium CLOAK_PATH=/opt/browsers/cloak
+ENV CHROMIUM_PATH=/opt/browsers/chromium CLOAK_PATH=/opt/browsers/cloak TZ=America/Halifax
 USER pwuser
 ENTRYPOINT ["timeout","--signal=TERM","--kill-after=15s","300s","xvfb-run","-a","/usr/local/bin/bank-browser"]

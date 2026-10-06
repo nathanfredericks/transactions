@@ -19,6 +19,7 @@ import (
 type Job struct {
 	Version          int         `json:"version"`
 	ID               string      `json:"jobId"`
+	Execution        string      `json:"execution,omitempty"`
 	Bank             string      `json:"bank"`
 	Purpose          string      `json:"purpose"`
 	Source           string      `json:"source"`
@@ -58,8 +59,9 @@ type Outcome struct {
 	Lease       state.Lease `json:"lease"`
 }
 type SessionPointer struct {
-	Key     string    `json:"key"`
-	RenewAt time.Time `json:"renewAt"`
+	Invalidated bool      `json:"invalidated,omitempty"`
+	Key         string    `json:"key"`
+	RenewAt     time.Time `json:"renewAt"`
 }
 type BrowserResult struct {
 	Generation string        `json:"generation"`
@@ -107,14 +109,12 @@ func (e *Engine) outcome(status string, wait int) Outcome {
 	return Outcome{Outcome: status, Bank: e.Job.Bank, JobID: e.Job.ID, WaitSeconds: wait, Lease: e.Lease}
 }
 func (e *Engine) session(ctx context.Context) (bank.Session, error) {
-	var pointer struct {
-		Key string `json:"key"`
-	}
+	var pointer SessionPointer
 	found, err := e.get(ctx, "SESSION", &pointer)
 	if err != nil {
 		return bank.Session{}, err
 	}
-	if !found || pointer.Key == "" {
+	if !found || pointer.Key == "" || pointer.Invalidated {
 		return bank.Session{}, bank.Fail(bank.Authentication, "session-missing")
 	}
 	var s bank.Session

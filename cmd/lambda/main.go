@@ -59,6 +59,14 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	if os.Getenv("ROLE") == "processor" {
 		switch request.Action {
+		case "verify-session":
+			var options struct {
+				Renew bool `json:"renew"`
+			}
+			if len(request.Payload) > 0 && json.Unmarshal(request.Payload, &options) != nil {
+				return nil, fmt.Errorf("invalid verification options")
+			}
+			return app.VerifySession(ctx, request.Bank, options.Renew)
 		case "run":
 			return app.Run(ctx, request)
 		case "recover-browser":

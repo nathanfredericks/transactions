@@ -1,6 +1,7 @@
 package rogers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,8 +13,9 @@ import (
 
 type Adapter struct{ Dependencies bank.Dependencies }
 type auth struct {
-	AccountID  string `json:"accountId"`
-	CustomerID string `json:"customerId"`
+	DeviceStorage map[string]string `json:"deviceStorage,omitempty"`
+	AccountID     string            `json:"accountId"`
+	CustomerID    string            `json:"customerId"`
 }
 
 func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, error) {
@@ -23,9 +25,14 @@ func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, erro
 		return s, bank.Fail(bank.Authentication, "renew")
 	}
 	b, _ := json.Marshal(map[string]string{"accountId": c.AccountID, "customerId": c.CustomerID, "deviceId": s.Headers["deviceid"], "channel": s.Headers["channel"], "accesstoken": s.Headers["accesstoken"], "refreshtoken": s.Headers["refreshtoken"], "flow": "PATH_REGEN_TOKEN_API"})
-	var out any
+	var out struct {
+		Status json.RawMessage `json:"status"`
+	}
 	e := bank.NewHTTP(&s).JSON(ctx, "POST", "https://selfserve.apis.rogersbank.com/v1/authenticate/regeneratetoken/", bank.Headers(s, map[string]string{"content-type": "application/json"}), b, &out)
 	bank.TokenTiming(&s)
+	if e == nil && string(bytes.Trim(out.Status, `"`)) == "440" {
+		e = bank.Fail(bank.Authentication, "renew")
+	}
 	if e == nil && !s.ExpiresAt.IsZero() && !s.ExpiresAt.After(time.Now()) {
 		e = bank.Fail(bank.Authentication, "renew")
 	}

@@ -7,6 +7,7 @@ import (
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/service"
+	"github.com/nathanfredericks/transactions/internal/types"
 
 	"strings"
 	"time"
@@ -150,6 +151,23 @@ func (e *Engine) notificationImport(ctx context.Context) error {
 	if previous.Status == "complete" {
 		return nil
 	}
+	if previous.Status == "started" {
+		// Recover the recorded write before invoking AI again. A new interpretation
+		// must never change an operation whose financial outcome is uncertain.
+		if e.Job.DryRun {
+			return nil
+		}
+		transactions, err := service.GetAccountTransactions(ctx, previous.AccountID)
+		if err != nil {
+			return err
+		}
+		for _, tx := range transactions {
+			if !tx.Deleted && tx.ImportID != nil && *tx.ImportID == previous.ImportID {
+				return e.completeNotification(ctx, key, previous.ImportID, tx, "the recorded payee")
+			}
+		}
+		return bank.Fail(bank.Uncertain, "notification-import")
+	}
 	details, err := service.ExtractTransactionDetails(ctx, e.Job.Text)
 	if err != nil {
 		return err
@@ -190,12 +208,16 @@ func (e *Engine) notificationImport(ctx context.Context) error {
 	if err != nil {
 		return bank.Fail(bank.Uncertain, "notification-import")
 	}
+	return e.completeNotification(ctx, key, importID, tx, payee)
+}
+func (e *Engine) completeNotification(ctx context.Context, key, importID string, tx *types.YNABTransaction, payee string) error {
 	if tx.PayeeName != nil {
 		payee = *tx.PayeeName
 	}
-	notice := Notification{ID: "purchase#" + e.Job.ID, JobID: e.Job.ID, Title: "Transaction Approved", Message: fmt.Sprintf("A transaction of $%.2f at %s was approved on your %s.", details.Amount, payee, tx.AccountName), Status: "pending", At: time.Now()}
+	notice := Notification{ID: "purchase#" + e.Job.ID, JobID: e.Job.ID, Title: "Transaction Approved", Message: fmt.Sprintf("A transaction of $%.2f at %s was approved on your %s.", -float64(tx.Amount)/1000, payee, tx.AccountName), Status: "pending", At: time.Now()}
 	return e.Store.PutMany(ctx, e.Lease, map[string]any{key: Write{Status: "complete", TransactionID: tx.ID, ImportID: importID}, "NOTICE#" + notice.ID: notice})
 }
+
 func (e *Engine) ledger(ctx context.Context) ([]*Entry, error) {
 	rows, err := e.Store.List(ctx, "BANK#"+e.Job.Bank, "tx#")
 	if err != nil {

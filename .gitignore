@@ -12,3 +12,5 @@ go.work.sum
 /admin/*.tsbuildinfo
 /cdk/outputs.json
 /cdk/deploy.local.json
+
+.DS_Store

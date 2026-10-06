@@ -3,11 +3,13 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	d "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
+	sfnt "github.com/aws/aws-sdk-go-v2/service/sfn/types"
 	"github.com/google/uuid"
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
@@ -132,25 +134,35 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 		}
 		return e.startOperation(ctx, r, "notify")
 	case "job.retry":
-		if err := e.loadJob(ctx, r.JobID, r.Bank); err != nil {
-			return nil, err
-		}
-		if e.Job.Status != "failed" && e.Job.Status != "review-required" && e.Job.Status != "paused" {
-			return nil, fmt.Errorf("job is not retryable")
-		}
 		l, ok, err := e.Store.Acquire(ctx, r.Bank, "operator-retry")
 		if err != nil || !ok {
 			return nil, fmt.Errorf("bank busy")
 		}
 		defer e.Store.Release(ctx, l)
+		if err = e.loadJob(ctx, r.JobID, r.Bank); err != nil {
+			return nil, err
+		}
+		if e.Job.Status == "complete" {
+			return nil, fmt.Errorf("completed job cannot be retried")
+		}
+		execution := e.Job.Execution
+		if execution == "" {
+			execution = executionARN(e.Job.ID)
+		}
+		prior, err := e.SFN.DescribeExecution(ctx, &sfn.DescribeExecutionInput{ExecutionArn: &execution})
+		var absent *sfnt.ExecutionDoesNotExist
+		if err != nil && !errors.As(err, &absent) {
+			return nil, err
+		}
+		if prior != nil && (prior.Status == sfnt.ExecutionStatusRunning || prior.Status == sfnt.ExecutionStatusPendingRedrive) {
+			return nil, fmt.Errorf("job workflow is still active")
+		}
 		e.Lease = l
 		e.Job.Status = "accepted"
 		e.Job.Attempt = 0
 		e.Job.BrowserAttempted = false
 		e.Job.Error = ""
-		if err = e.saveJob(ctx); err != nil {
-			return nil, err
-		}
+		e.Job.Operation = ""
 		return e.startOperation(ctx, r, "run")
 	case "banks.list":
 		result := []map[string]any{}
@@ -178,7 +190,14 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 		}
 		health.Blocked = false
 		health.RetryAt = time.Time{}
-		return map[string]bool{"resumed": true}, e.Store.PutMany(ctx, l, map[string]any{"HEALTH": health, "SESSION": SessionPointer{}})
+		var session SessionPointer
+		if _, err = e.Store.Get(ctx, "BANK#"+r.Bank, "SESSION", &session); err != nil {
+			return nil, err
+		}
+		// Force authentication while retaining remembered device metadata for the browser.
+		session.Invalidated = true
+		session.RenewAt = time.Time{}
+		return map[string]bool{"resumed": true}, e.Store.PutMany(ctx, l, map[string]any{"HEALTH": health, "SESSION": session})
 	case "baseline.preview", "baseline.approve":
 		return e.baseline(ctx, r)
 	case "review.match":
@@ -381,7 +400,19 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 }
 
 func (e *Engine) startOperation(ctx context.Context, r Request, action string) (any, error) {
+	name := action + "-" + uuid.NewString()
+	if action == "run" {
+		// Claim the new execution before starting it; late older workers are fenced out.
+		e.Job.Execution = executionARN(name)
+		if err := e.saveJob(ctx); err != nil {
+			return nil, err
+		}
+	}
 	input, _ := json.Marshal(Request{Action: action, Bank: r.Bank, JobID: r.JobID})
-	_, err := e.SFN.StartExecution(ctx, &sfn.StartExecutionInput{StateMachineArn: aws.String(os.Getenv("WORKFLOW_ARN")), Name: aws.String(action + "-" + uuid.NewString()), Input: aws.String(string(input))})
+	_, err := e.SFN.StartExecution(ctx, &sfn.StartExecutionInput{StateMachineArn: aws.String(os.Getenv("WORKFLOW_ARN")), Name: &name, Input: aws.String(string(input))})
 	return map[string]bool{"accepted": err == nil}, err
+}
+
+func executionARN(name string) string {
+	return strings.Replace(os.Getenv("WORKFLOW_ARN"), ":stateMachine:", ":execution:", 1) + ":" + name
 }

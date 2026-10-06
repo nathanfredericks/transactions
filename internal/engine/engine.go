@@ -20,6 +20,9 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 	if err = e.loadJob(ctx, request.JobID, request.Bank); err != nil {
 		return out, err
 	}
+	if request.Execution == "" || (e.Job.Execution != "" && e.Job.Execution != request.Execution) {
+		return out, bank.Fail(bank.Invalid, "stale-execution")
+	}
 	if e.Job.Status == "complete" || e.Job.Status == "review-required" || e.Job.Status == "failed" {
 		return e.outcome(e.Job.Status, 0), nil
 	}
@@ -45,7 +48,21 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 			err = errors.Join(err, release)
 		}
 	}()
+	// Reload after acquiring the lease: another job may have completed while we waited.
+	if err = e.loadJob(ctx, request.JobID, request.Bank); err != nil {
+		return out, err
+	}
+	if e.Job.Execution != "" && e.Job.Execution != request.Execution {
+		return out, bank.Fail(bank.Invalid, "stale-execution")
+	}
+	if e.Job.Status == "complete" || e.Job.Status == "review-required" || e.Job.Status == "failed" {
+		return e.outcome(e.Job.Status, 0), nil
+	}
+	e.Job.Execution = request.Execution
 	e.Job.Lease = e.Lease
+	if err = e.saveJob(ctx); err != nil {
+		return out, err
+	}
 	defer func() {
 		if err != nil {
 			out, err = e.failure(ctx, err)
@@ -329,6 +346,9 @@ func (e *Engine) RecoverBrowser(ctx context.Context, r Request) (Outcome, error)
 	if err := e.loadJob(ctx, r.JobID, r.Bank); err != nil {
 		return Outcome{}, err
 	}
+	if r.Execution == "" || e.Job.Execution != r.Execution || e.Job.Status != "browser" {
+		return Outcome{}, bank.Fail(bank.Invalid, "stale-execution")
+	}
 	e.Lease = e.Job.Lease
 	var result BrowserResult
 	found, err := e.get(ctx, "BROWSER#"+e.Lease.Generation, &result)
@@ -354,8 +374,11 @@ func decode[T any](raw json.RawMessage) (T, error) {
 // A token exchange is never blindly replayed after an uncertain transport result.
 // An explicit reset is required before discarding uncertain renewal state.
 func (e *Engine) renew(ctx context.Context, adapter bank.Adapter, session bank.Session) (bank.Session, error) {
+	oldAccess, oldRefresh, oldExpiry := session.Headers["authorization"], session.Headers["refreshtoken"], session.ExpiresAt
 	renewed, err := adapter.Renew(ctx, session)
-	slog.Info("session-renewal", "bank", e.Job.Bank, "success", err == nil)
+	slog.Info("session-renewal", "bank", e.Job.Bank, "success", err == nil,
+		"accessRotated", oldAccess != renewed.Headers["authorization"], "refreshRotated", oldRefresh != renewed.Headers["refreshtoken"],
+		"expiryExtended", renewed.ExpiresAt.After(oldExpiry))
 	if err != nil && bank.Classify(err).Kind == bank.Temporary {
 		renewed.RenewalUncertain = true
 		return renewed, bank.Fail(bank.Invalid, "renewal-outcome-unknown")
