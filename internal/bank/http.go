@@ -44,7 +44,7 @@ func (h *HTTP) Request(ctx context.Context, method, endpoint string, headers map
 	}
 	resp, err := h.Client.Do(req)
 	if err != nil {
-		return nil, nil, 0, Fail(Temporary, "http")
+		return nil, nil, 0, &Failure{Kind: Temporary, Operation: "http", ExchangeUncertain: method != http.MethodGet && method != http.MethodHead}
 	}
 	defer resp.Body.Close()
 	// Retain every Set-Cookie with its origin, including deletions, for the next invocation.
@@ -90,7 +90,7 @@ func (h *HTTP) Request(ctx context.Context, method, endpoint string, headers map
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 16*1024*1024+1))
 	if err != nil {
-		return nil, resp.Header, resp.StatusCode, Fail(Temporary, "read-response")
+		return nil, resp.Header, resp.StatusCode, &Failure{Kind: Temporary, Operation: "read-response", ExchangeUncertain: method != http.MethodGet && method != http.MethodHead}
 	}
 	if len(data) > 16*1024*1024 {
 		return nil, resp.Header, resp.StatusCode, Fail(Invalid, "response-too-large")
@@ -108,13 +108,7 @@ func (h *HTTP) JSON(ctx context.Context, method, endpoint string, headers map[st
 		}
 	}
 	if status == 429 {
-		at := time.Now().Add(time.Minute)
-		if seconds, e := strconv.Atoi(head.Get("Retry-After")); e == nil {
-			at = time.Now().Add(time.Duration(seconds) * time.Second)
-		} else if d, e := http.ParseTime(head.Get("Retry-After")); e == nil {
-			at = d
-		}
-		return &Failure{Kind: Throttled, Operation: "http", RetryAt: at}
+		return Throttle("http", head.Get("Retry-After"))
 	}
 	if status == 401 || status == 419 || status == 440 {
 		return Fail(Authentication, "http")
@@ -132,7 +126,7 @@ func (h *HTTP) JSON(ctx context.Context, method, endpoint string, headers map[st
 		return Fail(Authentication, "token")
 	}
 	if status >= 500 {
-		return Fail(Temporary, "http")
+		return &Failure{Kind: Temporary, Operation: "http", ExchangeUncertain: method != http.MethodGet && method != http.MethodHead}
 	}
 	if status < 200 || status >= 300 {
 		return Fail(Invalid, "http-status-"+strconv.Itoa(status))
@@ -141,6 +135,16 @@ func (h *HTTP) JSON(ctx context.Context, method, endpoint string, headers map[st
 		return Fail(Invalid, "json")
 	}
 	return nil
+}
+
+func Throttle(operation, retryAfter string) error {
+	at := time.Now().Add(time.Minute)
+	if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds >= 0 {
+		at = time.Now().Add(time.Duration(seconds) * time.Second)
+	} else if date, err := http.ParseTime(retryAfter); err == nil {
+		at = date
+	}
+	return &Failure{Kind: Throttled, Operation: operation, RetryAt: at}
 }
 func Headers(s Session, extra map[string]string) map[string]string {
 	h := map[string]string{}

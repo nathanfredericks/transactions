@@ -51,7 +51,7 @@ func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, erro
 			return s, e
 		}
 		if status == 429 {
-			return s, bank.Fail(bank.Throttled, "authorization")
+			return s, bank.Throttle("authorization", headers.Get("Retry-After"))
 		}
 		if status >= 500 {
 			return s, bank.Fail(bank.Temporary, "authorization")

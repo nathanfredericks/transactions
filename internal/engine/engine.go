@@ -379,14 +379,24 @@ func decode[T any](raw json.RawMessage) (T, error) {
 // An explicit reset is required before discarding uncertain renewal state.
 func (e *Engine) renew(ctx context.Context, adapter bank.Adapter, session bank.Session) (bank.Session, error) {
 	oldAccess, oldRefresh, oldExpiry := session.Headers["authorization"], session.Headers["refreshtoken"], session.ExpiresAt
+	// Fence the exchange before sending it. A process crash after the bank
+	// rotates tokens must not leave a seemingly reusable old session behind.
+	session.RenewalUncertain = true
+	if err := e.saveSession(ctx, session); err != nil {
+		return session, err
+	}
 	renewed, err := adapter.Renew(ctx, session)
 	slog.Info("session-renewal", "bank", e.Job.Bank, "success", err == nil,
 		"accessRotated", oldAccess != renewed.Headers["authorization"], "refreshRotated", oldRefresh != renewed.Headers["refreshtoken"],
 		"expiryExtended", renewed.ExpiresAt.After(oldExpiry))
-	if err != nil && bank.Classify(err).Kind == bank.Temporary {
-		renewed.RenewalUncertain = true
-		return renewed, bank.Fail(bank.Invalid, "renewal-outcome-unknown")
+	if err != nil {
+		failure := bank.Classify(err)
+		if failure.ExchangeUncertain || failure.Kind == bank.Invalid {
+			renewed.RenewalUncertain = true
+			return renewed, bank.Fail(bank.Invalid, "renewal-outcome-unknown")
+		}
 	}
+	renewed.RenewalUncertain = false
 	return renewed, err
 }
 

@@ -189,10 +189,18 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		return bank.Session{}, bank.Fail(bank.Invalid, "token-capture")
 	}
 	var response struct {
-		Scope string `json:"scope"`
+		Scope  string `json:"scope"`
+		Access string `json:"access_token"`
 	}
 	if e = o.Body(token, &response); e != nil {
 		return bank.Session{}, e
 	}
-	return bank.BrowserSession(b, "nbdb", bank.SafeHeaders(discovery.Request.Headers), auth{TokenURL: token.Request.URL, ClientID: form.Get("client_id"), RedirectURI: form.Get("redirect_uri"), Scope: response.Scope, Headers: bank.SafeHeaders(token.Request.Headers)})
+	if response.Access == "" {
+		return bank.Session{}, bank.Fail(bank.Invalid, "token-capture")
+	}
+	// The app can issue wealth requests before its token store has caught up.
+	// Use their API metadata, but take authentication from the completed exchange.
+	headers := bank.SafeHeaders(discovery.Request.Headers)
+	headers["authorization"] = "Bearer " + response.Access
+	return bank.BrowserSession(b, "nbdb", headers, auth{TokenURL: token.Request.URL, ClientID: form.Get("client_id"), RedirectURI: form.Get("redirect_uri"), Scope: response.Scope, Headers: bank.SafeHeaders(token.Request.Headers)})
 }

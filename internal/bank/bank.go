@@ -28,10 +28,11 @@ const (
 )
 
 type Failure struct {
-	Kind      Kind
-	Operation string
-	RetryAt   time.Time
-	Detail    string
+	Kind              Kind
+	Operation         string
+	RetryAt           time.Time
+	Detail            string
+	ExchangeUncertain bool // A mutating HTTP request may have completed without confirmation.
 }
 
 func (e *Failure) Error() string             { return string(e.Kind) + ": " + e.Operation }
