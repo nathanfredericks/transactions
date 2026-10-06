@@ -1,5 +1,8 @@
 import { backend } from "../../../utils/backend";
 import { redirect } from "next/navigation";
+import Link from "next/link";
+import { Alert, Card, CardBody, FormCheck, Table } from "react-bootstrap";
+import SubmitButton from "../../../components/SubmitButton";
 export const dynamic = "force-dynamic";
 type Candidate = {
   id: string;
@@ -38,7 +41,12 @@ export default async function Baseline({
 }) {
   const { job: jobId } = await params;
   const { bank, error } = await searchParams;
-  if (!bank) return <p role="alert">A bank is required.</p>;
+  if (!bank)
+    return (
+      <Alert variant="warning">
+        A bank is required. <Link href="/jobs">Return to bank activity</Link>.
+      </Alert>
+    );
   const preview = await backend<Preview>("baseline.preview", undefined, {
     bank,
     jobId,
@@ -83,109 +91,142 @@ export default async function Baseline({
   }
   return (
     <>
-      <h1>Review starting balances and transactions</h1>
+      <Link href={`/jobs/${jobId}?bank=${bank}`}>← Job details</Link>
+      <header>
+        <h1>Review starting balances and transactions</h1>
+        <p className="text-body-secondary mb-0">
+          Snapshot:{" "}
+          {new Date(preview.baseline.at).toLocaleString("en-CA", {
+            timeZone: "America/Halifax",
+          })}{" "}
+          Atlantic.
+        </p>
+      </header>
       {error && (
-        <p role="alert">
+        <Alert variant="danger">
           Approval failed. Check every selection against current YNAB data and
           try again.
-        </p>
+        </Alert>
       )}
-      <p>
-        Snapshot:{" "}
-        {new Date(preview.baseline.at).toLocaleString("en-CA", {
-          timeZone: "America/Halifax",
-        })}{" "}
-        Atlantic.
-      </p>
-      <p>
-        For each bank transaction, choose its existing YNAB entry or confirm
-        that it is missing. A pending entry can be linked for settlement: its
-        amount, date and cleared status will be updated after cutover while
-        keeping your payee, category and memo. Missing transactions will be imported after cutover.
-        Approval itself makes no YNAB changes.
-      </p>
-      <p>
-        Pause the old importers and keep new imports disabled during this final
-        review.
-      </p>
-      <form action={approve}>
+      <Alert variant="info" className="mb-0">
+        <p>
+          For each bank transaction, choose its existing YNAB entry or confirm
+          that it is missing. A pending entry can be linked for settlement: its
+          amount, date and cleared status will be updated when imports resume,
+          keeping your payee, category and memo.
+        </p>
+        <p className="mb-0">
+          Approval itself makes no YNAB changes. Missing transactions will be
+          imported when imports resume.
+        </p>
+      </Alert>
+      <Alert variant="warning" className="mb-0">
+        Keep all imports disabled during this review. The previous importers
+        must remain paused.
+      </Alert>
+      <form action={approve} className="d-flex flex-column gap-3">
         {preview.review.map((row, index) => (
-          <fieldset className="border rounded p-3 mb-3" key={row.key}>
-            <legend className="fs-5">
+          <fieldset
+            className="bg-white border rounded p-3 p-md-4"
+            key={row.key}
+          >
+            <legend className="fs-5 fw-semibold float-none w-auto">
               {row.record.description} · {money(row.record.amount)}
             </legend>
-            <p>
+            <p className="text-body-secondary">
               {row.record.date} · {row.record.status} ·{" "}
               {preview.ynabAccounts[row.record.accountId]?.name}
             </p>
-            <p id={`help-${index}`}>
+            <p id={`help-${index}`} className="small">
               Known imported entries and nearby amount matches are shown.
               Confirm that the payee describes the same transaction, and review
               any differences before choosing.
             </p>
             {row.candidates.map((tx) => (
-              <label className="d-block py-2" key={tx.id}>
-                <input
-                  type="radio"
-                  name={`record-${index}`}
-                  value={tx.id}
-                  defaultChecked={preview.baseline.links[row.key] === tx.id}
-                  required
-                  aria-describedby={`help-${index}`}
-                />{" "}
-                Already in YNAB: {tx.date} · {tx.payee_name || "Unnamed payee"}{" "}
-                · {money(tx.amount)} · {tx.cleared}
-              </label>
-            ))}
-            {(row.settlementCandidates || []).map((tx) => (
-              <label className="d-block py-2" key={`settle-${tx.id}`}>
-                <input
-                  type="radio"
-                  name={`record-${index}`}
-                  value={`settle:${tx.id}`}
-                  required
-                  aria-describedby={`help-${index}`}
-                />{" "}
-                Settle existing pending entry: {tx.date} · {tx.payee_name || "Unnamed payee"}
-                {" "}· {money(tx.amount)} → {money(row.record.amount)} · mark cleared after cutover
-              </label>
-            ))}
-            <label className="d-block py-2">
-              <input
+              <FormCheck
+                className="review-option"
+                key={tx.id}
+                id={`match-${index}-${tx.id}`}
                 type="radio"
                 name={`record-${index}`}
-                value="new"
+                value={tx.id}
+                defaultChecked={preview.baseline.links[row.key] === tx.id}
                 required
                 aria-describedby={`help-${index}`}
-              />{" "}
-              Missing from YNAB — import after cutover
-            </label>
+                label={`Already in YNAB: ${tx.date} · ${tx.payee_name || "Unnamed payee"} · ${money(tx.amount)} · ${tx.cleared}`}
+              />
+            ))}
+            {(row.settlementCandidates || []).map((tx) => (
+              <FormCheck
+                className="review-option"
+                key={tx.id}
+                id={`settle-${index}-${tx.id}`}
+                type="radio"
+                name={`record-${index}`}
+                value={`settle:${tx.id}`}
+                required
+                aria-describedby={`help-${index}`}
+                label={`Settle existing pending entry: ${tx.date} · ${tx.payee_name || "Unnamed payee"} · ${money(tx.amount)} → ${money(row.record.amount)} · mark cleared when imports resume`}
+              />
+            ))}
+            <FormCheck
+              className="review-option"
+              id={`new-${index}`}
+              type="radio"
+              name={`record-${index}`}
+              value="new"
+              required
+              aria-describedby={`help-${index}`}
+              label="Missing from YNAB: import when imports resume"
+            />
           </fieldset>
         ))}
         {preview.review.length === 0 && (
-          <ul>
-            {preview.snapshot.accounts.map((account) => {
-              const target = preview.ynabAccounts[account.id];
-              return (
-                <li key={account.id}>
-                  {account.name}:{" "}
-                  {target
-                    ? `bank ${money(account.balance)}, YNAB ${money(target.balance)}, proposed adjustment ${money(account.balance - target.balance)}`
-                    : "excluded from importing"}
-                </li>
-              );
-            })}
-          </ul>
+          <Card>
+            <Table responsive className="mb-0">
+              <caption>Starting balances in Canadian dollars.</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Account</th>
+                  <th scope="col">Bank</th>
+                  <th scope="col">YNAB</th>
+                  <th scope="col">Proposed adjustment</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.snapshot.accounts.map((account) => {
+                  const target = preview.ynabAccounts[account.id];
+                  return (
+                    <tr key={account.id}>
+                      <th scope="row">{account.name}</th>
+                      <td>{money(account.balance)}</td>
+                      <td>{target ? money(target.balance) : "Excluded"}</td>
+                      <td>
+                        {target
+                          ? money(account.balance - target.balance)
+                          : "None"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+          </Card>
         )}
-        <label className="d-block py-2">
-          <input type="checkbox" name="reviewed" value="yes" required /> I
-          reviewed these choices against YNAB, and the old importers are paused.
-        </label>
-        <p>
-          <button type="submit" className="btn btn-primary">
-            Approve starting point
-          </button>
-        </p>
+        <Card>
+          <CardBody>
+            <FormCheck
+              className="mb-3 review-option"
+              id="reviewed"
+              type="checkbox"
+              name="reviewed"
+              value="yes"
+              required
+              label="I reviewed these choices against YNAB, and the previous importers are paused."
+            />
+            <SubmitButton>Approve starting point</SubmitButton>
+          </CardBody>
+        </Card>
       </form>
     </>
   );

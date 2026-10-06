@@ -15,11 +15,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" data-scroll-behavior="smooth">
       <body>
+        <a className="visually-hidden-focusable skip-link" href="#main-content">
+          Skip to content
+        </a>
         <Navigation />
-        <main>
-          <Container className="d-flex flex-column gap-2 mt-2 mb-4">
+        <main id="main-content">
+          <Container className="d-flex flex-column gap-4 py-4 py-lg-5">
             {children}
           </Container>
         </main>

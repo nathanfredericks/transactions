@@ -1,8 +1,120 @@
-.ruleGroup:first-of-type {
-  border: unset;
-  background-color: unset;
+body {
+  background: var(--bs-tertiary-bg);
 }
 
+h1 {
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-weight: 650;
+}
+h2 {
+  font-size: 1.35rem;
+}
+h3 {
+  font-size: 1.125rem;
+}
+.card,
+.list-group {
+  --bs-card-border-color: var(--bs-border-color);
+}
+.card-header {
+  background: var(--bs-body-bg);
+  padding: 1rem 1.25rem;
+}
+.card-body {
+  padding: 1.25rem;
+}
+.page-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.page-heading h1,
+.page-heading p {
+  margin-bottom: 0;
+}
+.page-heading p {
+  margin-top: 0.5rem;
+  color: var(--bs-secondary-color);
+}
+.skip-link {
+  position: absolute;
+  z-index: 1050;
+  padding: 0.75rem 1rem;
+  background: white;
+}
+.status-badge {
+  white-space: normal;
+  text-align: start;
+  line-height: 1.4;
+}
+.table > :not(caption) > * > * {
+  padding: 0.9rem 1.25rem;
+}
+.table th {
+  font-weight: 600;
+}
+.table td {
+  vertical-align: middle;
+}
+.table caption {
+  padding-inline: 1.25rem;
+  font-size: 0.875rem;
+}
+.table-responsive {
+  border-radius: var(--bs-card-border-radius);
+}
+.job-id {
+  overflow-wrap: anywhere;
+}
+.review-option {
+  padding-block: 0.5rem;
+}
+.review-option .form-check-label {
+  cursor: pointer;
+}
 .ruleGroup {
-  background-color: rgba(var(--bs-secondary-rgb), 0.05);
+  background: var(--bs-tertiary-bg);
+  min-width: 0;
+}
+.queryBuilder > .ruleGroup {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+.rule,
+.ruleGroup-header {
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.rule > .form-select,
+.rule > .form-control {
+  flex: 1 1 10rem;
+  width: auto;
+  min-width: 0;
+}
+.ruleGroup .ruleGroup {
+  margin-inline-start: 0.5rem;
+}
+code {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 575.98px) {
+  .rule > .form-select,
+  .rule > .form-control {
+    flex-basis: 100%;
+  }
+  .ruleGroup .ruleGroup {
+    margin-inline-start: 0;
+  }
+  .card-body {
+    padding: 1rem;
+  }
+  .btn,
+  .nav-link,
+  .form-select,
+  .form-control {
+    min-height: 2.75rem;
+  }
 }

@@ -7,7 +7,23 @@ import { Alert, Button, Card, Form } from "react-bootstrap";
 import Link from "next/link";
 import NewTransactionForm from "@/app/overrides/components/NewTransactionForm";
 import type { CategoryGroup, InitialValues, Payee } from "@/app/types";
-import { TransactionQueryBuilder } from "@/app/overrides/components/TransactionQueryBuilder";
+import dynamic from "next/dynamic";
+
+// The query builder assigns random element IDs, so render it only on the client.
+const TransactionQueryBuilder = dynamic(
+  () =>
+    import("./TransactionQueryBuilder").then(
+      (module) => module.TransactionQueryBuilder,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <p className="text-body-secondary" role="status">
+        Loading matching rules…
+      </p>
+    ),
+  },
+);
 
 type Props = {
   initialValues: InitialValues;
@@ -21,8 +37,8 @@ export function OverrideForm(props: Props) {
 
   const [saveError, setSaveError] = useState("");
   const schema = yup.object().shape({
-    name: yup.string().label("Override").required(),
-    payee: yup.string().label("Payee").required(),
+    name: yup.string().label("Rule name").required("Enter a rule name."),
+    payee: yup.string().label("Payee").required("Choose a payee."),
     category: yup.string().nullable().label("Category"),
     memo: yup.string().nullable().label("Memo"),
     query: yup
@@ -66,7 +82,11 @@ export function OverrideForm(props: Props) {
           handleChange,
           errors,
         }: FormikProps<InitialValues>) => (
-          <Form noValidate onSubmit={handleSubmit}>
+          <Form
+            className="d-flex flex-column gap-4"
+            noValidate
+            onSubmit={handleSubmit}
+          >
             {saveError && (
               <Alert variant="danger" role="alert">
                 {saveError}
@@ -78,18 +98,22 @@ export function OverrideForm(props: Props) {
               </Alert>
             )}
             <Form.Group className="mb-3" controlId="name">
-              <Form.Label>Override name</Form.Label>
+              <Form.Label>Rule name</Form.Label>
               <Form.Control
+                aria-describedby={errors.name ? "name-error" : undefined}
                 isInvalid={!!errors.name}
                 name="name"
                 onChange={handleChange}
                 type="text"
                 value={values.name}
               />
+              <Form.Control.Feedback id="name-error" type="invalid">
+                {errors.name}
+              </Form.Control.Feedback>
             </Form.Group>
             <Card>
-              <Card.Header>Query Builder</Card.Header>
-              <Card.Body className="p-0">
+              <Card.Header as="h2">When a transaction matches</Card.Header>
+              <Card.Body>
                 <TransactionQueryBuilder
                   query={values.query}
                   setQuery={(query) => setFieldValue("query", query)}
@@ -97,7 +121,7 @@ export function OverrideForm(props: Props) {
               </Card.Body>
             </Card>
             <Card>
-              <Card.Header>New Transaction</Card.Header>
+              <Card.Header as="h2">Apply these details</Card.Header>
               <Card.Body>
                 <NewTransactionForm
                   categoryGroups={categoryGroups}
@@ -106,14 +130,12 @@ export function OverrideForm(props: Props) {
               </Card.Body>
             </Card>
 
-            <div className="d-inline-flex column-gap-2 justify-content-end">
-              <Link href="/">
-                <Button type="reset" variant="secondary">
-                  Cancel
-                </Button>
+            <div className="d-flex gap-2 justify-content-end">
+              <Link href="/" className="btn btn-outline-secondary">
+                Cancel
               </Link>
               <Button disabled={isSubmitting} type="submit" variant="primary">
-                Save
+                {isSubmitting ? "Saving…" : "Save rule"}
               </Button>
             </div>
           </Form>

@@ -8,7 +8,7 @@ import {
 } from "react-querybuilder";
 import "react-querybuilder/dist/query-builder-layout.css";
 import { validNumber } from "@/app/utils/rules";
-import { BootstrapValueEditor } from "@/app/utils/BootstrapValueEditor";
+import { QueryBuilderBootstrap } from "@react-querybuilder/bootstrap";
 
 type Props = {
   query: RuleGroupType;
@@ -73,35 +73,37 @@ export function TransactionQueryBuilder(props: Props) {
   ];
 
   return (
-    <QueryBuilder
-      controlClassnames={{
-        ruleGroup: "p-3 card",
-        combinators: "form-select w-auto",
-        addRule: "btn btn-primary",
-        addGroup: "btn btn-primary",
-        fields: "form-select w-25",
-        operators: "form-select w-25",
-        // value: "form-control w-50",
-        removeRule: "btn btn-danger",
-        removeGroup: "btn btn-danger",
-      }}
-      controlElements={{
-        addGroupAction: (props) =>
-          props.level === 0 ? (
-            <ActionElement {...props} label="Add group" />
-          ) : null,
-        addRuleAction: (props) => <ActionElement {...props} label="Add rule" />,
-        removeRuleAction: (props) => (
-          <ActionElement {...props} label="Remove" />
-        ),
-        removeGroupAction: (props) => (
-          <ActionElement {...props} label="Remove" />
-        ),
-        valueEditor: BootstrapValueEditor,
-      }}
-      fields={fields}
-      onQueryChange={setQuery}
-      query={query}
-    />
+    <QueryBuilderBootstrap>
+      <QueryBuilder
+        controlClassnames={{
+          ruleGroup: "p-3 card",
+          combinators: "form-select w-auto",
+          addRule: "btn btn-primary",
+          addGroup: "btn btn-primary",
+          fields: "form-select",
+          operators: "form-select",
+          removeRule: "btn btn-danger",
+          removeGroup: "btn btn-danger",
+        }}
+        controlElements={{
+          addGroupAction: (props) =>
+            props.level === 0 ? (
+              <ActionElement {...props} label="Add group" />
+            ) : null,
+          addRuleAction: (props) => (
+            <ActionElement {...props} label="Add rule" />
+          ),
+          removeRuleAction: (props) => (
+            <ActionElement {...props} label="Remove" />
+          ),
+          removeGroupAction: (props) => (
+            <ActionElement {...props} label="Remove" />
+          ),
+        }}
+        fields={fields}
+        onQueryChange={setQuery}
+        query={query}
+      />
+    </QueryBuilderBootstrap>
   );
 }

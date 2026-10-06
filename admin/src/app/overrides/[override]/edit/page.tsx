@@ -7,7 +7,7 @@ import { DeleteOverrideButton } from "@/app/overrides/[override]/edit/components
 import EditOverride from "@/app/overrides/[override]/edit/components/EditOverride";
 
 export const metadata: Metadata = {
-  title: "Edit Override | Transactions",
+  title: "Edit rule | Transactions",
 };
 
 export default async function Page({
@@ -28,8 +28,8 @@ export default async function Page({
 
   return (
     <>
-      <div className="d-flex justify-content-between align-items-center">
-        <h1>Edit {Item.name || "Override"}</h1>
+      <div className="page-heading">
+        <h1>Edit {Item.name || "rule"}</h1>
         <DeleteOverrideButton id={override} revision={Item.revision} />
       </div>
       <EditOverride

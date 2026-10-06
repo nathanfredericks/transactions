@@ -1,14 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { backend } from "../../utils/backend";
+import { Alert, Card, CardBody, Col, Row } from "react-bootstrap";
+import SubmitButton from "../../components/SubmitButton";
+import { displayLabel, type BankSummary } from "../../utils/display";
 export const dynamic = "force-dynamic";
-type Bank = {
-  bank: string;
-  name: string;
-  enabled: boolean;
-  baselineApproved: boolean;
-  health: { blocked: boolean; kind: string };
-};
 export default async function BankPage({
   params,
   searchParams,
@@ -18,9 +14,14 @@ export default async function BankPage({
 }) {
   const { bank } = await params;
   const query = await searchParams;
-  const banks = await backend<Bank[]>("banks.list");
+  const banks = await backend<BankSummary[]>("banks.list");
   const current = banks.find((b) => b.bank === bank);
-  if (!current) return <p role="alert">Unknown bank.</p>;
+  if (!current)
+    return (
+      <Alert variant="warning">
+        Unknown bank. <Link href="/jobs">Return to bank activity</Link>.
+      </Alert>
+    );
   async function resume() {
     "use server";
     let failed = false;
@@ -55,42 +56,76 @@ export default async function BankPage({
   }
   return (
     <>
-      <h1>{current.name}</h1>
+      <Link href="/jobs">← Bank activity</Link>
+      <header className="page-heading">
+        <div>
+          <h1>{current.name}</h1>
+          <p>Authentication, imports and starting-point review.</p>
+        </div>
+      </header>
       {query.error && (
-        <p role="alert">
+        <Alert variant="danger">
           The operation failed. Refresh and inspect the bank status before
           retrying.
-        </p>
+        </Alert>
       )}
-      <dl>
-        <dt>Authentication</dt>
-        <dd>{current.health.blocked ? "Paused for review" : "Automatic"}</dd>
-        <dt>Current issue</dt>
-        <dd>{current.health.kind || "None"}</dd>
-        <dt>Baseline</dt>
-        <dd>{current.baselineApproved ? "Approved" : "Review required"}</dd>
-      </dl>
-      <form action={dryRun}>
-        <button type="submit" className="btn btn-primary">
-          Fetch a dry run
-        </button>
-      </form>
-      <p>
-        A dry run reads bank and YNAB data without importing or sending purchase
-        notifications.
-      </p>
+      <Card>
+        <CardBody>
+          <Row as="dl" className="mb-0 gy-3">
+            <Col sm={4}>
+              <dt>Authentication</dt>
+              <dd className="mb-0">
+                {current.health.blocked ? "Paused for review" : "Automatic"}
+              </dd>
+            </Col>
+            <Col sm={4}>
+              <dt>Current issue</dt>
+              <dd className="mb-0">
+                {current.health.kind
+                  ? displayLabel(current.health.kind)
+                  : "None"}
+                {current.health.importReview && (
+                  <div className="text-danger">
+                    Imports are held for review.
+                  </div>
+                )}
+              </dd>
+            </Col>
+            <Col sm={4}>
+              <dt>Starting point</dt>
+              <dd className="mb-0">
+                {current.baselineApproved ? "Approved" : "Review required"}
+              </dd>
+            </Col>
+          </Row>
+        </CardBody>
+      </Card>
+      <Card>
+        <CardBody>
+          <h2>Check bank data</h2>
+          <p className="text-body-secondary">
+            A dry run reads bank and YNAB data without importing or sending
+            purchase notifications.
+          </p>
+          <form action={dryRun}>
+            <SubmitButton>Fetch a dry run</SubmitButton>
+          </form>
+        </CardBody>
+      </Card>
       {current.health.blocked && (
-        <form action={resume}>
+        <Alert variant="warning">
+          <h2>Resume sign-in</h2>
           <p>
             Update rejected credentials or resolve the authentication challenge
             first. This does not clear uncertain financial writes.
           </p>
-          <button type="submit" className="btn btn-warning">
-            Resume automatic authentication
-          </button>
-        </form>
+          <form action={resume}>
+            <SubmitButton variant="warning">
+              Resume automatic authentication
+            </SubmitButton>
+          </form>
+        </Alert>
       )}
-      <Link href="/jobs">Return to activity</Link>
     </>
   );
 }

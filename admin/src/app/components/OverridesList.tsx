@@ -1,5 +1,5 @@
 "use client";
-import { Button, ListGroup } from "react-bootstrap";
+import { Alert, ListGroup } from "react-bootstrap";
 import Link from "next/link";
 import type { Override } from "@/app/types";
 import { DeleteOverrideButton } from "@/app/overrides/[override]/edit/components/DeleteOverrideButton";
@@ -13,17 +13,28 @@ export default function OverridesList(props: Props) {
 
   return (
     <>
-      {overrides.length === 0 && <p>No overrides</p>}
+      {overrides.length === 0 && (
+        <Alert variant="light">
+          No transaction rules yet. Create a rule to set a payee, category or
+          memo.
+        </Alert>
+      )}
       <ListGroup>
         {overrides.map(({ id, name, revision }) => (
           <ListGroup.Item
-            className="d-flex justify-content-between align-items-center"
+            className="d-flex justify-content-between align-items-center flex-wrap gap-3 p-3"
             key={id}
           >
-            <div className="d-flex flex-column">{name}</div>
+            <Link className="fw-medium" href={`/overrides/${id}/edit`}>
+              {name}
+            </Link>
             <div className="d-inline-flex gap-2">
-              <Link href={`/overrides/${id}/edit`}>
-                <Button variant="secondary">Edit</Button>
+              <Link
+                className="btn btn-outline-secondary"
+                aria-label={`Edit ${name}`}
+                href={`/overrides/${id}/edit`}
+              >
+                Edit
               </Link>
               <DeleteOverrideButton id={id} revision={revision} />
             </div>

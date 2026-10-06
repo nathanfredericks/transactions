@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
 	"log/slog"
@@ -339,22 +338,8 @@ func (e *Engine) failure(ctx context.Context, cause error) (Outcome, error) {
 		if name == "" {
 			name = e.Job.Bank
 		}
-		message := fmt.Sprintf("%s: %s during %s. Review the linked job.", name, f.Kind, f.Operation)
-		switch f.Kind {
-		case bank.Credentials:
-			message = name + " rejected the credentials. Automatic login is paused. Update the credentials, then resume this bank. [credentials-rejected]"
-		case bank.Challenge:
-			message = name + " requires an unsupported verification step. Automatic login is paused. Resolve the challenge, then resume this bank. [challenge-required]"
-		case bank.Maintenance:
-			message = name + " is undergoing maintenance. Retrieval is deferred; repeated logins will not be attempted. [bank-maintenance]"
-		case bank.Uncertain:
-			message = "YNAB may have accepted a write from " + name + ", but confirmation was lost. Review the identified operation before allowing another write. [uncertain-write]"
-		}
-
-		if f.Operation == "previous-import-missing" {
-			message = "YNAB remembers this import, but its transaction was deleted or is no longer available. Review whether to restore or exclude it before importing again. [previous-import-missing]"
-		}
-		if err := e.notifyOnce(ctx, "incident#"+health.Episode, message, "Bank requires attention"); err != nil {
+		title, message := failureNotice(name, f)
+		if err := e.notifyOnce(ctx, "incident#"+health.Episode, message, title); err != nil {
 			return e.outcome("failed", 0), err
 		}
 		health.Notified = true

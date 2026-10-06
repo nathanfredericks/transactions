@@ -1,4 +1,3 @@
-import { Button } from "react-bootstrap";
 import Link from "next/link";
 import OverridesList from "@/app/components/OverridesList";
 import { listOverrides } from "@/app/utils/overrides";
@@ -9,12 +8,15 @@ export default async function Page() {
 
   return (
     <>
-      <div className="d-flex justify-content-between align-items-center">
-        <h1>Overrides</h1>
-        <Link href="/overrides/new">
-          <Button>New</Button>
+      <header className="page-heading">
+        <div>
+          <h1>Transaction rules</h1>
+          <p>Choose how matching purchases appear in YNAB.</p>
+        </div>
+        <Link className="btn btn-primary" href="/overrides/new">
+          New rule
         </Link>
-      </div>
+      </header>
 
       <OverridesList overrides={sortedOverrides} />
     </>

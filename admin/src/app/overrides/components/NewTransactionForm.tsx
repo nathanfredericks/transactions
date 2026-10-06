@@ -17,19 +17,20 @@ export default function NewTransactionForm(props: Props) {
         <Form.Label>Payee</Form.Label>
         <Form.Select
           aria-label="Select a payee"
+          aria-describedby={errors.payee ? "payee-error" : undefined}
           isInvalid={!!errors.payee}
           name="payee"
           onChange={handleChange}
           value={values.payee}
         >
-          <option value=""></option>
+          <option value="">Choose a payee</option>
           {payees?.map((payee) => (
             <option key={payee.id} value={payee.id}>
               {payee.name}
             </option>
           ))}
         </Form.Select>
-        <Form.Control.Feedback type="invalid">
+        <Form.Control.Feedback id="payee-error" type="invalid">
           {errors.payee}
         </Form.Control.Feedback>
       </Form.Group>
@@ -43,7 +44,7 @@ export default function NewTransactionForm(props: Props) {
           onChange={handleChange}
           value={values.category}
         >
-          <option value=""></option>
+          <option value="">Keep the existing category</option>
           {categoryGroups?.map((group) => (
             <optgroup key={group.id} label={group.name}>
               {group.categories.map((category) => (
@@ -59,8 +60,8 @@ export default function NewTransactionForm(props: Props) {
         </Form.Control.Feedback>
       </Form.Group>
 
-      <div className="form-info">
-        <h5>Memo templates</h5>
+      <details className="bg-body-tertiary border rounded p-3 mb-3">
+        <summary className="fw-medium">Memo templates</summary>
         <p>
           Use Go templates. <code>{"{{.Date}}"}</code> is the transaction date
           (YYYY-MM-DD).
@@ -76,7 +77,7 @@ export default function NewTransactionForm(props: Props) {
           </code>
           . Month-end dates are clamped to the last valid day.
         </p>
-      </div>
+      </details>
       <Form.Group className="mb-3" controlId="memo">
         <Form.Label>Memo</Form.Label>
         <Form.Control

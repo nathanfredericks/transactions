@@ -4,7 +4,7 @@ import { getCategories, getPayees } from "@/app/utils/ynab";
 import NewOverride from "@/app/overrides/new/components/NewOverride";
 
 export const metadata: Metadata = {
-  title: "New Override | Transactions",
+  title: "New rule | Transactions",
 };
 
 export default async function Page() {
@@ -13,8 +13,8 @@ export default async function Page() {
 
   return (
     <>
-      <div className="d-flex justify-content-between align-items-center">
-        <h1>New Override</h1>
+      <div className="page-heading">
+        <h1>New rule</h1>
       </div>
       <NewOverride categoryGroups={categoryGroups} payees={payees} />
     </>
