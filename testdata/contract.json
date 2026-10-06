@@ -565,6 +565,447 @@
       "amount": 0,
       "date": "2026-10-05",
       "expected": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 6.83,
+      "date": "2026-10-17",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 6.83,
+      "date": "2026-10-22",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 6.84,
+      "date": "2026-10-19",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 5.69,
+      "date": "2026-10-25",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 5.69,
+      "date": "2026-10-29",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 5.7,
+      "date": "2026-10-27",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 4.55,
+      "date": "2026-10-25",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 4.55,
+      "date": "2026-10-29",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 4.56,
+      "date": "2026-10-27",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 5.69,
+      "date": "2026-10-14",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 5.69,
+      "date": "2026-10-18",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 5.7,
+      "date": "2026-10-16",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 96.89,
+      "date": "2026-07-02",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 96.89,
+      "date": "2026-08-04",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 96.9,
+      "date": "2026-08-02",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 7.97,
+      "date": "2026-07-19",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 7.97,
+      "date": "2026-08-16",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 7.97,
+      "date": "2026-08-22",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 7.98,
+      "date": "2026-08-19",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 169.86,
+      "date": "2026-11-27",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 169.86,
+      "date": "2026-12-24",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 169.86,
+      "date": "2026-12-30",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 169.87,
+      "date": "2026-12-27",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/CA",
+      "amount": 119,
+      "date": "2026-02-15",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/CA",
+      "amount": 119,
+      "date": "2026-03-21",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "APPLE.COM/CA",
+      "amount": 119.01,
+      "date": "2026-03-15",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "CLAUDE.AI SUBSCRIPTION",
+      "amount": 31.93,
+      "date": "2026-10-01",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "SOUNDCLOUD MONTHLY GO",
+      "amount": 7,
+      "date": "2026-10-01",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "FASTMAIL",
+      "amount": 85.51,
+      "date": "2026-10-01",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "ACADIA UNIV.-BOX OFFIC",
+      "amount": 45.61,
+      "date": "2026-05-01",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "ACADIA UNIV.-BOX OFFIC",
+      "amount": 45.6,
+      "date": "2026-06-01",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "TAILSCALE",
+      "amount": 0,
+      "date": "2026-10-01",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "UNRELATED VPN",
+      "amount": 20,
+      "date": "2026-10-01",
+      "expected": "",
+      "memo": "",
+      "category": "",
+      "payee": ""
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 6.83,
+      "date": "2026-10-18",
+      "expected": "Apple Music",
+      "memo": "Apple Music",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 6.83,
+      "date": "2026-10-21",
+      "expected": "Apple Music",
+      "memo": "Apple Music",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 5.69,
+      "date": "2026-10-26",
+      "expected": "AppleCare+ for Apple Watch",
+      "memo": "AppleCare+ for Apple Watch",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 5.69,
+      "date": "2026-10-28",
+      "expected": "AppleCare+ for Apple Watch",
+      "memo": "AppleCare+ for Apple Watch",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 4.55,
+      "date": "2026-10-26",
+      "expected": "iCloud+ with 200 GB storage",
+      "memo": "iCloud+ with 200 GB storage",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 4.55,
+      "date": "2026-10-28",
+      "expected": "iCloud+ with 200 GB storage",
+      "memo": "iCloud+ with 200 GB storage",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 5.69,
+      "date": "2026-10-15",
+      "expected": "eBike Flow+",
+      "memo": "eBike Flow+",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 5.69,
+      "date": "2026-10-17",
+      "expected": "eBike Flow+",
+      "memo": "eBike Flow+",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 96.89,
+      "date": "2026-08-01",
+      "expected": "AppleCare+ for MacBook Air",
+      "memo": "AppleCare+ for MacBook Air",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 96.89,
+      "date": "2026-08-03",
+      "expected": "AppleCare+ for MacBook Air",
+      "memo": "AppleCare+ for MacBook Air",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 7.97,
+      "date": "2026-08-17",
+      "expected": "Parcel Premium",
+      "memo": "Parcel Premium",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 7.97,
+      "date": "2026-08-21",
+      "expected": "Parcel Premium",
+      "memo": "Parcel Premium",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 169.86,
+      "date": "2026-12-25",
+      "expected": "YNAB",
+      "memo": "YNAB",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 169.86,
+      "date": "2026-12-29",
+      "expected": "YNAB",
+      "memo": "YNAB",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/ca",
+      "amount": 119,
+      "date": "2026-03-01",
+      "expected": "Apple Developer Program",
+      "memo": "Apple Developer Program",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/ca",
+      "amount": 119,
+      "date": "2026-03-20",
+      "expected": "Apple Developer Program",
+      "memo": "Apple Developer Program",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
     }
   ]
 }
