@@ -42,3 +42,9 @@ CloudWatch structured `bank-job` records contain bank, purpose, outcome, browser
 Confirm SNS email delivery independently, and inspect the delivery-failure queue and failed application notification rows. Successful scheduled retrieval and routine renewal are quiet. A lost Pushover response may duplicate a notification, but never retries a financial write.
 
 The user confirmed on 6 October 2026 that the webhook is no longer used. No active webhook sender needs migration; the endpoint remains available for future configured senders.
+
+## Completed deployment
+
+The 6 October 2026 cutover is complete; see [the verification record](verification-results.md). The old bank schedules and five runtime Lambdas remain disabled, SES uses the `transactions-engine` receipt set, and new imports are enabled. Do not restore old writers during verification cleanup. Stop new writes by setting `importsEnabled` false; use `-c activate=false` for a CDK-defined schedule pause. Any return to the old importer now requires reconciliation because the new engine has written to YNAB.
+
+Account transaction reads include YNAB deletion history. A deleted import ID must be reviewed, not silently reused as a new transaction. An explicitly authorized restoration should have its own stable identity and be linked to the bank record through baseline/review state; preserve the original bank identity. Session maintenance does not resolve financial review holds.

@@ -58,7 +58,7 @@ YNAB writes have no generic retry wrapper. Transaction creation uses stable impo
 
 The one configuration document is `/transactions-engine/settings`. Application credentials and each bank's credentials use separate Secrets Manager resources. Do not put tokens in CDK context, workflow payloads, Git or logs. S3 objects are private and encrypted; browser IAM cannot read the application secret.
 
-Initial CDK deployment disables all schedules and creates a settings placeholder with imports disabled. Complete configuration before invoking it. Admin hosting is enabled with the `repository` and `githubTokenSecretArn` CDK contexts, using a Secrets Manager JSON `token` field. Its generated basic-auth password is in `transactions-engine/admin-password`. Set the `alarmEmail` context to the operator address and confirm the SNS subscription. Infrastructure email is independent of Pushover.
+The committed CDK context records this production deployment with schedules active. For a fresh installation or a deliberate schedule pause, synthesize/deploy with `-c activate=false`; the initial settings placeholder always has imports disabled. Complete configuration and baseline review before enabling imports. Admin hosting is enabled with the `repository` and `githubTokenSecretArn` CDK contexts, using a Secrets Manager JSON `token` field. Its generated basic-auth password is in `transactions-engine/admin-password`. Set the `alarmEmail` context to the operator address and confirm the SNS subscription. Infrastructure email is independent of Pushover.
 
 Use the [local verification loop](docs/local-verification.md) to fix authentication and exercise real API calls without redeploying.
 

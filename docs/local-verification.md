@@ -2,7 +2,7 @@
 
 Use the production Go adapter and pinned browser image locally. Rebuild only the Go binary between fixes; mount it into the existing image. AWS redeployment is reserved for infrastructure changes and the final cross-environment checks.
 
-The runner uses your AWS CLI identity and the **new engine's** encrypted S3 sessions and DynamoDB leases. It can authenticate, fetch and renew. It has no import or notification path. It does not touch the old importer's state. Keep new imports and schedules disabled while verifying.
+The runner uses your AWS CLI identity and the **new engine's** encrypted S3 sessions and DynamoDB leases. It can authenticate, fetch and renew. It has no import or notification path. It does not touch the old importer's state. Before the first cutover, keep new imports disabled. After cutover, these verification commands still have no import path and share the normal bank lease; inspect current jobs before deliberately replacing a live session.
 
 ## Setup once
 
@@ -32,7 +32,7 @@ python3 scripts/verify-bank.py nbdb --mode renew
 
 API checks validate expected accounts and complete retrieval, save private snapshots, and print only account IDs, counts, expiry times and duration. Renewal uses the engine's uncertainty policy; an uncertain exchange is held instead of blindly replayed. These explicit verification commands report failures without automatically starting another login.
 
-Avoid concurrent authentication from another application using the same bank account. During migration, the old maintenance worker can replace a session created by a local check. For an isolated lifetime check, temporarily pause the old bank's maintenance, verify no old authentication is running, and restore the original policy in a `finally` cleanup. Record both the rotation and successful retrieval afterward; a successful early renewal response can leave the token unchanged.
+Avoid concurrent authentication from another application using the same bank account. During migration, the old maintenance worker can replace a session created by a local check. For an isolated lifetime check, temporarily pause the old bank's maintenance, verify no old authentication is running, and restore the original policy in a `finally` cleanup. After cutover, the old workers stay disabled; never re-enable them as verification cleanup. Record both the rotation and successful retrieval afterward; a successful early renewal response can leave the token unchanged.
 
 After fixing a blocked login, use the normal `bank.resume` action **before** verifying again. Resume invalidates the session pointer. Do not reset credentials/challenge holds repeatedly without investigating their cause.
 
