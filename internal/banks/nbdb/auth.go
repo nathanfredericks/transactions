@@ -36,6 +36,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	defer func() {
 		if err != nil {
 			slog.Info("NBDB authentication exchanges", "requests", o.Diagnostics("bnc.ca"))
+			bank.LogControls(p)
 		}
 	}()
 	if e = p.Navigate("https://client.bnc.ca/nbdb/login"); e != nil {
@@ -48,6 +49,11 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		return bank.Session{}, e
 	}
 	if e = bank.Input(p, "#password-hidden", a.Dependencies.Credentials.Password); e != nil {
+		return bank.Session{}, e
+	}
+	// The update notice can arrive while the credentials are being entered,
+	// especially on a cold browser. It must be dismissed before Sign in.
+	if _, e = bank.ClickIfPresent(p, "button,a", `Ignore the update`, 5*time.Second); e != nil {
 		return bank.Session{}, e
 	}
 	if e = bank.Click(p, "button", `^Sign in$`); e != nil {
@@ -113,22 +119,51 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		}
 	}
 	slog.Info("NBDB verification submitted")
-	// New profiles can show two informational welcome screens after MFA.
-	for _, label := range []string{`^Start using online trading$`, `^Continue to my portfolio$`} {
-		clicked, clickErr := bank.ClickIfPresent(p, "button,a", label, 15*time.Second)
-		if clickErr != nil {
-			return bank.Session{}, clickErr
-		}
-		slog.Info("NBDB welcome screen", "control", label, "clicked", clicked)
-	}
 	stage = "account-capture"
-	discovery, e := o.Wait(ctx, func(v bank.Exchange) bool {
-		return v.Request.Method == "GET" && strings.HasPrefix(v.Request.URL, summary) && v.Response != nil && v.Response.Status == 200
-	})
-	if e != nil {
-		return bank.Session{}, e
+	// Wait on the observed request while handling each known welcome screen at
+	// most once. A slow redirect must not make us permanently miss its button.
+	captureCtx, cancelCapture := context.WithTimeout(ctx, 90*time.Second)
+	defer cancelCapture()
+	labels := []string{`^Start using online trading$`, `^Continue to my portfolio$`}
+	clicked := map[string]bool{}
+	var discovery bank.Exchange
+	captured := false
+	for !captured {
+		for _, label := range labels {
+			discovery, captured = o.Latest(func(v bank.Exchange) bool {
+				// Native Fetch validates the expected accounts before saving the session,
+				// even if the web app's own portfolio request fails.
+				return v.Request.Method == "GET" && strings.HasPrefix(v.Request.URL, summary)
+			})
+			if captured {
+				break
+			}
+			if captureCtx.Err() != nil {
+				return bank.Session{}, bank.Fail(bank.Temporary, "browser-response-timeout")
+			}
+			if !clicked[label] {
+				clicked[label], e = bank.ClickIfPresent(p.Context(captureCtx), "button,a", label, time.Second)
+				if captureCtx.Err() != nil {
+					return bank.Session{}, bank.Fail(bank.Temporary, "browser-response-timeout")
+				}
+				if e != nil {
+					return bank.Session{}, e
+				}
+				if clicked[label] {
+					slog.Info("NBDB welcome screen", "control", label, "clicked", true)
+				}
+			}
+		}
+		if !captured {
+			select {
+			case <-captureCtx.Done():
+				return bank.Session{}, bank.Fail(bank.Temporary, "browser-response-timeout")
+			case <-time.After(time.Second):
+			}
+		}
 	}
-	token, e := o.Wait(ctx, func(v bank.Exchange) bool {
+
+	token, e := o.Wait(captureCtx, func(v bank.Exchange) bool {
 		return v.Request.Method == "POST" && strings.HasPrefix(v.Request.URL, "https://api.bnc.ca/bnc/prod-okta/sso/oauth2/") && strings.HasSuffix(v.Request.URL, "/v1/token") && v.Response != nil && v.Response.Status == 200 && v.Finished
 	})
 	if e != nil {

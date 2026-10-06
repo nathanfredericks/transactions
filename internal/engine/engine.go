@@ -120,6 +120,10 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 			return out, bank.Fail(bank.Invalid, "stale-browser")
 		}
 		if result.Error != nil {
+			// This job already used its one browser attempt. Re-entering the
+			// retrieval loop with no session would misclassify the same failure
+			// as a rejected fresh login. End it; later jobs respect bank backoff.
+			e.Job.Attempt = 2
 			return out, result.Error
 		}
 		e.Job.Status = "running"
@@ -288,7 +292,7 @@ func (e *Engine) failure(ctx context.Context, cause error) (Outcome, error) {
 		health.Blocked = true
 	}
 	retryable := f.Kind == bank.Temporary || f.Kind == bank.Throttled || f.Kind == bank.Maintenance
-	wait := 30 * int(math.Pow(2, float64(min(e.Job.Attempt-1, 7))))
+	wait := 30 * int(math.Pow(2, float64(min(health.Failures-1, 7))))
 	if !f.RetryAt.IsZero() {
 		wait = max(wait, int(math.Ceil(time.Until(f.RetryAt).Seconds())))
 	}

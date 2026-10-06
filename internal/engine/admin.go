@@ -337,58 +337,127 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 	if err := e.loadJob(ctx, r.JobID, r.Bank); err != nil {
 		return nil, err
 	}
-	if !e.Job.DryRun || e.Job.SnapshotKey == "" {
+	if !e.Job.DryRun || e.Job.Status != "complete" || e.Job.SnapshotKey == "" {
 		return nil, fmt.Errorf("baseline requires a completed dry-run snapshot")
 	}
 	var snapshot bank.Snapshot
 	if err := e.Store.Download(ctx, e.Job.SnapshotKey, &snapshot); err != nil {
 		return nil, err
 	}
+	if err := ValidateSnapshot(snapshot, e.Settings.Banks[r.Bank].ExpectedAccounts); err != nil {
+		return nil, err
+	}
 	mapped, err := e.mapping(ctx, snapshot)
 	if err != nil {
 		return nil, err
 	}
-	b := Baseline{At: snapshot.At, Seen: map[string]bool{}, Links: map[string]string{}, SnapshotKey: e.Job.SnapshotKey}
-	var unresolved []bank.Record
+	b := Baseline{At: snapshot.At, Seen: map[string]bool{}, Links: map[string]string{}, NewRecords: map[string]bool{}, SnapshotKey: e.Job.SnapshotKey}
+	unresolved := []bank.Record{}
 	var input struct {
-		Links    map[string]string `json:"links"`
-		Approved bool              `json:"approved"`
+		Links      map[string]string `json:"links"`
+		NewRecords []string          `json:"newRecords"`
+		Approved   bool              `json:"approved"`
 	}
-	_ = json.Unmarshal(r.Payload, &input)
+	if len(r.Payload) > 0 && json.Unmarshal(r.Payload, &input) != nil {
+		return nil, bankStateError()
+	}
+	newRecords := map[string]bool{}
+	for _, key := range input.NewRecords {
+		if key == "" || newRecords[key] || input.Links[key] != "" {
+			return nil, fmt.Errorf("conflicting baseline decision")
+		}
+		newRecords[key] = true
+	}
+	type reviewRow struct {
+		Key        string                   `json:"key"`
+		Record     bank.Record              `json:"record"`
+		Candidates []*types.YNABTransaction `json:"candidates"`
+	}
+	review := []reviewRow{}
+	transactions := map[string][]*types.YNABTransaction{}
+	known, used := map[string]bool{}, map[string]bool{}
+	registration, _ := banks.Find(r.Bank)
 	for _, record := range snapshot.Records {
 		key := record.AccountID + "#" + identity(record)
-		if record.Status == "posted" {
-			b.Seen[key] = true
-			continue
+		known[key] = true
+		account := mapped[record.AccountID].ID
+		if account == "" {
+			return nil, bank.Fail(bank.Invalid, "baseline-account")
 		}
-		rows, err := service.GetAccountTransactions(ctx, mapped[record.AccountID].ID)
-		if err != nil {
-			return nil, err
+		rows, loaded := transactions[account]
+		if !loaded {
+			rows, err = service.GetAccountTransactions(ctx, account)
+			if err != nil {
+				return nil, err
+			}
+			transactions[account] = rows
 		}
-		registration, _ := banks.Find(r.Bank)
 		importID := registration.ImportPrefix + ":" + bank.Hash("tx#" + record.AccountID + "#" + bank.Hash(identity(record)))[:32]
+		if registration.Strategy == "posted" {
+			importID = identity(record)
+		}
+		row := reviewRow{Key: key, Record: record, Candidates: []*types.YNABTransaction{}}
+		linked := ""
 		for _, tx := range rows {
 			if tx.Deleted {
 				continue
 			}
 			exact := tx.ImportID != nil && *tx.ImportID == importID
 			chosen := input.Links[key] != "" && input.Links[key] == tx.ID
-			if (exact || chosen) && tx.Amount == record.Amount && near(tx.Date, record.Date, 14) {
-				b.Links[key] = tx.ID
+			matches := tx.Amount == record.Amount && near(tx.Date, record.Date, 14)
+			// Posted entries with the exact import ID may have deliberate user
+			// edits. Show them for explicit review; baseline approval preserves them.
+			selectable := matches || (exact && record.Status == "posted")
+			if selectable {
+				row.Candidates = append(row.Candidates, tx)
+			}
+			if exact && newRecords[key] {
+				return nil, fmt.Errorf("existing import conflicts with baseline decision")
+			}
+			if (exact && matches) || (chosen && selectable) {
+				if linked != "" && linked != tx.ID {
+					return nil, fmt.Errorf("multiple baseline links")
+				}
+				linked = tx.ID
 			}
 		}
-		if b.Links[key] == "" {
+		if input.Links[key] != "" && linked != input.Links[key] {
+			return nil, fmt.Errorf("invalid baseline link")
+		}
+		if linked != "" {
+			if used[linked] {
+				return nil, fmt.Errorf("YNAB transaction linked more than once")
+			}
+			used[linked] = true
+			b.Links[key] = linked
+			if record.Status == "posted" {
+				b.Seen[key] = true
+			}
+		} else if newRecords[key] {
+			b.NewRecords[key] = true
+		} else {
 			unresolved = append(unresolved, record)
+		}
+		review = append(review, row)
+	}
+	for key := range input.Links {
+		if !known[key] {
+			return nil, fmt.Errorf("baseline link not in snapshot")
+		}
+	}
+	for key := range newRecords {
+		if !known[key] {
+			return nil, fmt.Errorf("new record not in snapshot")
 		}
 	}
 	if r.Action == "baseline.preview" {
-		return map[string]any{"baseline": b, "unresolved": unresolved, "snapshot": snapshot, "ynabAccounts": mapped}, nil
+		return map[string]any{"baseline": b, "unresolved": unresolved, "review": review, "snapshot": snapshot, "ynabAccounts": mapped}, nil
 	}
 	if e.Settings.ImportsEnabled {
 		return nil, fmt.Errorf("pause imports before approving a baseline")
 	}
 	if !input.Approved || len(unresolved) > 0 {
-		return nil, fmt.Errorf("baseline has unresolved pending records or no approval")
+		return nil, fmt.Errorf("baseline has unresolved records or no approval")
 	}
 	l, ok, err := e.Store.Acquire(ctx, r.Bank, "baseline-approval")
 	if err != nil || !ok {

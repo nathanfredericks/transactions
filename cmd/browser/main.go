@@ -45,7 +45,13 @@ func run(ctx context.Context) error {
 		return err
 	}
 	result := engine.BrowserResult{Generation: generation}
-	authCtx, cancel := context.WithDeadline(ctx, job.BrowserDeadline)
+	// Reserve time for browser cleanup, fenced persistence and the callback,
+	// including when authentication exhausts its own deadline.
+	authDeadline := time.Now().Add(240 * time.Second)
+	if job.BrowserDeadline.Before(authDeadline) {
+		authDeadline = job.BrowserDeadline
+	}
+	authCtx, cancel := context.WithDeadline(ctx, authDeadline)
 	defer cancel()
 	session, authErr := authenticate(authCtx, app, registration, lease)
 	if authErr != nil {
@@ -105,18 +111,25 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 	// Rod defaults to a Chrome 114 Mac device; preserve the actual Chromium identity.
 	browser := rod.New().NoDefaultDevice().ControlURL(control).Context(ctx)
 	if err = browser.Connect(); err != nil {
+		launch.Kill()
 		return session, bank.Fail(bank.Temporary, "browser-connect")
 	}
 	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
 		closed := make(chan error, 1)
-		go func() { closed <- browser.Close() }()
+		go func() { closed <- browser.Context(cleanupCtx).Close() }()
 		select {
 		case closeErr := <-closed:
-			if err == nil && closeErr != nil {
-				err = bank.Fail(bank.Temporary, "browser-cleanup")
+			if closeErr != nil {
+				// Cleanup waits for process exit. A failed Close must not leave
+				// it waiting forever on an expired authentication context.
+				launch.Kill()
+				slog.Warn("browser force-stopped after close failure", "errorType", fmt.Sprintf("%T", closeErr))
 			}
-		case <-time.After(8 * time.Second):
+		case <-cleanupCtx.Done():
 			launch.Kill()
+			slog.Warn("browser force-stopped after cleanup deadline")
 		}
 	}()
 	var previous *bank.Session

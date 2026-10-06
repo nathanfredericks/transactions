@@ -29,7 +29,7 @@ go run ./cmd/operator -action job.retry -bank rogers-bank -job JOB_ID
 
 Dry-run payload: `{"version":1,"jobId":"unique-stable-id","bank":"eq-bank","source":"manual","purpose":"retrieve","dryRun":true}`.
 
-Baseline approval: `{"approved":true,"links":{"BANK_ACCOUNT_UUID#BANK_RECORD_ID":"YNAB_TRANSACTION_ID"}}`. The backend revalidates chosen identities, amounts and dates. Posted baseline records are deliberately treated as already handled; the reviewer must check these against YNAB. Approval is not an import.
+Baseline approval: `{"approved":true,"links":{"BANK_ACCOUNT_UUID#BANK_RECORD_ID":"YNAB_TRANSACTION_ID"},"newRecords":["BANK_ACCOUNT_UUID#MISSING_RECORD_ID"]}`. Every record must link to an existing YNAB entry or be explicitly marked for import after cutover. Missing posted transactions are never silently marked as handled. The backend revalidates identities, amounts and dates, rejects duplicate links and unknown records, and prevents re-importing an existing stable import ID. An existing posted entry with that exact ID can be explicitly retained despite user edits. Approval is not an import. The admin provides the same choices with nearby matching YNAB entries; no JSON editing is required.
 
 NBDB review: action `review.balance`, payload `{"accountId":"BANK_ACCOUNT_UUID","decision":"confirmed","transactionId":"YNAB_TRANSACTION_ID"}` or an explicitly reviewed `not-written` decision. A bank authentication reset never clears this hold.
 

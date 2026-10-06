@@ -18,6 +18,7 @@ type Baseline struct {
 	At          time.Time         `json:"at"`
 	Seen        map[string]bool   `json:"seen"`
 	Links       map[string]string `json:"links"`
+	NewRecords  map[string]bool   `json:"newRecords"`
 	SnapshotKey string            `json:"snapshotKey"`
 }
 type Write struct {

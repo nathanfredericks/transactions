@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -50,9 +52,17 @@ func callResponsesAPI(ctx context.Context, instructions string, userMessage stri
 		return "", fmt.Errorf("getting secrets: %w", err)
 	}
 
+	// Keep the configured transport while giving AI its own request deadline.
+	httpClient := *http.DefaultClient
+	httpClient.Timeout = 30 * time.Second
+	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	client := openai.NewClient(
 		option.WithBaseURL(params.OpenAIEndpoint),
 		option.WithAPIKey(secrets.OpenAIAPIKey),
+		// Pushover requires a bounded process-wide default client. AI has its
+		// own deadline and leaves operation retries to the shared workflow.
+		option.WithHTTPClient(&httpClient),
+		option.WithMaxRetries(0),
 	)
 
 	resp, err := client.Responses.New(ctx, responses.ResponseNewParams{

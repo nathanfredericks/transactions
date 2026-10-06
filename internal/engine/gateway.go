@@ -83,9 +83,6 @@ func (e *Engine) Email(ctx context.Context, event events.S3Event) (any, error) {
 			return nil, err
 		}
 		j := Job{Version: 1, ID: "mail-" + bank.Hash(parsed.MessageID), Source: "notification", Purpose: "retrieve", ReceivedAt: time.Now(), OccurredAt: parsed.Date, Text: parsed.Text, MessageID: parsed.MessageID}
-		if parsed.MessageID == "" {
-			return nil, bank.Fail(bank.Invalid, "mail-message-id")
-		}
 		if strings.EqualFold(parsed.From, "alert@eqbank.ca") {
 			if parsed.Subject != "Purchase made on your EQ Bank Card" {
 				continue
@@ -125,6 +122,11 @@ func (e *Engine) Email(ctx context.Context, event events.S3Event) (any, error) {
 			if j.AccountID == "" {
 				continue
 			}
+		}
+		// Infrastructure notices and unrelated mail are ignored above. Only
+		// recognized purchase alerts require a durable source identity.
+		if parsed.MessageID == "" {
+			return nil, bank.Fail(bank.Invalid, "mail-message-id")
 		}
 		id, err := e.Submit(ctx, j)
 		if err != nil {

@@ -24,6 +24,7 @@ type Exchange struct {
 	ID       proto.NetworkRequestID
 	Sequence int
 	Finished bool
+	Failed   bool
 }
 type Observer struct {
 	Page     *rod.Page
@@ -63,28 +64,42 @@ func Observe(page *rod.Page) *Observer {
 		}
 		o.mu.Unlock()
 		signal()
+	}, func(e *proto.NetworkLoadingFailed) {
+		o.mu.Lock()
+		if v := o.items[e.RequestID]; v != nil {
+			v.Failed = true
+		}
+		o.mu.Unlock()
+		signal()
 	})
 	go wait()
 	return o
 }
 func (o *Observer) Close() { o.cancel() }
+func (o *Observer) Latest(match func(Exchange) bool) (Exchange, bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var latest *Exchange
+	for _, v := range o.items {
+		copy := *v
+		if match(copy) && (latest == nil || copy.Sequence > latest.Sequence) {
+			latest = &copy
+		}
+	}
+	if latest != nil {
+		return *latest, true
+	}
+	return Exchange{}, false
+}
 func (o *Observer) Wait(ctx context.Context, match func(Exchange) bool) (Exchange, error) {
 	for {
-		o.mu.Lock()
-		var latest *Exchange
-		for _, v := range o.items {
-			copy := *v
-			if match(copy) && (latest == nil || copy.Sequence > latest.Sequence) {
-				latest = &copy
-			}
-		}
-		o.mu.Unlock()
-		if latest != nil {
-			return *latest, nil
+		if latest, ok := o.Latest(match); ok {
+			return latest, nil
 		}
 		select {
 		case <-ctx.Done():
-			return Exchange{}, Fail(Challenge, "browser-response-timeout")
+			// Silence from an endpoint is not evidence of an unsupported challenge.
+			return Exchange{}, Fail(Temporary, "browser-response-timeout")
 		case <-o.changed:
 		}
 	}
@@ -120,7 +135,7 @@ func (o *Observer) Diagnostics(hostSuffix string) []map[string]any {
 		if x.Response != nil {
 			status = x.Response.Status
 		}
-		result = append(result, map[string]any{"operation": operation, "method": x.Request.Method, "status": status, "finished": x.Finished})
+		result = append(result, map[string]any{"operation": operation, "method": x.Request.Method, "status": status, "finished": x.Finished, "networkFailed": x.Failed})
 	}
 	return result
 }
@@ -223,17 +238,26 @@ const visibleButtonJS = `(selector,label)=>Array.from(document.querySelectorAll(
 func Click(p *rod.Page, selector, label string) error {
 	el, e := p.Timeout(30 * time.Second).ElementByJS(rod.Eval(visibleButtonJS, selector, label))
 	if e != nil {
-		controls, err := p.Timeout(2 * time.Second).Eval(`()=>Array.from(document.querySelectorAll("a,button,[role=link]")).filter(e=>e.getClientRects().length).map(e=>({tag:e.tagName,role:e.getAttribute("role"),label:(e.getAttribute("aria-label")||e.innerText||"").replace(/[^\s@]+@[^\s@]+/g,"[email]").replace(/[0-9]{4,}/g,"[number]").trim().slice(0,100)}))`)
-		if err == nil {
-			slog.Warn("browser button missing", "controls", controls.Value)
-		}
+		LogControls(p)
 		return Fail(Challenge, "button-missing")
 	}
 	if e = el.Click(proto.InputMouseButtonLeft, 1); e != nil {
 		slog.Warn("browser control failed", "operation", "click", "errorType", fmt.Sprintf("%T", e))
+		LogControls(p)
+		if errors.Is(e, context.DeadlineExceeded) || errors.Is(e, context.Canceled) {
+			return Fail(Temporary, "button-timeout")
+		}
 		return Fail(Challenge, "button")
 	}
 	return nil
+}
+
+// LogControls records visible control labels without input values or page bodies.
+func LogControls(p *rod.Page) {
+	controls, err := p.Timeout(2 * time.Second).Eval(`()=>Array.from(document.querySelectorAll("a,button,[role=link]")).filter(e=>e.getClientRects().length).map(e=>({tag:e.tagName,label:(e.getAttribute("aria-label")||e.innerText||"").replace(/[^\s@]+@[^\s@]+/g,"[email]").replace(/[0-9]{4,}/g,"[number]").trim().slice(0,100)}))`)
+	if err == nil {
+		slog.Warn("browser visible controls", "controls", controls.Value)
+	}
 }
 
 // ClickIfPresent handles known informational screens without delaying normal API access.

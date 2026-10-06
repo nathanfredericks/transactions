@@ -6,10 +6,10 @@ export default function Navigation() {
   return (
     <Navbar className="bg-body-tertiary">
       <Container>
-        <Link href="/" legacyBehavior passHref>
-          <Navbar.Brand>Transactions</Navbar.Brand>
-        </Link>
-      <Link href="/jobs">Jobs and reviews</Link>
+        <Navbar.Brand as={Link} href="/">
+          Transactions
+        </Navbar.Brand>
+        <Link href="/jobs">Jobs and reviews</Link>
       </Container>
     </Navbar>
   );
