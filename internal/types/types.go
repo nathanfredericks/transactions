@@ -57,6 +57,8 @@ type Env struct {
 }
 
 type TransactionOverride struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
 	Payee     string `json:"payee"`
 	Category  string `json:"category"`
 	Memo      string `json:"memo"`

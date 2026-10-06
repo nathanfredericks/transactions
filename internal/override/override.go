@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"strings"
 	"text/template"
@@ -43,34 +44,28 @@ func GetTransactionOverrides(ctx context.Context) ([]types.TransactionOverride, 
 		startKey = out.LastEvaluatedKey
 	}
 
-	var overrides []types.TransactionOverride
-	for _, item := range items {
-		o := types.TransactionOverride{}
-		if v, ok := item["payee"]; ok {
-			o.Payee = attrToString(v)
-		}
-		if v, ok := item["category"]; ok {
-			o.Category = attrToString(v)
-		}
-		if v, ok := item["memo"]; ok {
-			o.Memo = attrToString(v)
-		}
-		if v, ok := item["query"]; ok {
-			o.Query = attrToString(v)
-		}
-		if v, ok := item["updatedAt"]; ok {
-			o.UpdatedAt = attrToString(v)
-		}
-		overrides = append(overrides, o)
-	}
+	return DecodeOverrides(items), nil
+}
 
-	sort.Slice(overrides, func(i, j int) bool {
+// DecodeOverrides is shared by the DynamoDB reader and contract tests.
+func DecodeOverrides(items []map[string]ddbtypes.AttributeValue) []types.TransactionOverride {
+	overrides := make([]types.TransactionOverride, 0, len(items))
+	for _, item := range items {
+		overrides = append(overrides, types.TransactionOverride{
+			ID: attrToString(item["id"]), Name: attrToString(item["name"]),
+			Payee: attrToString(item["payee"]), Category: attrToString(item["category"]),
+			Memo: attrToString(item["memo"]), Query: attrToString(item["query"]), UpdatedAt: attrToString(item["updatedAt"]),
+		})
+	}
+	sort.SliceStable(overrides, func(i, j int) bool {
 		ti, _ := time.Parse(time.RFC3339, overrides[i].UpdatedAt)
 		tj, _ := time.Parse(time.RFC3339, overrides[j].UpdatedAt)
+		if ti.Equal(tj) {
+			return overrides[i].ID < overrides[j].ID
+		}
 		return ti.After(tj)
 	})
-
-	return overrides, nil
+	return overrides
 }
 
 func attrToString(v ddbtypes.AttributeValue) string {
@@ -91,62 +86,77 @@ func FindOverride(ctx context.Context, overrides []types.TransactionOverride, am
 		return nil, fmt.Errorf("loading timezone %s: %w", params.Timezone, err)
 	}
 
-	now := date.In(loc)
-
-	for i, o := range overrides {
-		if o.Query == "" {
-			continue
-		}
-
-		data := map[string]any{
-			"amount":   amount,
-			"merchant": strings.ToUpper(merchant),
-			"day":      now.Day(),
-			"month":    int(now.Month()),
-		}
-
-		queryReader := strings.NewReader(o.Query)
-		dataBytes, err := json.Marshal(data)
-		if err != nil {
-			slog.Warn("failed to marshal override data", "error", err)
-			continue
-		}
-		dataReader := strings.NewReader(string(dataBytes))
-
-		var result strings.Builder
-		if err := jsonlogic.Apply(queryReader, dataReader, &result); err != nil {
-			slog.Warn("failed to evaluate JSON Logic", "error", err)
-			continue
-		}
-
-		resultStr := strings.TrimSpace(result.String())
-		if resultStr == "true" {
-			return &overrides[i], nil
-		}
-	}
-
-	return nil, nil
+	return Match(overrides, amount, merchant, date.In(loc)), nil
 }
 
-func RenderMemoTemplate(memoTemplate string, date time.Time) (string, error) {
-	funcMap := template.FuncMap{
-		"formatDate": func(layout string) string {
-			return date.Format(layout)
+// Match receives an already localized transaction date. Date-only bank records
+// must be parsed in the budget timezone, not shifted from midnight UTC.
+func Match(overrides []types.TransactionOverride, amount float64, merchant string, date time.Time) *types.TransactionOverride {
+	if math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 {
+		return nil
+	}
+	for i, o := range overrides {
+		if o.Query == "" || o.Payee == "" {
+			continue
+		}
+		data, _ := json.Marshal(map[string]any{"amount": amount, "merchant": strings.Join(strings.Fields(strings.ToUpper(merchant)), " "), "day": date.Day(), "month": int(date.Month())})
+		var result strings.Builder
+		if err := safeApply(o.Query, data, &result); err != nil {
+			slog.Warn("Invalid override query", "ruleId", o.ID, "ruleName", o.Name, "error", err)
+			continue
+		}
+		if strings.TrimSpace(result.String()) == "true" {
+			slog.Info("Override matched", "ruleId", o.ID, "ruleName", o.Name)
+			return &overrides[i]
+		}
+	}
+	return nil
+}
+
+func safeApply(query string, data []byte, result *strings.Builder) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("invalid JSON Logic: %v", recovered)
+		}
+	}()
+	return jsonlogic.Apply(strings.NewReader(query), bytes.NewReader(data), result)
+}
+
+// RenderMemo renders the admin's Go template contract against a local ISO date.
+func RenderMemo(memo, date string) (string, error) {
+	funcs := template.FuncMap{
+		"formatDate": func(value, layout string) (string, error) {
+			d, err := time.Parse("2006-01-02", value)
+			if err != nil {
+				return "", err
+			}
+			return d.Format(layout), nil
 		},
-		"subtractMonthFromDate": func(months int) time.Time {
-			return date.AddDate(0, -months, 0)
+		"subtractMonthFromDate": func(value string) (string, error) {
+			d, err := time.Parse("2006-01-02", value)
+			if err != nil {
+				return "", err
+			}
+			first := time.Date(d.Year(), d.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -1, 0)
+			last := first.AddDate(0, 1, -1).Day()
+			day := d.Day()
+			if day > last {
+				day = last
+			}
+			return time.Date(first.Year(), first.Month(), day, 0, 0, 0, 0, time.UTC).Format("2006-01-02"), nil
 		},
 	}
-
-	tmpl, err := template.New("memo").Funcs(funcMap).Parse(memoTemplate)
+	tmpl, err := template.New("memo").Option("missingkey=error").Funcs(funcs).Parse(memo)
 	if err != nil {
 		return "", fmt.Errorf("parsing memo template: %w", err)
 	}
-
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, nil); err != nil {
-		return "", fmt.Errorf("executing memo template: %w", err)
+	if err = tmpl.Execute(&buf, map[string]string{"Date": date}); err != nil {
+		return "", fmt.Errorf("rendering memo template: %w", err)
 	}
-
 	return buf.String(), nil
+}
+
+func RenderMemoTemplate(memo string, date time.Time) (string, error) {
+	return RenderMemo(memo, date.Format("2006-01-02"))
 }

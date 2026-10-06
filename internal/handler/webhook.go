@@ -11,10 +11,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 
-	"github.com/nathanfredericks/transactions/internal/config"
 	"github.com/nathanfredericks/transactions/internal/notify"
-	"github.com/nathanfredericks/transactions/internal/override"
-	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 
@@ -49,7 +46,7 @@ func handleIncomingWebhook(ctx context.Context, event events.APIGatewayProxyRequ
 	}
 	slog.Debug("Parsed webhook payload", "payload", payload)
 
-	cfg, err := config.GetConfig(ctx)
+	cfg, err := getConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
 	}
@@ -78,20 +75,20 @@ func handleIncomingWebhook(ctx context.Context, event events.APIGatewayProxyRequ
 
 	slog.Info("Matched notification", "ynabAccountId", matchedNotification.YNABAccountID)
 
-	details, err := service.ExtractTransactionDetails(ctx, payload.Notification)
+	details, err := extractDetails(ctx, payload.Notification)
 	if err != nil {
 		return nil, fmt.Errorf("extracting transaction details: %w", err)
 	}
 	slog.Info("Extracted transaction details", "amount", details.Amount, "merchant", details.Merchant)
 
 	slog.Debug("Scanning DynamoDB for override configurations")
-	overrides, err := override.GetTransactionOverrides(ctx)
+	overrides, err := getOverrides(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting overrides: %w", err)
 	}
 
 	slog.Debug("Searching for applicable override")
-	matchedOverride, err := override.FindOverride(ctx, overrides, details.Amount, details.Merchant, time.Now())
+	matchedOverride, err := findOverride(ctx, overrides, details.Amount, details.Merchant, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("finding override: %w", err)
 	}
@@ -100,7 +97,7 @@ func handleIncomingWebhook(ctx context.Context, event events.APIGatewayProxyRequ
 
 	if matchedOverride != nil {
 		slog.Info("Override matched", "override", matchedOverride)
-		tx, err = service.CreateTransactionWithOverride(
+		tx, err = createWithOverride(
 			ctx, matchedNotification.YNABAccountID, details.Amount, time.Now(), matchedOverride,
 		)
 		if err != nil {
@@ -109,17 +106,17 @@ func handleIncomingWebhook(ctx context.Context, event events.APIGatewayProxyRequ
 	} else {
 		slog.Info("No override applicable")
 
-		payees, err := service.GetPayees(ctx)
+		payees, err := getPayees(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("getting payees: %w", err)
 		}
-		payee, err := service.MatchPayee(ctx, details.Merchant, payees)
+		payee, err := matchPayee(ctx, details.Merchant, payees)
 		if err != nil {
 			return nil, fmt.Errorf("matching payee: %w", err)
 		}
 		slog.Debug("Creating transaction with matched payee", "payee", payee)
 
-		tx, err = service.CreateTransaction(
+		tx, err = createTransaction(
 			ctx, matchedNotification.YNABAccountID, details.Amount, payee, time.Now(), "", "",
 		)
 		if err != nil {
@@ -136,7 +133,7 @@ func handleIncomingWebhook(ctx context.Context, event events.APIGatewayProxyRequ
 		payeeName = *tx.PayeeName
 	}
 
-	err = notify.SendNotification(ctx,
+	err = sendNotification(ctx,
 		fmt.Sprintf("A transaction of %s at %s was approved on your %s.",
 			formattedAmount, payeeName, tx.AccountName),
 		notify.NotificationOptions{

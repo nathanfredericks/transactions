@@ -10,10 +10,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/nathanfredericks/transactions/internal/config"
+	overridepkg "github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 
@@ -67,7 +67,7 @@ func toYNABExpenseMilliunits(amount float64) int64 {
 }
 
 func newYNABClient(ctx context.Context) (*ynabClient, error) {
-	secrets, err := config.GetSecrets(ctx)
+	secrets, err := getSecrets(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting secrets: %w", err)
 	}
@@ -212,7 +212,7 @@ func CheckForRecentTransaction(ctx context.Context, accountID string, amount flo
 
 	targetAmount := toYNABExpenseMilliunits(amount)
 	for _, t := range response.Data.Transactions {
-		if t.Amount == targetAmount {
+		if !t.Deleted && t.Amount == targetAmount {
 			return true, nil
 		}
 	}
@@ -220,7 +220,7 @@ func CheckForRecentTransaction(ctx context.Context, accountID string, amount flo
 }
 
 func formatDate(ctx context.Context, t time.Time) (string, error) {
-	params, err := config.GetParameters(ctx)
+	params, err := getParameters(ctx)
 	if err != nil {
 		return "", fmt.Errorf("getting parameters: %w", err)
 	}
@@ -279,31 +279,10 @@ func CreateTransactionWithOverride(ctx context.Context, accountID string, amount
 		payload.CategoryID = &override.Category
 	}
 	if override.Memo != "" {
-		funcMap := template.FuncMap{
-			"formatDate": func(dateVal string, layout string) string {
-				t, err := time.Parse("2006-01-02", dateVal)
-				if err != nil {
-					return dateVal
-				}
-				return t.Format(layout)
-			},
-			"subtractMonthFromDate": func(dateVal string) string {
-				t, err := time.Parse("2006-01-02", dateVal)
-				if err != nil {
-					return dateVal
-				}
-				return t.AddDate(0, -1, 0).Format("2006-01-02")
-			},
-		}
-		tmpl, err := template.New("memo").Funcs(funcMap).Parse(override.Memo)
+		memoStr, err := overridepkg.RenderMemo(override.Memo, dateStr)
 		if err != nil {
-			return nil, fmt.Errorf("parsing memo template: %w", err)
+			return nil, err
 		}
-		var buf bytes.Buffer
-		if err := tmpl.Execute(&buf, map[string]string{"Date": dateStr}); err != nil {
-			return nil, fmt.Errorf("executing memo template: %w", err)
-		}
-		memoStr := buf.String()
 		payload.Memo = &memoStr
 	}
 

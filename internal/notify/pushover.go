@@ -16,8 +16,10 @@ type NotificationOptions struct {
 	URLTitle string `json:"url_title,omitempty"`
 }
 
+var getSecrets = config.GetSecrets
+
 func SendNotification(ctx context.Context, message string, opts NotificationOptions) error {
-	secrets, err := config.GetSecrets(ctx)
+	secrets, err := getSecrets(ctx)
 	if err != nil {
 		return fmt.Errorf("getting secrets: %w", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	dt "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nathanfredericks/transactions/internal/config"
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/types"
@@ -16,6 +17,16 @@ import (
 	"strings"
 	"time"
 )
+
+var getAccounts = service.GetAccounts
+var getAccountTransactions = service.GetAccountTransactions
+var getOverrides = override.GetTransactionOverrides
+var getParameters = config.GetParameters
+var findOverride = override.FindOverride
+var getPayees = service.GetPayees
+var matchPayee = service.MatchPayee
+var createEQTransaction = service.CreateEQTransaction
+var updateEQTransaction = service.UpdateEQTransaction
 
 const personal = "50ef2940-404a-5073-8472-5e0f6bd3c398"
 const card = "13a60c53-989f-5c2e-88bd-6eddacd972be"
@@ -134,7 +145,7 @@ func (s *Store) process(ctx context.Context, job Job) (any, error) {
 		return nil, err
 	}
 	if !result.Complete {
-		if result.Error == "credentials-rejected" {
+		if result.Error == "credentials-rejected" || result.Error == "challenge-required" {
 			if err := s.put(ctx, "credentials-blocked", map[string]any{"at": time.Now().UTC(), "reason": result.Error}, job.JobID); err != nil {
 				return nil, err
 			}
@@ -144,7 +155,7 @@ func (s *Store) process(ctx context.Context, job Job) (any, error) {
 	if job.Purpose == "maintain-session" {
 		return map[string]any{"missing": false, "maintenance": false, "outcome": "session-ready"}, nil
 	}
-	accounts, err := service.GetAccounts(ctx)
+	accounts, err := getAccounts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +175,7 @@ func (s *Store) process(ctx context.Context, job Job) (any, error) {
 	}
 	snapshots := map[string][]*types.YNABTransaction{}
 	for _, id := range []string{personal, card} {
-		snapshots[id], err = service.GetAccountTransactions(ctx, mapping[id])
+		snapshots[id], err = getAccountTransactions(ctx, mapping[id])
 		if err != nil {
 			return nil, err
 		}
@@ -195,7 +206,7 @@ func (s *Store) process(ctx context.Context, job Job) (any, error) {
 		}
 		return s.notifyOnce(ctx, "review-notification#"+id, "EQ posting matches are ambiguous. Existing pending transactions were retained for review.", "EQ Bank Review Required")
 	}
-	overrides, err := override.GetTransactionOverrides(ctx)
+	overrides, err := getOverrides(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -301,27 +312,38 @@ func (s *Store) process(ctx context.Context, job Job) (any, error) {
 				}
 			}
 			if entry.YNABID == "" {
-				day, _ := time.Parse("2006-01-02", r.Date)
-				rule, e := override.FindOverride(ctx, overrides, math.Abs(float64(r.Amount))/1000, r.Description, day)
+				params, e := getParameters(ctx)
+				if e != nil {
+					return nil, e
+				}
+				loc, e := time.LoadLocation(params.Timezone)
+				if e != nil {
+					return nil, e
+				}
+				day, e := time.ParseInLocation("2006-01-02", r.Date, loc)
+				if e != nil {
+					return nil, e
+				}
+				rule, e := findOverride(ctx, overrides, math.Abs(float64(r.Amount))/1000, r.Description, day)
 				if e != nil {
 					return nil, e
 				}
 				payee := r.Description
 				if rule == nil {
 					if payees == nil {
-						payees, e = service.GetPayees(ctx)
+						payees, e = getPayees(ctx)
 						if e != nil {
 							return nil, e
 						}
 					}
-					payee, e = service.MatchPayee(ctx, r.Description, payees)
+					payee, e = matchPayee(ctx, r.Description, payees)
 					if e != nil {
 						return nil, e
 					}
 				}
 				slog.Info("EQ transaction preview", "account", mapping[r.AccountID], "date", r.Date, "amount", r.Amount, "payee", payee, "status", r.Status, "importId", entry.ImportID, "dryRun", job.DryRun)
 				if !job.DryRun {
-					tx, e := service.CreateEQTransaction(ctx, mapping[r.AccountID], r.Date, r.Amount, payee, entry.ImportID, r.Status, rule)
+					tx, e := createEQTransaction(ctx, mapping[r.AccountID], r.Date, r.Amount, payee, entry.ImportID, r.Status, rule)
 					if e != nil {
 						return nil, e
 					}
@@ -349,7 +371,7 @@ func (s *Store) process(ctx context.Context, job Job) (any, error) {
 					return nil, errors.New("EQ ledger transaction was removed from YNAB; review required")
 				}
 				if !job.DryRun {
-					if _, err = service.UpdateEQTransaction(ctx, tx, r.Date, r.Amount, r.Status); err != nil {
+					if _, err = updateEQTransaction(ctx, tx, r.Date, r.Amount, r.Status); err != nil {
 						return nil, err
 					}
 				}
@@ -416,6 +438,9 @@ func (s *Store) process(ctx context.Context, job Job) (any, error) {
 		}
 	}
 	summary := map[string]any{"version": 1, "jobId": job.JobID, "dryRun": job.DryRun, "records": len(result.Records), "created": created, "adopted": adopted, "updated": updated, "review": review, "missing": missing, "maintenance": false}
+	if received, parseErr := time.Parse(time.RFC3339Nano, job.ReceivedAt); parseErr == nil {
+		summary["elapsedMs"] = time.Since(received).Milliseconds()
+	}
 	if err = s.upload(ctx, "jobs/"+job.JobID+"/preview.json", summary); err != nil {
 		return nil, err
 	}

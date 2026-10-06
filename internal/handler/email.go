@@ -21,14 +21,29 @@ import (
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 
+var (
+	getConfig          = config.GetConfig
+	extractDetails     = service.ExtractTransactionDetails
+	getOverrides       = override.GetTransactionOverrides
+	findOverride       = override.FindOverride
+	createWithOverride = service.CreateTransactionWithOverride
+	recentTransaction  = service.CheckForRecentTransaction
+	getPayees          = service.GetPayees
+	matchPayee         = service.MatchPayee
+	createTransaction  = service.CreateTransaction
+	sendNotification   = notify.SendNotification
+	startEQAlert       = eq.StartAlert
+)
+
 var whitespaceRe = regexp.MustCompile(`\s+`)
 var multiNewlineRe = regexp.MustCompile(`\n{3,}`)
 
 func handleIncomingEmail(ctx context.Context, event events.SNSEvent) (any, error) {
 	slog.Debug("Received SNS event", "event", event)
 
-	env := config.GetEnv()
-
+	if len(event.Records) == 0 {
+		return nil, fmt.Errorf("SNS event has no records")
+	}
 	var notification types.SESNotification
 	if err := json.Unmarshal([]byte(event.Records[0].SNS.Message), &notification); err != nil {
 		return nil, fmt.Errorf("parsing SES notification: %w", err)
@@ -40,23 +55,9 @@ func handleIncomingEmail(ctx context.Context, event events.SNSEvent) (any, error
 	}
 
 	slog.Debug("Fetching S3 object", "key", notification.Mail.MessageID)
-	awsCfg, err := config.GetAWSConfig(ctx)
+	rawEmail, err := fetchEmail(ctx, notification.Mail.MessageID)
 	if err != nil {
-		return nil, fmt.Errorf("loading AWS config: %w", err)
-	}
-	s3Client := s3.NewFromConfig(awsCfg)
-	s3Out, err := s3Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: &env.AWSS3BucketName,
-		Key:    &notification.Mail.MessageID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("fetching email from S3: %w", err)
-	}
-	defer s3Out.Body.Close()
-
-	rawEmail, err := io.ReadAll(s3Out.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading S3 object body: %w", err)
+		return nil, err
 	}
 
 	slog.Debug("Parsing email message")
@@ -83,10 +84,10 @@ func handleIncomingEmail(ctx context.Context, event events.SNSEvent) (any, error
 		if parsed.Subject != "Purchase made on your EQ Bank Card" {
 			return map[string]any{"ignored": true}, nil
 		}
-		return eq.StartAlert(ctx, parsed, text)
+		return startEQAlert(ctx, parsed, text)
 	}
 
-	cfg, err := config.GetConfig(ctx)
+	cfg, err := getConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
 	}
@@ -112,20 +113,20 @@ func handleIncomingEmail(ctx context.Context, event events.SNSEvent) (any, error
 
 	slog.Info("Matched notification", "ynabAccountId", matchedNotification.YNABAccountID)
 
-	details, err := service.ExtractTransactionDetails(ctx, text)
+	details, err := extractDetails(ctx, text)
 	if err != nil {
 		return nil, fmt.Errorf("extracting transaction details: %w", err)
 	}
 	slog.Info("Extracted transaction details", "amount", details.Amount, "merchant", details.Merchant)
 
 	slog.Debug("Scanning DynamoDB for override configurations")
-	overrides, err := override.GetTransactionOverrides(ctx)
+	overrides, err := getOverrides(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting overrides: %w", err)
 	}
 
 	slog.Debug("Searching for applicable override")
-	matchedOverride, err := override.FindOverride(ctx, overrides, details.Amount, details.Merchant, parsed.Date)
+	matchedOverride, err := findOverride(ctx, overrides, details.Amount, details.Merchant, parsed.Date)
 	if err != nil {
 		return nil, fmt.Errorf("finding override: %w", err)
 	}
@@ -134,7 +135,7 @@ func handleIncomingEmail(ctx context.Context, event events.SNSEvent) (any, error
 
 	if matchedOverride != nil {
 		slog.Info("Override matched", "override", matchedOverride)
-		tx, err = service.CreateTransactionWithOverride(
+		tx, err = createWithOverride(
 			ctx, matchedNotification.YNABAccountID, details.Amount, parsed.Date, matchedOverride,
 		)
 		if err != nil {
@@ -143,7 +144,7 @@ func handleIncomingEmail(ctx context.Context, event events.SNSEvent) (any, error
 	} else {
 		slog.Info("No override applicable")
 
-		hasRecent, err := service.CheckForRecentTransaction(ctx, matchedNotification.YNABAccountID, details.Amount, 10)
+		hasRecent, err := recentTransaction(ctx, matchedNotification.YNABAccountID, details.Amount, 10)
 		if err != nil {
 			return nil, fmt.Errorf("checking recent transactions: %w", err)
 		}
@@ -152,17 +153,17 @@ func handleIncomingEmail(ctx context.Context, event events.SNSEvent) (any, error
 			return nil, nil
 		}
 
-		payees, err := service.GetPayees(ctx)
+		payees, err := getPayees(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("getting payees: %w", err)
 		}
-		payee, err := service.MatchPayee(ctx, details.Merchant, payees)
+		payee, err := matchPayee(ctx, details.Merchant, payees)
 		if err != nil {
 			return nil, fmt.Errorf("matching payee: %w", err)
 		}
 		slog.Debug("Creating transaction with matched payee", "payee", payee)
 
-		tx, err = service.CreateTransaction(
+		tx, err = createTransaction(
 			ctx, matchedNotification.YNABAccountID, details.Amount, payee, parsed.Date, "", "",
 		)
 		if err != nil {
@@ -179,7 +180,7 @@ func handleIncomingEmail(ctx context.Context, event events.SNSEvent) (any, error
 		payeeName = *tx.PayeeName
 	}
 
-	err = notify.SendNotification(ctx,
+	err = sendNotification(ctx,
 		fmt.Sprintf("A transaction of %s at %s was approved on your %s.",
 			formattedAmount, payeeName, tx.AccountName),
 		notify.NotificationOptions{
@@ -195,4 +196,28 @@ func handleIncomingEmail(ctx context.Context, event events.SNSEvent) (any, error
 	}
 
 	return tx, nil
+}
+
+var fetchEmail = func(ctx context.Context, messageID string) ([]byte, error) {
+	env := config.GetEnv()
+	awsCfg, err := config.GetAWSConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("loading AWS config: %w", err)
+	}
+	s3Client := s3.NewFromConfig(awsCfg)
+	s3Out, err := s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: &env.AWSS3BucketName,
+		Key:    &messageID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("fetching email from S3: %w", err)
+	}
+	defer s3Out.Body.Close()
+
+	rawEmail, err := io.ReadAll(s3Out.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading S3 object body: %w", err)
+	}
+
+	return rawEmail, nil
 }

@@ -34,14 +34,18 @@ var payeeSchema = map[string]any{
 	"additionalProperties": false,
 }
 
+var getParameters = config.GetParameters
+var getSecrets = config.GetSecrets
+var appleBillingDescriptor = regexp.MustCompile(`(?i)APPLE\.COM/BILL`)
+
 var merchantPrefixRe = regexp.MustCompile(`.+\* `)
 
 func callResponsesAPI(ctx context.Context, instructions string, userMessage string, schemaName string, schema map[string]any) (string, error) {
-	params, err := config.GetParameters(ctx)
+	params, err := getParameters(ctx)
 	if err != nil {
 		return "", fmt.Errorf("getting parameters: %w", err)
 	}
-	secrets, err := config.GetSecrets(ctx)
+	secrets, err := getSecrets(ctx)
 	if err != nil {
 		return "", fmt.Errorf("getting secrets: %w", err)
 	}
@@ -77,13 +81,13 @@ func callResponsesAPI(ctx context.Context, instructions string, userMessage stri
 }
 
 func ExtractTransactionDetails(ctx context.Context, text string) (*types.MerchantAmount, error) {
-	params, err := config.GetParameters(ctx)
+	params, err := getParameters(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting parameters: %w", err)
 	}
 
 	systemPrompt := fmt.Sprintf(
-		"Extract the amount and merchant from the credit card alert. %s are payment processors, not merchants. Do not include them in the merchant.",
+		"Extract the amount and merchant from the credit card alert. %s are payment processors, not merchants. Do not include them in the merchant. Preserve the complete bank merchant descriptor including domains, /BILL, store numbers and suffixes; never replace APPLE.COM/BILL with Apple.",
 		strings.Join(params.PaymentProcessors, ", "),
 	)
 
@@ -95,6 +99,14 @@ func ExtractTransactionDetails(ctx context.Context, text string) (*types.Merchan
 	var result types.MerchantAmount
 	if err := json.Unmarshal([]byte(rawText), &result); err != nil {
 		return nil, fmt.Errorf("parsing merchant amount: %w", err)
+	}
+	// Apple alerts contain a deterministic billing identifier needed to distinguish
+	// subscriptions from other Apple purchases. AI must not erase it.
+	if appleBillingDescriptor.MatchString(text) && strings.Contains(strings.ToUpper(result.Merchant), "APPLE") {
+		result.Merchant = "APPLE.COM/BILL"
+	}
+	if result.Amount <= 0 || strings.TrimSpace(result.Merchant) == "" {
+		return nil, fmt.Errorf("invalid extracted transaction details")
 	}
 	return &result, nil
 }

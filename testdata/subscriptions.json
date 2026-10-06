@@ -1,0 +1,587 @@
+[
+  {
+    "name": "Apple Music",
+    "payeeName": "Apple",
+    "categoryName": "Monthly Subscriptions",
+    "memo": "Apple Music",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "APPLE.COM/BILL",
+            {
+              "var": "merchant"
+            }
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "amount"
+            },
+            6.83
+          ]
+        },
+        {
+          ">=": [
+            {
+              "var": "day"
+            },
+            18
+          ]
+        },
+        {
+          "<=": [
+            {
+              "var": "day"
+            },
+            21
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "AppleCare+ for Apple Watch",
+    "payeeName": "Apple",
+    "categoryName": "Monthly Subscriptions",
+    "memo": "AppleCare+ for Apple Watch",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "APPLE.COM/BILL",
+            {
+              "var": "merchant"
+            }
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "amount"
+            },
+            5.69
+          ]
+        },
+        {
+          ">=": [
+            {
+              "var": "day"
+            },
+            26
+          ]
+        },
+        {
+          "<=": [
+            {
+              "var": "day"
+            },
+            28
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "iCloud+ with 200 GB storage",
+    "payeeName": "Apple",
+    "categoryName": "Monthly Subscriptions",
+    "memo": "iCloud+ with 200 GB storage",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "APPLE.COM/BILL",
+            {
+              "var": "merchant"
+            }
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "amount"
+            },
+            4.55
+          ]
+        },
+        {
+          ">=": [
+            {
+              "var": "day"
+            },
+            26
+          ]
+        },
+        {
+          "<=": [
+            {
+              "var": "day"
+            },
+            28
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "eBike Flow+",
+    "payeeName": "Apple",
+    "categoryName": "Monthly Subscriptions",
+    "memo": "eBike Flow+",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "APPLE.COM/BILL",
+            {
+              "var": "merchant"
+            }
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "amount"
+            },
+            5.69
+          ]
+        },
+        {
+          ">=": [
+            {
+              "var": "day"
+            },
+            15
+          ]
+        },
+        {
+          "<=": [
+            {
+              "var": "day"
+            },
+            17
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "Claude Pro",
+    "payeeName": "Anthropic",
+    "categoryName": "Monthly Subscriptions",
+    "memo": "Claude Pro",
+    "query": {
+      "and": [
+        {
+          "or": [
+            {
+              "in": [
+                "CLAUDE.AI SUBSCRIPTION",
+                {
+                  "var": "merchant"
+                }
+              ]
+            },
+            {
+              "in": [
+                "ANTHROPIC* CLAUDE SUB",
+                {
+                  "var": "merchant"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "amount"
+            },
+            31.92
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "ChatGPT Pro",
+    "payeeName": "OpenAI",
+    "categoryName": "Monthly Subscriptions",
+    "memo": "ChatGPT Pro",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "OPENAI *CHATGPT SUBSCR",
+            {
+              "var": "merchant"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "SoundCloud Go",
+    "payeeName": "SoundCloud",
+    "categoryName": "Monthly Subscriptions",
+    "memo": "SoundCloud Go",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "SOUNDCLOUD MONTHLY GO",
+            {
+              "var": "merchant"
+            }
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "amount"
+            },
+            6.99
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "Mullvad VPN",
+    "payeeName": "Tailscale",
+    "categoryName": "Monthly Subscriptions",
+    "memo": "Mullvad VPN",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "TAILSCALE",
+            {
+              "var": "merchant"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "AppleCare+ for MacBook Air",
+    "payeeName": "Apple",
+    "categoryName": "Annual Subscriptions",
+    "memo": "AppleCare+ for MacBook Air",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "APPLE.COM/BILL",
+            {
+              "var": "merchant"
+            }
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "amount"
+            },
+            96.89
+          ]
+        },
+        {
+          ">=": [
+            {
+              "var": "day"
+            },
+            1
+          ]
+        },
+        {
+          "<=": [
+            {
+              "var": "day"
+            },
+            3
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "month"
+            },
+            8
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "Parcel Premium",
+    "payeeName": "Apple",
+    "categoryName": "Annual Subscriptions",
+    "memo": "Parcel Premium",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "APPLE.COM/BILL",
+            {
+              "var": "merchant"
+            }
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "amount"
+            },
+            7.97
+          ]
+        },
+        {
+          ">=": [
+            {
+              "var": "day"
+            },
+            17
+          ]
+        },
+        {
+          "<=": [
+            {
+              "var": "day"
+            },
+            21
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "month"
+            },
+            8
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "1Password",
+    "payeeName": "1Password",
+    "categoryName": "Annual Subscriptions",
+    "memo": "1Password",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "1PASSWORD",
+            {
+              "var": "merchant"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "Fastmail Individual",
+    "payeeName": "Fastmail",
+    "categoryName": "Annual Subscriptions",
+    "memo": "Fastmail Individual",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "FASTMAIL",
+            {
+              "var": "merchant"
+            }
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "amount"
+            },
+            85.5
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "YNAB",
+    "payeeName": "Apple",
+    "categoryName": "Annual Subscriptions",
+    "memo": "YNAB",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "APPLE.COM/BILL",
+            {
+              "var": "merchant"
+            }
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "amount"
+            },
+            169.86
+          ]
+        },
+        {
+          ">=": [
+            {
+              "var": "day"
+            },
+            25
+          ]
+        },
+        {
+          "<=": [
+            {
+              "var": "day"
+            },
+            29
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "month"
+            },
+            12
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "Apple Developer Program",
+    "payeeName": "Apple",
+    "categoryName": "Annual Subscriptions",
+    "memo": "Apple Developer Program",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "APPLE.COM/CA",
+            {
+              "var": "merchant"
+            }
+          ]
+        },
+        {
+          "in": [
+            {
+              "var": "amount"
+            },
+            [
+              119,
+              16.66,
+              135.66,
+              136.85
+            ]
+          ]
+        },
+        {
+          ">=": [
+            {
+              "var": "day"
+            },
+            1
+          ]
+        },
+        {
+          "<=": [
+            {
+              "var": "day"
+            },
+            20
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "month"
+            },
+            3
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "Walmart Delivery Pass",
+    "payeeName": "Walmart",
+    "categoryName": "Annual Subscriptions",
+    "memo": "Walmart Delivery Pass",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "WALMART DELIVERY PASS",
+            {
+              "var": "merchant"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "Gym locker",
+    "payeeName": "Acadia Box Office",
+    "categoryName": "Annual Subscriptions",
+    "memo": "Gym locker",
+    "query": {
+      "and": [
+        {
+          "in": [
+            "ACADIA UNIV.-BOX OFFIC",
+            {
+              "var": "merchant"
+            }
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "amount"
+            },
+            45.6
+          ]
+        },
+        {
+          ">=": [
+            {
+              "var": "day"
+            },
+            1
+          ]
+        },
+        {
+          "<=": [
+            {
+              "var": "day"
+            },
+            31
+          ]
+        },
+        {
+          "==": [
+            {
+              "var": "month"
+            },
+            5
+          ]
+        }
+      ]
+    }
+  }
+]

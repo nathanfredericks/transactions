@@ -1,0 +1,570 @@
+{
+  "rules": [
+    {
+      "query": "{\"and\":[{\"in\":[\"FAST FUEL\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2024-09-29T13:58:44.366Z",
+      "category": "ec2f829f-938b-5380-bf90-14b58a39a0c2",
+      "memo": "",
+      "payee": "15614fd1-c2d1-5f3f-a8a8-482af7844060",
+      "id": "88902a71-98a7-5da5-8555-b2708ad63c36",
+      "name": "Fast Fuel"
+    },
+    {
+      "query": "{\"and\":[{\"in\":[\"SOBEY'S\",{\"var\":\"merchant\"}]},{\"!\":{\"in\":[\"FAST FUEL\",{\"var\":\"merchant\"}]}}]}",
+      "updatedAt": "2024-09-11T19:56:54.728Z",
+      "category": "",
+      "memo": "",
+      "payee": "00803f57-fdcc-539f-8301-d85fe326adf2",
+      "id": "671b62c1-ac46-5b61-8fdb-23f5f419d8db",
+      "name": "Sobeys"
+    },
+    {
+      "query": "{\"and\":[{\"in\":[\"ELMERS & CASABLA\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2024-09-29T13:58:37.950Z",
+      "category": "3692bf6a-25d7-5104-864c-1f6843e07919",
+      "memo": "",
+      "payee": "b1a9d967-d453-564e-a60f-89ec6a4158fd",
+      "id": "eef93c57-5dc8-560d-a588-56ba09bca2ae",
+      "name": "Joe's Foods Emporium"
+    },
+    {
+      "query": "{\"and\":[{\"in\":[\"GLOOSECAP FIRST\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2024-10-26T05:40:49.724Z",
+      "category": "ec2f829f-938b-5380-bf90-14b58a39a0c2",
+      "payee": "875e9cdd-25fd-52ab-8e5c-d8f777be1b9c",
+      "memo": "",
+      "id": "78413151-60b6-5a54-8c1b-398a5c4f731a",
+      "name": "Glooscap First Nation"
+    },
+    {
+      "query": "{\"and\":[{\"in\":[\"ACADIA STUDENTS\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2024-12-06T02:26:57.943Z",
+      "category": "a8d5c0e5-ace9-5d93-a59a-c1a7b6503c75",
+      "payee": "6d650ef8-77d9-5dee-bdf5-485c7bb70515",
+      "memo": "",
+      "id": "3d22509f-e966-5ab6-b986-c6b30d06f02d",
+      "name": "The Axe"
+    },
+    {
+      "query": "{\"and\":[{\"in\":[\"SH VENDING\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2024-09-29T13:59:34.572Z",
+      "category": "3692bf6a-25d7-5104-864c-1f6843e07919",
+      "memo": "",
+      "payee": "8edf4f55-d9be-5593-b019-6e6af7dda374",
+      "id": "61557b5c-bee0-51e5-aae5-a39a79fcc2e5",
+      "name": "Vending Machine"
+    },
+    {
+      "query": "{\"or\":[{\"in\":[\"NEW MINAS SUPERS\",{\"var\":\"merchant\"}]},{\"in\":[\"KINGSTON SUPERST\",{\"var\":\"merchant\"}]},{\"in\":[\"PC EXPRESS 0344\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2025-03-08T14:54:45.608Z",
+      "category": "",
+      "memo": "",
+      "payee": "dec131be-a041-5b8d-a578-6f50f466aa90",
+      "id": "d924f5ab-23eb-536d-b91c-d06807b179f4",
+      "name": "Real Atlantic Superstore"
+    },
+    {
+      "query": "{\"and\":[{\"in\":[\"NEEDS\",{\"var\":\"merchant\"}]},{\"in\":[\"CAR WASH\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2024-11-18T15:19:34.883Z",
+      "category": "a8d5c0e5-ace9-5d93-a59a-c1a7b6503c75",
+      "memo": "Car wash",
+      "payee": "15614fd1-c2d1-5f3f-a8a8-482af7844060",
+      "id": "34c024bf-d307-5639-8cc4-f303089821a9",
+      "name": "Needs Car Wash"
+    },
+    {
+      "query": "{\"and\":[{\"in\":[\"BOTROW\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2025-02-23T01:34:26.670Z",
+      "category": "a8d5c0e5-ace9-5d93-a59a-c1a7b6503c75",
+      "payee": "6ed365a4-077d-59a7-b041-bb2d5a04bf8d",
+      "memo": "",
+      "id": "b27d4432-1233-59c0-8341-6aaa5937cca3",
+      "name": "Ski Martock"
+    },
+    {
+      "query": "{\"or\":[{\"in\":[\"HEATHER'S YIG\",{\"var\":\"merchant\"}]},{\"in\":[\"WOLFVILLE SAVE E\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2024-09-29T13:57:20.094Z",
+      "category": "",
+      "memo": "",
+      "payee": "b92015ac-5d38-50fe-bfbd-5ee095a913ae",
+      "id": "87934d7c-4532-51ab-bd69-db6ea3f85208",
+      "name": "Independent"
+    },
+    {
+      "query": "{\"and\":[{\"in\":[\"CIRCLE K\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2025-07-21T14:44:15.798Z",
+      "category": "ec2f829f-938b-5380-bf90-14b58a39a0c2",
+      "memo": "",
+      "payee": "ccf9da75-9ced-5f34-976b-b77ae81d5f1d",
+      "id": "37323d3e-7608-5af0-bcbb-bd0d8e463b5e",
+      "name": "Irving"
+    },
+    {
+      "id": "fb09077b-2738-5f07-b0db-026d539c2b29",
+      "name": "Apple Music",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "memo": "Apple Music",
+      "query": "{\"and\":[{\"in\":[\"APPLE.COM/BILL\",{\"var\":\"merchant\"}]},{\"==\":[{\"var\":\"amount\"},6.83]},{\">=\":[{\"var\":\"day\"},18]},{\"<=\":[{\"var\":\"day\"},21]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "44c3558c-6f42-56a4-b2a4-479b9f3bf8c7",
+      "name": "AppleCare+ for Apple Watch",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "memo": "AppleCare+ for Apple Watch",
+      "query": "{\"and\":[{\"in\":[\"APPLE.COM/BILL\",{\"var\":\"merchant\"}]},{\"==\":[{\"var\":\"amount\"},5.69]},{\">=\":[{\"var\":\"day\"},26]},{\"<=\":[{\"var\":\"day\"},28]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "518ed3f2-4459-5f11-83cb-fe781be8878b",
+      "name": "iCloud+ with 200 GB storage",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "memo": "iCloud+ with 200 GB storage",
+      "query": "{\"and\":[{\"in\":[\"APPLE.COM/BILL\",{\"var\":\"merchant\"}]},{\"==\":[{\"var\":\"amount\"},4.55]},{\">=\":[{\"var\":\"day\"},26]},{\"<=\":[{\"var\":\"day\"},28]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "0a3aafff-fb53-5e5d-ab29-c6bac3e833ac",
+      "name": "eBike Flow+",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "memo": "eBike Flow+",
+      "query": "{\"and\":[{\"in\":[\"APPLE.COM/BILL\",{\"var\":\"merchant\"}]},{\"==\":[{\"var\":\"amount\"},5.69]},{\">=\":[{\"var\":\"day\"},15]},{\"<=\":[{\"var\":\"day\"},17]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "7be23827-542d-5418-a7bf-1a102f1ebebd",
+      "name": "Claude Pro",
+      "payee": "94bcbf09-b93f-5d0b-9650-267ebfacbc99",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "memo": "Claude Pro",
+      "query": "{\"and\":[{\"or\":[{\"in\":[\"CLAUDE.AI SUBSCRIPTION\",{\"var\":\"merchant\"}]},{\"in\":[\"ANTHROPIC* CLAUDE SUB\",{\"var\":\"merchant\"}]}]},{\"==\":[{\"var\":\"amount\"},31.92]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "399d8eee-9a2a-5295-b4a0-bb55f9c21174",
+      "name": "ChatGPT Pro",
+      "payee": "70083068-f590-549e-8705-b62b22f06539",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "memo": "ChatGPT Pro",
+      "query": "{\"and\":[{\"in\":[\"OPENAI *CHATGPT SUBSCR\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "7eb4a7cd-a781-5593-b101-367eb3b91b25",
+      "name": "SoundCloud Go",
+      "payee": "20437046-558e-5b01-b5e8-1f4305a5cd5a",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "memo": "SoundCloud Go",
+      "query": "{\"and\":[{\"in\":[\"SOUNDCLOUD MONTHLY GO\",{\"var\":\"merchant\"}]},{\"==\":[{\"var\":\"amount\"},6.99]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "87ac06b3-6ae3-5e1d-a39a-22ad35f972a2",
+      "name": "Mullvad VPN",
+      "payee": "8ecd2c45-05f1-509f-9240-f893c527625e",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "memo": "Mullvad VPN",
+      "query": "{\"and\":[{\"in\":[\"TAILSCALE\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "2f64c63d-8472-55db-84bb-ce9b63087ee9",
+      "name": "AppleCare+ for MacBook Air",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "memo": "AppleCare+ for MacBook Air",
+      "query": "{\"and\":[{\"in\":[\"APPLE.COM/BILL\",{\"var\":\"merchant\"}]},{\"==\":[{\"var\":\"amount\"},96.89]},{\">=\":[{\"var\":\"day\"},1]},{\"<=\":[{\"var\":\"day\"},3]},{\"==\":[{\"var\":\"month\"},8]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "00cce5d9-c390-5295-bd27-a8a58cc77787",
+      "name": "Parcel Premium",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "memo": "Parcel Premium",
+      "query": "{\"and\":[{\"in\":[\"APPLE.COM/BILL\",{\"var\":\"merchant\"}]},{\"==\":[{\"var\":\"amount\"},7.97]},{\">=\":[{\"var\":\"day\"},17]},{\"<=\":[{\"var\":\"day\"},21]},{\"==\":[{\"var\":\"month\"},8]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "a1c962a5-94d2-5302-936e-09ff539a5e43",
+      "name": "1Password",
+      "payee": "c60b1bf6-f43f-5354-870a-7ffbbc449ffe",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "memo": "1Password",
+      "query": "{\"and\":[{\"in\":[\"1PASSWORD\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "0867d4ca-19cd-5f2c-81fe-790f44d0dcaa",
+      "name": "Fastmail Individual",
+      "payee": "a12cdd96-bafc-53ac-83ad-008bff904e98",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "memo": "Fastmail Individual",
+      "query": "{\"and\":[{\"in\":[\"FASTMAIL\",{\"var\":\"merchant\"}]},{\"==\":[{\"var\":\"amount\"},85.5]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "d72e52a0-6427-50a5-8036-f2ba17f4effb",
+      "name": "YNAB",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "memo": "YNAB",
+      "query": "{\"and\":[{\"in\":[\"APPLE.COM/BILL\",{\"var\":\"merchant\"}]},{\"==\":[{\"var\":\"amount\"},169.86]},{\">=\":[{\"var\":\"day\"},25]},{\"<=\":[{\"var\":\"day\"},29]},{\"==\":[{\"var\":\"month\"},12]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "28797951-45cf-5a33-bacb-063cda1dbb07",
+      "name": "Apple Developer Program",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "memo": "Apple Developer Program",
+      "query": "{\"and\":[{\"in\":[\"APPLE.COM/CA\",{\"var\":\"merchant\"}]},{\"in\":[{\"var\":\"amount\"},[119,16.66,135.66,136.85]]},{\">=\":[{\"var\":\"day\"},1]},{\"<=\":[{\"var\":\"day\"},20]},{\"==\":[{\"var\":\"month\"},3]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "2a985b25-4443-5f59-a0b8-08bc2354913b",
+      "name": "Walmart Delivery Pass",
+      "payee": "974ee8e1-d667-5801-88fd-4830f7894649",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "memo": "Walmart Delivery Pass",
+      "query": "{\"and\":[{\"in\":[\"WALMART DELIVERY PASS\",{\"var\":\"merchant\"}]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    },
+    {
+      "id": "fb10ee8e-4ab9-58d0-b4e0-8553b0bc2893",
+      "name": "Gym locker",
+      "payee": "27fd65e5-ac54-535a-81a9-66012123b3e9",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "memo": "Gym locker",
+      "query": "{\"and\":[{\"in\":[\"ACADIA UNIV.-BOX OFFIC\",{\"var\":\"merchant\"}]},{\"==\":[{\"var\":\"amount\"},45.6]},{\">=\":[{\"var\":\"day\"},1]},{\"<=\":[{\"var\":\"day\"},31]},{\"==\":[{\"var\":\"month\"},5]}]}",
+      "updatedAt": "2026-10-06T00:00:00Z"
+    }
+  ],
+  "cases": [
+    {
+      "merchant": "fast fuel 123",
+      "amount": 42,
+      "date": "2026-10-06",
+      "expected": "Fast Fuel",
+      "memo": "",
+      "category": "ec2f829f-938b-5380-bf90-14b58a39a0c2",
+      "payee": "15614fd1-c2d1-5f3f-a8a8-482af7844060"
+    },
+    {
+      "merchant": "sobey's 123",
+      "amount": 42,
+      "date": "2026-10-06",
+      "expected": "Sobeys",
+      "memo": "",
+      "category": "",
+      "payee": "00803f57-fdcc-539f-8301-d85fe326adf2"
+    },
+    {
+      "merchant": "elmers & casabla",
+      "amount": 42,
+      "date": "2026-10-06",
+      "expected": "Joe's Foods Emporium",
+      "memo": "",
+      "category": "3692bf6a-25d7-5104-864c-1f6843e07919",
+      "payee": "b1a9d967-d453-564e-a60f-89ec6a4158fd"
+    },
+    {
+      "merchant": "gloosecap first",
+      "amount": 42,
+      "date": "2026-10-06",
+      "expected": "Glooscap First Nation",
+      "memo": "",
+      "category": "ec2f829f-938b-5380-bf90-14b58a39a0c2",
+      "payee": "875e9cdd-25fd-52ab-8e5c-d8f777be1b9c"
+    },
+    {
+      "merchant": "acadia students",
+      "amount": 42,
+      "date": "2026-10-06",
+      "expected": "The Axe",
+      "memo": "",
+      "category": "a8d5c0e5-ace9-5d93-a59a-c1a7b6503c75",
+      "payee": "6d650ef8-77d9-5dee-bdf5-485c7bb70515"
+    },
+    {
+      "merchant": "sh vending",
+      "amount": 2,
+      "date": "2026-10-06",
+      "expected": "Vending Machine",
+      "memo": "",
+      "category": "3692bf6a-25d7-5104-864c-1f6843e07919",
+      "payee": "8edf4f55-d9be-5593-b019-6e6af7dda374"
+    },
+    {
+      "merchant": "new minas supers",
+      "amount": 42,
+      "date": "2026-10-06",
+      "expected": "Real Atlantic Superstore",
+      "memo": "",
+      "category": "",
+      "payee": "dec131be-a041-5b8d-a578-6f50f466aa90"
+    },
+    {
+      "merchant": "needs car wash",
+      "amount": 12,
+      "date": "2026-10-06",
+      "expected": "Needs Car Wash",
+      "memo": "Car wash",
+      "category": "a8d5c0e5-ace9-5d93-a59a-c1a7b6503c75",
+      "payee": "15614fd1-c2d1-5f3f-a8a8-482af7844060"
+    },
+    {
+      "merchant": "botrow",
+      "amount": 42,
+      "date": "2026-10-06",
+      "expected": "Ski Martock",
+      "memo": "",
+      "category": "a8d5c0e5-ace9-5d93-a59a-c1a7b6503c75",
+      "payee": "6ed365a4-077d-59a7-b041-bb2d5a04bf8d"
+    },
+    {
+      "merchant": "heather's yig",
+      "amount": 42,
+      "date": "2026-10-06",
+      "expected": "Independent",
+      "memo": "",
+      "category": "",
+      "payee": "b92015ac-5d38-50fe-bfbd-5ee095a913ae"
+    },
+    {
+      "merchant": "circle k",
+      "amount": 42,
+      "date": "2026-10-06",
+      "expected": "Irving",
+      "memo": "",
+      "category": "ec2f829f-938b-5380-bf90-14b58a39a0c2",
+      "payee": "ccf9da75-9ced-5f34-976b-b77ae81d5f1d"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 6.83,
+      "date": "2026-10-18",
+      "expected": "Apple Music",
+      "memo": "Apple Music",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 5.69,
+      "date": "2026-10-26",
+      "expected": "AppleCare+ for Apple Watch",
+      "memo": "AppleCare+ for Apple Watch",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 4.55,
+      "date": "2026-10-26",
+      "expected": "iCloud+ with 200 GB storage",
+      "memo": "iCloud+ with 200 GB storage",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 5.69,
+      "date": "2026-10-15",
+      "expected": "eBike Flow+",
+      "memo": "eBike Flow+",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "claude.ai subscription",
+      "amount": 31.92,
+      "date": "2026-10-16",
+      "expected": "Claude Pro",
+      "memo": "Claude Pro",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "94bcbf09-b93f-5d0b-9650-267ebfacbc99"
+    },
+    {
+      "merchant": "openai *chatgpt subscr",
+      "amount": 10,
+      "date": "2026-10-16",
+      "expected": "ChatGPT Pro",
+      "memo": "ChatGPT Pro",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "70083068-f590-549e-8705-b62b22f06539"
+    },
+    {
+      "merchant": "soundcloud monthly go",
+      "amount": 6.99,
+      "date": "2026-10-16",
+      "expected": "SoundCloud Go",
+      "memo": "SoundCloud Go",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "20437046-558e-5b01-b5e8-1f4305a5cd5a"
+    },
+    {
+      "merchant": "tailscale",
+      "amount": 10,
+      "date": "2026-10-16",
+      "expected": "Mullvad VPN",
+      "memo": "Mullvad VPN",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "8ecd2c45-05f1-509f-9240-f893c527625e"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 96.89,
+      "date": "2026-08-01",
+      "expected": "AppleCare+ for MacBook Air",
+      "memo": "AppleCare+ for MacBook Air",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 7.97,
+      "date": "2026-08-17",
+      "expected": "Parcel Premium",
+      "memo": "Parcel Premium",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "1password",
+      "amount": 10,
+      "date": "2026-10-16",
+      "expected": "1Password",
+      "memo": "1Password",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "c60b1bf6-f43f-5354-870a-7ffbbc449ffe"
+    },
+    {
+      "merchant": "fastmail",
+      "amount": 85.5,
+      "date": "2026-10-16",
+      "expected": "Fastmail Individual",
+      "memo": "Fastmail Individual",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "a12cdd96-bafc-53ac-83ad-008bff904e98"
+    },
+    {
+      "merchant": "apple.com/bill",
+      "amount": 169.86,
+      "date": "2026-12-25",
+      "expected": "YNAB",
+      "memo": "YNAB",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "apple.com/ca",
+      "amount": 119,
+      "date": "2026-03-01",
+      "expected": "Apple Developer Program",
+      "memo": "Apple Developer Program",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "walmart delivery pass",
+      "amount": 10,
+      "date": "2026-10-16",
+      "expected": "Walmart Delivery Pass",
+      "memo": "Walmart Delivery Pass",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "974ee8e1-d667-5801-88fd-4830f7894649"
+    },
+    {
+      "merchant": "acadia univ.-box offic",
+      "amount": 45.6,
+      "date": "2026-05-01",
+      "expected": "Gym locker",
+      "memo": "Gym locker",
+      "category": "5f35e2dd-59c7-54e1-b698-54fe9e72a8dd",
+      "payee": "27fd65e5-ac54-535a-81a9-66012123b3e9"
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 5.69,
+      "date": "2026-10-16",
+      "expected": "eBike Flow+",
+      "memo": "eBike Flow+",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 5.69,
+      "date": "2026-10-27",
+      "expected": "AppleCare+ for Apple Watch",
+      "memo": "AppleCare+ for Apple Watch",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "0fe0fef4-b5d5-5083-8d44-81cd52f143c5"
+    },
+    {
+      "merchant": "TAILSCALE",
+      "amount": 8.33,
+      "date": "2026-10-05",
+      "expected": "Mullvad VPN",
+      "memo": "Mullvad VPN",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "8ecd2c45-05f1-509f-9240-f893c527625e"
+    },
+    {
+      "merchant": "TAILSCALE",
+      "amount": 7.95,
+      "date": "2026-10-05",
+      "expected": "Mullvad VPN",
+      "memo": "Mullvad VPN",
+      "category": "0ea8fb40-f857-5694-9c83-f1c9db88b820",
+      "payee": "8ecd2c45-05f1-509f-9240-f893c527625e"
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 39.88,
+      "date": "2026-07-13",
+      "expected": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 13.66,
+      "date": "2026-08-19",
+      "expected": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 5.69,
+      "date": "2026-10-19",
+      "expected": ""
+    },
+    {
+      "merchant": "APPLE.COM/BILL",
+      "amount": 4.56,
+      "date": "2026-10-27",
+      "expected": ""
+    },
+    {
+      "merchant": "APPLE.COM/CA",
+      "amount": 147.06,
+      "date": "2026-08-10",
+      "expected": ""
+    },
+    {
+      "merchant": "OTHER",
+      "amount": 5.69,
+      "date": "2026-10-27",
+      "expected": ""
+    },
+    {
+      "merchant": "TAILSCALE",
+      "amount": 0,
+      "date": "2026-10-05",
+      "expected": ""
+    }
+  ]
+}

@@ -186,6 +186,9 @@ func validate(job Job) error {
 	}
 	return nil
 }
+
+var makeStore = newStore
+
 func Handle(ctx context.Context, raw json.RawMessage) (any, error) {
 	var request Request
 	if err := json.Unmarshal(raw, &request); err != nil {
@@ -196,11 +199,14 @@ func Handle(ctx context.Context, raw json.RawMessage) (any, error) {
 		if request.Job.Purpose == "" {
 			request.Job.Purpose = "retrieve"
 		}
+		if request.Job.ReceivedAt == "" {
+			request.Job.ReceivedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		}
 	}
 	if err := validate(request.Job); err != nil {
 		return nil, err
 	}
-	s, err := newStore(ctx)
+	s, err := makeStore(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -279,6 +285,9 @@ func Handle(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, errors.New("Unsupported EQ internal action")
 	}
 }
+
+var sendNotification = notify.SendNotification
+
 func (s *Store) notifyOnce(ctx context.Context, k, message, title string) error {
 	_, err := s.db.PutItem(ctx, &dynamodb.PutItemInput{TableName: &s.table, Item: key(k), ConditionExpression: aws.String("attribute_not_exists(#key)"), ExpressionAttributeNames: map[string]string{"#key": "key"}})
 	var duplicate *dt.ConditionalCheckFailedException
@@ -293,7 +302,7 @@ func (s *Store) notifyOnce(ctx context.Context, k, message, title string) error 
 		options.Priority = 1
 		options.Sound = "cashregister"
 	}
-	err = notify.SendNotification(ctx, message, options)
+	err = sendNotification(ctx, message, options)
 	if err != nil {
 		// A rejected notification must remain eligible for delivery on a retry.
 		_, cleanup := s.db.DeleteItem(ctx, &dynamodb.DeleteItemInput{TableName: &s.table, Key: key(k)})

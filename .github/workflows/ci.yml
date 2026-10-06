@@ -1,0 +1,55 @@
+name: Test
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: transactions
+      - uses: actions/checkout@v4
+        with:
+          repository: nathanfredericks/transactions-admin
+          path: transactions-admin
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: transactions/go.mod
+          cache-dependency-path: transactions/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: transactions-admin/package-lock.json
+      - name: Go format, vet, race tests, coverage, and builds
+        working-directory: transactions
+        run: |
+          test -z "$(gofmt -l cmd internal)"
+          go vet ./...
+          go test -race -coverprofile=coverage.out ./...
+          go build ./...
+          cd cdk
+          go vet ./...
+          go test ./...
+          go build ./...
+      - name: Admin dependencies and checks
+        working-directory: transactions-admin
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm run test:coverage
+          npm run build
+          npx playwright install --with-deps chromium
+      - name: Cross-repository and browser tests
+        run: transactions/scripts/integration.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            transactions/coverage.out
+            transactions-admin/coverage
+            transactions-admin/playwright-report
+            transactions-admin/test-results

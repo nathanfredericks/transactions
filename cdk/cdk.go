@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/aws/aws-cdk-go/awscdk/v2"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsapigateway"
@@ -166,6 +167,11 @@ func main() {
 	eqBucket.GrantReadWrite(eqFn, nil)
 	table.GrantReadData(eqFn)
 	secret.GrantRead(eqFn, nil)
+	if revision := os.Getenv("TRANSACTIONS_REVISION"); revision != "" {
+		fn.AddEnvironment(jsii.String("DEPLOYMENT_COMMIT"), jsii.String(revision), nil)
+		eqFn.AddEnvironment(jsii.String("DEPLOYMENT_COMMIT"), jsii.String(revision), nil)
+		awscdk.Tags_Of(stack).Add(jsii.String("DeploymentCommit"), jsii.String(revision), nil)
+	}
 	eqFn.AddToRolePolicy(awsiam.NewPolicyStatement(&awsiam.PolicyStatementProps{Actions: &[]*string{jsii.String("ssm:GetParameter"), jsii.String("ssm:GetParameters")}, Resources: &[]*string{jsii.String(ssmBase + "/payment-processors"), jsii.String(ssmBase + "/timezone"), jsii.String(ssmBase + "/openai-endpoint"), jsii.String(ssmBase + "/openai-model")}}))
 	awscdk.NewCfnOutput(stack, jsii.String("EQStateBucket"), &awscdk.CfnOutputProps{Value: eqBucket.BucketName()})
 	awscdk.NewCfnOutput(stack, jsii.String("EQStateTable"), &awscdk.CfnOutputProps{Value: eqTable.TableName()})

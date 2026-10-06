@@ -1,14 +1,12 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"github.com/nathanfredericks/transactions/internal/config"
+	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/types"
 	"net/http"
-	"text/template"
-	"time"
 )
 
 type YNABAccount struct {
@@ -58,31 +56,10 @@ func CreateEQTransaction(ctx context.Context, account, date string, amount int64
 			payload.CategoryID = &rule.Category
 		}
 		if rule.Memo != "" {
-			funcs := template.FuncMap{
-				"formatDate": func(value, layout string) string {
-					d, e := time.Parse("2006-01-02", value)
-					if e != nil {
-						return value
-					}
-					return d.Format(layout)
-				},
-				"subtractMonthFromDate": func(value string) string {
-					d, e := time.Parse("2006-01-02", value)
-					if e != nil {
-						return value
-					}
-					return d.AddDate(0, -1, 0).Format("2006-01-02")
-				},
-			}
-			tmpl, e := template.New("memo").Funcs(funcs).Parse(rule.Memo)
+			memo, e := override.RenderMemo(rule.Memo, date)
 			if e != nil {
 				return nil, e
 			}
-			var buf bytes.Buffer
-			if e = tmpl.Execute(&buf, map[string]string{"Date": date}); e != nil {
-				return nil, e
-			}
-			memo := buf.String()
 			payload.Memo = &memo
 		}
 	}

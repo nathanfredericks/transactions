@@ -3,3 +3,6 @@
 cdk.out
 go.work
 go.work.sum
+
+/cdk/cdk
+/coverage.out
