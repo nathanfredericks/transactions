@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/nathanfredericks/transactions/internal/bank"
+	"github.com/nathanfredericks/transactions/internal/banks"
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/types"
@@ -18,6 +19,7 @@ type Baseline struct {
 	At          time.Time         `json:"at"`
 	Seen        map[string]bool   `json:"seen"`
 	Links       map[string]string `json:"links"`
+	Settlements map[string]Write  `json:"settlements,omitempty"`
 	NewRecords  map[string]bool   `json:"newRecords"`
 	SnapshotKey string            `json:"snapshotKey"`
 }
@@ -131,7 +133,8 @@ func (e *Engine) balances(ctx context.Context, s bank.Snapshot) error {
 		if err = e.put(ctx, "BALANCE#"+a.ID, w, e.Job.ID); err != nil {
 			return err
 		}
-		tx, err := service.CreateBalanceAdjustment(ctx, target.ID, day, amount, e.Settings.AdjustmentPayeeID)
+		registration, _ := banks.Find(e.Job.Bank)
+		tx, err := service.CreateBalanceAdjustment(ctx, target.ID, day, amount, e.Settings.AdjustmentPayeeID, registration.Name)
 		if err != nil {
 			return bank.Fail(bank.Uncertain, "balance-adjustment")
 		}

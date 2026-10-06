@@ -56,13 +56,18 @@ func near(a, b string, days int) bool {
 	return e == nil && math.Abs(aa.Sub(bb).Hours()) <= float64(days*24)
 }
 func samePurchase(a, b Record) bool {
-	if a.AccountID != b.AccountID || a.Amount*b.Amount <= 0 || merchant(a.Description) != merchant(b.Description) || !near(a.Date, b.Date, 14) {
+	if a.AccountID != b.AccountID || a.Amount == 0 || b.Amount == 0 || (a.Amount < 0) != (b.Amount < 0) || !near(a.Date, b.Date, 14) {
 		return false
 	}
+	sameMerchant := merchant(a.Description) == merchant(b.Description)
 	if a.OriginalAmount != nil && b.OriginalAmount != nil && a.OriginalCurrency != nil && b.OriginalCurrency != nil {
-		return *a.OriginalAmount == *b.OriginalAmount && *a.OriginalCurrency == *b.OriginalCurrency
+		// EQ reverses the original-currency sign and can change its trailing
+		// city/country descriptor on posting. The purchase direction above,
+		// original currency/value and merchant (including order number) remain.
+		sameMerchant = sameMerchant || merchant(strings.SplitN(a.Description, ",", 2)[0]) == merchant(strings.SplitN(b.Description, ",", 2)[0])
+		return sameMerchant && (*a.OriginalAmount == *b.OriginalAmount || *a.OriginalAmount == -*b.OriginalAmount) && *a.OriginalCurrency == *b.OriginalCurrency
 	}
-	return a.Amount == b.Amount
+	return sameMerchant && a.Amount == b.Amount
 }
 func exactMatch(a, b Record) bool {
 	if a.AccountID != b.AccountID {
@@ -235,6 +240,26 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			if linked := baseline.Links[r.AccountID+"#"+identity(r)]; linked != "" {
 				entry.YNABID = linked
 				entry.Adopted = true
+				adopted++
+			}
+			if settlement, ok := baseline.Settlements[r.AccountID+"#"+identity(r)]; ok {
+				var existing *types.YNABTransaction
+				for _, tx := range snapshots[r.AccountID] {
+					if tx.ID == settlement.TransactionID && !tx.Deleted {
+						existing = tx
+					}
+				}
+				if existing == nil || existing.AccountID != settlement.AccountID || ((existing.Amount != settlement.Amount || existing.Date != settlement.Date) && (existing.Amount != r.Amount || existing.Date != r.Date)) {
+					return false, bank.Fail(bank.Invalid, "baseline-settlement-changed")
+				}
+				entry.YNABID, entry.Adopted = existing.ID, true
+				amount := settlement.Amount
+				entry.AuthorizationAmount, entry.AuthorizationDate = &amount, settlement.Date
+				if !job.DryRun {
+					if err := s.updateTransaction(ctx, entry.Key, existing, r); err != nil {
+						return false, err
+					}
+				}
 				adopted++
 			}
 

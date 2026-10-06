@@ -80,7 +80,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		return bank.Session{}, bank.Fail(bank.Credentials, "login")
 	}
 	if login.Response.Status == 429 {
-		return bank.Session{}, bank.Fail(bank.Throttled, "login")
+		return bank.Session{}, bank.Throttle("login", bank.SafeHeaders(login.Response.Headers)["retry-after"])
 	}
 	if login.Response.Status != 200 {
 		code := "unrecognized"

@@ -20,6 +20,7 @@ func main() {
 	job := flag.String("job", "", "Durable job ID")
 	payload := flag.String("payload", "", "JSON file containing action payload")
 	function := flag.String("function", "transactions-engine-gateway", "Gateway function")
+	local := flag.Bool("local-preview", false, "Run baseline.preview locally against real saved snapshots and YNAB (read-only)")
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 190*time.Second)
 	defer cancel()
@@ -38,6 +39,20 @@ func main() {
 		check(json.Unmarshal(r.Payload, &j))
 		r.Job = &j
 		r.Payload = nil
+	}
+	if *local {
+		if *action != "baseline.preview" {
+			check(fmt.Errorf("local preview only supports baseline.preview"))
+		}
+		settings, err := config.Load(ctx)
+		check(err)
+		ctx = config.WithInvocationCache(config.WithSettings(ctx, settings))
+		app, err := engine.New(ctx)
+		check(err)
+		value, err := app.Admin(ctx, r)
+		check(err)
+		check(json.NewEncoder(os.Stdout).Encode(value))
+		return
 	}
 	data, err := json.Marshal(r)
 	check(err)

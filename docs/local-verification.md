@@ -64,3 +64,5 @@ AWS_REGION=ca-central-1 go run ./cmd/operator -function transactions-engine-proc
 ```
 
 Repeat for each bank. Compare the private normalized snapshots with browser observations before approving baselines. Verify a real ECS login once after the local selectors are stable. See [cutover](cutover.md) for the remaining gates.
+
+For baseline changes, the operator can run the current Go code locally against a real saved snapshot and current YNAB data without redeploying. Set the normal state table/bucket, settings parameter and application secret ARN environment variables, then add `-local-preview` to `baseline.preview`. This option rejects every other action and cannot approve or import.

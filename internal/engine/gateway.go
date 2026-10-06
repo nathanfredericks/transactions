@@ -47,7 +47,7 @@ func (e *Engine) Submit(ctx context.Context, j Job) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if existing.Bank != j.Bank || existing.Source != j.Source || existing.Purpose != j.Purpose || existing.Text != j.Text || existing.AccountID != j.AccountID || !existing.OccurredAt.Equal(j.OccurredAt) {
+		if existing.Bank != j.Bank || existing.Source != j.Source || existing.Purpose != j.Purpose || existing.DryRun != j.DryRun || existing.MessageID != j.MessageID || existing.AlertAmount != j.AlertAmount || existing.AlertDate != j.AlertDate || existing.Text != j.Text || existing.AccountID != j.AccountID || !existing.OccurredAt.Equal(j.OccurredAt) {
 			return "", bank.Fail(bank.Invalid, "event-id-reused")
 		}
 		if existing.Status == "complete" || existing.Status == "review-required" || existing.Status == "failed" {

@@ -1,6 +1,13 @@
 import { backend } from "../../../utils/backend";
 import { redirect } from "next/navigation";
 export const dynamic = "force-dynamic";
+type Candidate = {
+  id: string;
+  date: string;
+  payee_name: string | null;
+  amount: number;
+  cleared: string;
+};
 type Preview = {
   baseline: { links: Record<string, string>; at: string };
   review: {
@@ -12,13 +19,8 @@ type Preview = {
       date: string;
       status: string;
     };
-    candidates: {
-      id: string;
-      date: string;
-      payee_name: string | null;
-      amount: number;
-      cleared: string;
-    }[];
+    candidates: Candidate[];
+    settlementCandidates: Candidate[];
   }[];
   snapshot: { accounts: { id: string; name: string; balance: number }[] };
   ynabAccounts: Record<string, { name: string; balance: number }>;
@@ -47,10 +49,17 @@ export default async function Baseline({
     try {
       if (form.get("reviewed") !== "yes") throw new Error("Review required");
       const links: Record<string, string> = {};
+      const settlements: Record<string, string> = {};
       const newRecords: string[] = [];
       for (const [index, row] of preview.review.entries()) {
         const decision = form.get(`record-${index}`);
         if (decision === "new") newRecords.push(row.key);
+        else if (
+          typeof decision === "string" &&
+          decision.startsWith("settle:") &&
+          row.settlementCandidates.some((tx) => tx.id === decision.slice(7))
+        )
+          settlements[row.key] = decision.slice(7);
         else if (
           typeof decision === "string" &&
           row.candidates.some((tx) => tx.id === decision)
@@ -60,7 +69,7 @@ export default async function Baseline({
       }
       await backend(
         "baseline.approve",
-        { approved: true, links, newRecords },
+        { approved: true, links, settlements, newRecords },
         { bank: bank!, jobId },
       );
     } catch {
@@ -90,7 +99,9 @@ export default async function Baseline({
       </p>
       <p>
         For each bank transaction, choose its existing YNAB entry or confirm
-        that it is missing. Missing transactions will be imported after cutover.
+        that it is missing. A pending entry can be linked for settlement: its
+        amount, date and cleared status will be updated after cutover while
+        keeping your payee, category and memo. Missing transactions will be imported after cutover.
         Approval itself makes no YNAB changes.
       </p>
       <p>
@@ -124,6 +135,19 @@ export default async function Baseline({
                 />{" "}
                 Already in YNAB: {tx.date} · {tx.payee_name || "Unnamed payee"}{" "}
                 · {money(tx.amount)} · {tx.cleared}
+              </label>
+            ))}
+            {(row.settlementCandidates || []).map((tx) => (
+              <label className="d-block py-2" key={`settle-${tx.id}`}>
+                <input
+                  type="radio"
+                  name={`record-${index}`}
+                  value={`settle:${tx.id}`}
+                  required
+                  aria-describedby={`help-${index}`}
+                />{" "}
+                Settle existing pending entry: {tx.date} · {tx.payee_name || "Unnamed payee"}
+                {" "}· {money(tx.amount)} → {money(row.record.amount)} · mark cleared after cutover
               </label>
             ))}
             <label className="d-block py-2">

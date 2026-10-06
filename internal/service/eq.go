@@ -126,12 +126,12 @@ func ValidateAdjustmentPayee(ctx context.Context, id string) error {
 	}
 	return fmt.Errorf("invalid adjustment payee")
 }
-func CreateBalanceAdjustment(ctx context.Context, account, date string, amount int64, payee string) (*types.YNABTransaction, error) {
+func CreateBalanceAdjustment(ctx context.Context, account, date string, amount int64, payee, bankName string) (*types.YNABTransaction, error) {
 	client, err := newYNABClient(ctx)
 	if err != nil {
 		return nil, err
 	}
-	memo := "Entered automatically from NBDB"
+	memo := "Entered automatically from " + bankName
 	return createTransaction(ctx, client.budgetID, ynabPayloadTransaction{AccountID: account, Date: date, Amount: amount, PayeeID: &payee, Memo: &memo, Cleared: "reconciled", Approved: true})
 }
 

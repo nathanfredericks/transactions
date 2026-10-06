@@ -351,27 +351,29 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := Baseline{At: snapshot.At, Seen: map[string]bool{}, Links: map[string]string{}, NewRecords: map[string]bool{}, SnapshotKey: e.Job.SnapshotKey}
+	b := Baseline{At: snapshot.At, Seen: map[string]bool{}, Links: map[string]string{}, Settlements: map[string]Write{}, NewRecords: map[string]bool{}, SnapshotKey: e.Job.SnapshotKey}
 	unresolved := []bank.Record{}
 	var input struct {
-		Links      map[string]string `json:"links"`
-		NewRecords []string          `json:"newRecords"`
-		Approved   bool              `json:"approved"`
+		Links       map[string]string `json:"links"`
+		Settlements map[string]string `json:"settlements"`
+		NewRecords  []string          `json:"newRecords"`
+		Approved    bool              `json:"approved"`
 	}
 	if len(r.Payload) > 0 && json.Unmarshal(r.Payload, &input) != nil {
 		return nil, bankStateError()
 	}
 	newRecords := map[string]bool{}
 	for _, key := range input.NewRecords {
-		if key == "" || newRecords[key] || input.Links[key] != "" {
+		if key == "" || newRecords[key] || input.Links[key] != "" || input.Settlements[key] != "" {
 			return nil, fmt.Errorf("conflicting baseline decision")
 		}
 		newRecords[key] = true
 	}
 	type reviewRow struct {
-		Key        string                   `json:"key"`
-		Record     bank.Record              `json:"record"`
-		Candidates []*types.YNABTransaction `json:"candidates"`
+		Key                  string                   `json:"key"`
+		Record               bank.Record              `json:"record"`
+		Candidates           []*types.YNABTransaction `json:"candidates"`
+		SettlementCandidates []*types.YNABTransaction `json:"settlementCandidates"`
 	}
 	review := []reviewRow{}
 	transactions := map[string][]*types.YNABTransaction{}
@@ -396,8 +398,12 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 		if registration.Strategy == "posted" {
 			importID = identity(record)
 		}
-		row := reviewRow{Key: key, Record: record, Candidates: []*types.YNABTransaction{}}
+		if input.Settlements[key] != "" && input.Links[key] != "" {
+			return nil, fmt.Errorf("conflicting baseline decision")
+		}
+		row := reviewRow{Key: key, Record: record, Candidates: []*types.YNABTransaction{}, SettlementCandidates: []*types.YNABTransaction{}}
 		linked := ""
+		var settled *types.YNABTransaction
 		for _, tx := range rows {
 			if tx.Deleted {
 				continue
@@ -408,13 +414,24 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 			// Posted entries with the exact import ID may have deliberate user
 			// edits. Show them for explicit review; baseline approval preserves them.
 			selectable := matches || (exact && record.Status == "posted")
+			if registration.Strategy == "reconcile" && record.Status == "posted" && tx.Cleared == "uncleared" {
+				selectable = false
+				foreign := record.OriginalCurrency != nil && *record.OriginalCurrency != "CAD"
+				payeeMatches := tx.PayeeName != nil && merchant(*tx.PayeeName) != "" && (merchant(record.Description) == merchant(*tx.PayeeName) || strings.HasPrefix(merchant(record.Description), merchant(*tx.PayeeName)+" ") || strings.HasPrefix(merchant(record.Description), merchant(*tx.PayeeName)+","))
+				if matches || (foreign && payeeMatches && tx.Amount != 0 && (tx.Amount < 0) == (record.Amount < 0) && near(tx.Date, record.Date, 14)) {
+					row.SettlementCandidates = append(row.SettlementCandidates, tx)
+					if input.Settlements[key] == tx.ID {
+						settled = tx
+					}
+				}
+			}
 			if selectable {
 				row.Candidates = append(row.Candidates, tx)
 			}
 			if exact && newRecords[key] {
 				return nil, fmt.Errorf("existing import conflicts with baseline decision")
 			}
-			if (exact && matches) || (chosen && selectable) {
+			if selectable && ((exact && matches) || chosen) {
 				if linked != "" && linked != tx.ID {
 					return nil, fmt.Errorf("multiple baseline links")
 				}
@@ -424,7 +441,16 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 		if input.Links[key] != "" && linked != input.Links[key] {
 			return nil, fmt.Errorf("invalid baseline link")
 		}
-		if linked != "" {
+		if input.Settlements[key] != "" && settled == nil {
+			return nil, fmt.Errorf("invalid settlement link")
+		}
+		if settled != nil {
+			if used[settled.ID] || linked != "" {
+				return nil, fmt.Errorf("YNAB transaction linked more than once")
+			}
+			used[settled.ID] = true
+			b.Settlements[key] = Write{TransactionID: settled.ID, AccountID: account, Amount: settled.Amount, Date: settled.Date}
+		} else if linked != "" {
 			if used[linked] {
 				return nil, fmt.Errorf("YNAB transaction linked more than once")
 			}
@@ -448,6 +474,11 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 	for key := range newRecords {
 		if !known[key] {
 			return nil, fmt.Errorf("new record not in snapshot")
+		}
+	}
+	for key := range input.Settlements {
+		if !known[key] {
+			return nil, fmt.Errorf("settlement not in snapshot")
 		}
 	}
 	if r.Action == "baseline.preview" {
