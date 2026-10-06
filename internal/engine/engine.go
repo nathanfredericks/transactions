@@ -96,7 +96,7 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 		if err != nil {
 			return out, err
 		}
-		return e.complete(ctx)
+		return e.recovered(ctx, "Transaction imports", health)
 	}
 	registration, ok := banks.Find(e.Job.Bank)
 	if !ok {
@@ -248,24 +248,35 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 			return out, err
 		}
 	}
-	if health.Notified {
+	return e.recovered(ctx, registration.Name, health)
+}
+
+func (e *Engine) recovered(ctx context.Context, name string, health Health) (Outcome, error) {
+	var err error
+	if health.Notified && !e.Job.DryRun {
 		var incident Notification
 		if _, err = e.get(ctx, "NOTICE#incident#"+health.Episode, &incident); err != nil {
-			return out, err
+			return Outcome{}, err
 		}
 		if incident.Status == "sent" {
-			if err = e.notifyOnce(ctx, "recovery#"+health.Episode, registration.Name+" is working again.", registration.Name+" recovered"); err != nil {
-				return out, err
+			if err = e.notifyOnce(ctx, "recovery#"+health.Episode, name+" is working again.", name+" recovered"); err != nil {
+				return Outcome{}, err
 			}
 		} else if incident.ID != "" {
 			incident.Status = "superseded"
 			if err = e.put(ctx, "NOTICE#"+incident.ID, incident, e.Job.ID); err != nil {
-				return out, err
+				return Outcome{}, err
 			}
 		}
 	}
-	if err = e.put(ctx, e.healthKey(), Health{}, e.Job.ID); err != nil {
-		return out, err
+	healthy := Health{}
+	if e.Job.DryRun && health.Notified {
+		// A dry run is quiet, but must not consume the recovery notice owed
+		// to an operator who already received this incident.
+		healthy.Notified, healthy.Episode = true, health.Episode
+	}
+	if err = e.put(ctx, e.healthKey(), healthy, e.Job.ID); err != nil {
+		return Outcome{}, err
 	}
 	return e.complete(ctx)
 }
