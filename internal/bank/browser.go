@@ -128,7 +128,10 @@ func (o *Observer) Diagnostics(hostSuffix string) []map[string]any {
 			continue
 		}
 		operation := path.Base(u.Path)
-		if operation != "summary" && operation != "token" && operation != "authn" && operation != "verify" {
+		if u.Hostname() == "iiroc.investments.apis.bnc.ca" && strings.HasPrefix(u.Path, "/orion-api/") {
+			operation = "wealth-api"
+		}
+		if operation != "wealth-api" && operation != "summary" && operation != "token" && operation != "authn" && operation != "verify" {
 			continue
 		}
 		status := 0
@@ -213,15 +216,14 @@ func enterText(p *rod.Page, selector, value string, typed bool) error {
 		return Fail(Challenge, "input-selection")
 	}
 	if typed {
-		for _, character := range value {
-			if character >= 32 && character <= 126 {
-				e = el.Type(input.Key(character))
-			} else {
-				e = el.Input(string(character))
-			}
-			if e != nil {
-				return Fail(Challenge, "input")
-			}
+		if e = el.WaitEnabled(); e == nil {
+			e = el.WaitWritable()
+		}
+		if e == nil {
+			e = typeText(p, value)
+		}
+		if e != nil {
+			return Fail(Temporary, "input-events")
 		}
 	} else if e = el.Input(value); e != nil {
 		return Fail(Challenge, "input")
@@ -229,6 +231,68 @@ func enterText(p *rod.Page, selector, value string, typed bool) error {
 	entered, e := el.Property("value")
 	if e != nil || entered.Str() != value {
 		return Fail(Challenge, "input-value")
+	}
+	return nil
+}
+
+// Use Rod's key mapping instead of reimplementing CDP key codes. These bounded
+// timings sit within CloakBrowser 0.3.25's careful preset; no simulated mistakes
+// or synthetic page keyboard events are used for credentials.
+func typeText(p *rod.Page, value string) error {
+	wait := func(duration time.Duration) error {
+		timer := time.NewTimer(duration)
+		defer timer.Stop()
+		select {
+		case <-p.GetContext().Done():
+			return p.GetContext().Err()
+		case <-timer.C:
+			return nil
+		}
+	}
+	if err := wait(time.Second); err != nil {
+		return err
+	}
+	// Clear the selected value even when the requested replacement is empty.
+	if err := p.Keyboard.Type(input.Backspace); err != nil {
+		return err
+	}
+	for _, character := range value {
+		if character < 32 || character > 126 {
+			if err := p.InsertText(string(character)); err != nil {
+				return err
+			}
+		} else {
+			shift := character >= 'A' && character <= 'Z' || strings.ContainsRune("~!@#$%^&*()_+{}|:\"<>?", character)
+			if shift {
+				if err := p.Keyboard.Press(input.ShiftLeft); err != nil {
+					return err
+				}
+				if err := wait(60 * time.Millisecond); err != nil {
+					return err
+				}
+			}
+			key := input.Key(character)
+			if err := p.Keyboard.Press(key); err != nil {
+				return err
+			}
+			if err := wait(30 * time.Millisecond); err != nil {
+				return err
+			}
+			if err := p.Keyboard.Release(key); err != nil {
+				return err
+			}
+			if shift {
+				if err := wait(50 * time.Millisecond); err != nil {
+					return err
+				}
+				if err := p.Keyboard.Release(input.ShiftLeft); err != nil {
+					return err
+				}
+			}
+		}
+		if err := wait(100 * time.Millisecond); err != nil {
+			return err
+		}
 	}
 	return nil
 }

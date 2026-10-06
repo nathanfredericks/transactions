@@ -48,7 +48,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	if e = bank.Type(p, "#username", a.Dependencies.Credentials.Username); e != nil {
 		return bank.Session{}, e
 	}
-	if e = bank.Input(p, "#password-hidden", a.Dependencies.Credentials.Password); e != nil {
+	if e = bank.Type(p, "#password-hidden", a.Dependencies.Credentials.Password); e != nil {
 		return bank.Session{}, e
 	}
 	// The update notice can arrive while the credentials are being entered,
@@ -110,7 +110,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		if e != nil {
 			return bank.Session{}, e
 		}
-		if e = bank.Input(p, `input[id="validation-code"], input[autocomplete="one-time-code"], input[name="passCode"]`, code); e != nil {
+		if e = bank.Type(p, `input[id="validation-code"], input[autocomplete="one-time-code"], input[name="passCode"]`, code); e != nil {
 			return bank.Session{}, e
 		}
 		stage = "email-confirm"
@@ -133,7 +133,18 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 			discovery, captured = o.Latest(func(v bank.Exchange) bool {
 				// Native Fetch validates the expected accounts before saving the session,
 				// even if the web app's own portfolio request fails.
-				return v.Request.Method == "GET" && strings.HasPrefix(v.Request.URL, summary)
+				if !strings.HasPrefix(v.Request.URL, "https://iiroc.investments.apis.bnc.ca/orion-api/") {
+					return false
+				}
+				// Portfolio navigation varies between sessions. Any authenticated
+				// wealth request carries the same API headers; native account-only
+				// validation remains the authority for accepting this session.
+				for name, value := range v.Request.Headers {
+					if strings.EqualFold(name, "authorization") && strings.HasPrefix(value.Str(), "Bearer ") {
+						return true
+					}
+				}
+				return false
 			})
 			if captured {
 				break
