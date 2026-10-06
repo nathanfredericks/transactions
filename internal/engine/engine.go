@@ -391,6 +391,10 @@ func (e *Engine) renew(ctx context.Context, adapter bank.Adapter, session bank.S
 		"expiryExtended", renewed.ExpiresAt.After(oldExpiry))
 	if err != nil {
 		failure := bank.Classify(err)
+		// Keep the safe underlying category and operation when a renewal is
+		// held for review; never log exchange bodies or authentication material.
+		slog.Warn("session-renewal-failed", "bank", e.Job.Bank, "kind", failure.Kind,
+			"operation", failure.Operation, "exchangeUncertain", failure.ExchangeUncertain)
 		if failure.ExchangeUncertain || failure.Kind == bank.Invalid {
 			renewed.RenewalUncertain = true
 			return renewed, bank.Fail(bank.Invalid, "renewal-outcome-unknown")

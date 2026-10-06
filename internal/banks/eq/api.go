@@ -22,7 +22,11 @@ type auth struct {
 }
 
 func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, error) {
-	if !s.MaximumExpiresAt.IsZero() && !s.MaximumExpiresAt.After(time.Now()) {
+	// EQ's observed renewal flow extends a still-valid access token. Once it
+	// expires, start a fresh browser session instead of sending an expired
+	// bearer to the exchange and turning a normal expiry into a review hold.
+	if (!s.ExpiresAt.IsZero() && !s.ExpiresAt.After(time.Now())) ||
+		(!s.MaximumExpiresAt.IsZero() && !s.MaximumExpiresAt.After(time.Now())) {
 		return s, bank.Fail(bank.Authentication, "renew")
 	}
 	var c auth

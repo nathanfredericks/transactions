@@ -1,3 +1,9 @@
 {
-  "app": "go run ./cdk"
+  "app": "go run ./cdk",
+  "context": {
+    "activate": "true",
+    "repository": "https://github.com/nathanfredericks/transactions",
+    "githubTokenSecretArn": "transactions-engine/github",
+    "adminBranch": "codex/shared-bank-engine"
+  }
 }
