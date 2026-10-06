@@ -201,6 +201,9 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			competing := 0
 			for _, other := range result.Records {
 				if other.Status == "posted" && samePurchase(other, r) {
+					if baseline.Seen[other.AccountID+"#"+identity(other)] {
+						continue
+					}
 					known := false
 					for _, e := range entries {
 						if e.Record.Status == "posted" && exactMatch(e.Record, other) {
