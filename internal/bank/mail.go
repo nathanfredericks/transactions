@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/k3a/html2text"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -22,6 +23,11 @@ type MailChallenge struct {
 }
 
 func ReadCode(ctx context.Context, token string, c MailChallenge) (string, error) {
+	// Fastmail receivedAt is observed at whole-second precision. Keep the
+	// same precision on both sides so a fast code in the request's second
+	// is not discarded as older than a fractional-second client timestamp.
+	c.After = c.After.UTC().Truncate(time.Second)
+	slog.Info("email verification waiting", "sender", c.Sender, "after", c.After)
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	client := &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -143,7 +149,7 @@ func ReadCode(ctx context.Context, token string, c MailChallenge) (string, error
 		}
 		select {
 		case <-ctx.Done():
-			return "", Fail(Challenge, "email-code-timeout")
+			return "", Fail(Temporary, "email-code-timeout")
 		case <-ticker.C:
 		}
 	}
