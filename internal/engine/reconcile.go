@@ -269,12 +269,22 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			if entry.YNABID == "" {
 				// Recover from a write which succeeded before the ledger was committed.
 				for _, t := range snapshots[r.AccountID] {
+					if t.Deleted && t.ImportID != nil && *t.ImportID == entry.ImportID {
+						return false, bank.Fail(bank.Invalid, "previous-import-missing")
+					}
 					if !t.Deleted && t.ImportID != nil && *t.ImportID == entry.ImportID {
 						entry.YNABID = t.ID
 					}
 				}
 			}
 			if entry.YNABID == "" {
+				var previous Write
+				if _, err := s.get(ctx, "WRITE#"+entry.Key, &previous); err != nil {
+					return false, err
+				}
+				if previous.Status != "" {
+					return false, bank.Fail(bank.Uncertain, "transaction-write")
+				}
 				params, e := getParameters(ctx)
 				if e != nil {
 					return false, e
@@ -306,14 +316,33 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 				}
 				slog.Info("EQ transaction preview", "account", mapping[r.AccountID], "date", r.Date, "amount", r.Amount, "payee", payee, "status", r.Status, "importId", entry.ImportID, "dryRun", job.DryRun)
 				if !job.DryRun {
+					intent := Write{Status: "started", AccountID: mapping[r.AccountID], Amount: r.Amount, Date: r.Date, ImportID: entry.ImportID}
+					if err := s.put(ctx, "WRITE#"+entry.Key, intent, job.ID); err != nil {
+						return false, err
+					}
 					tx, e := createEQTransaction(ctx, mapping[r.AccountID], r.Date, r.Amount, payee, entry.ImportID, r.Status, rule)
 					if e != nil {
-						return false, bank.Fail(bank.Uncertain, "transaction-write")
+						return false, writeFailure(e, "transaction-write")
 					}
 					entry.YNABID = tx.ID
+					intent.Status, intent.TransactionID = "complete", tx.ID
+					if err := s.put(ctx, "WRITE#"+entry.Key, intent, job.ID); err != nil {
+						return false, err
+					}
 					snapshots[r.AccountID] = append(snapshots[r.AccountID], tx)
 				}
 				created++
+			}
+			if !job.DryRun && entry.YNABID != "" {
+				var previous Write
+				if found, err := s.get(ctx, "WRITE#"+entry.Key, &previous); err != nil {
+					return false, err
+				} else if found && previous.Status == "started" {
+					previous.Status, previous.TransactionID = "complete", entry.YNABID
+					if err := s.put(ctx, "WRITE#"+entry.Key, previous, job.ID); err != nil {
+						return false, err
+					}
+				}
 			}
 			entries = append(entries, entry)
 		} else {

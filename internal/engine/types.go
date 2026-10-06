@@ -69,6 +69,7 @@ type BrowserResult struct {
 	SessionKey string        `json:"sessionKey,omitempty"`
 }
 type Health struct {
+	ImportReview     bool      `json:"importReview,omitempty"`
 	Blocked          bool      `json:"blocked"`
 	Kind             bank.Kind `json:"kind"`
 	Failures         int       `json:"failures"`

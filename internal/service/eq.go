@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/nathanfredericks/transactions/internal/bank"
 
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/types"
@@ -41,7 +43,7 @@ func GetAccountTransactions(ctx context.Context, account string) ([]*types.YNABT
 			Transactions []*types.YNABTransaction `json:"transactions"`
 		} `json:"data"`
 	}
-	err = client.do(ctx, http.MethodGet, fmt.Sprintf("/budgets/%s/accounts/%s/transactions", client.budgetID, account), nil, &response)
+	err = client.do(ctx, http.MethodGet, fmt.Sprintf("/budgets/%s/accounts/%s/transactions?last_knowledge_of_server=0", client.budgetID, account), nil, &response)
 	return response.Data.Transactions, err
 }
 func CreateEQTransaction(ctx context.Context, account, date string, amount int64, payee, importID, status string, rule *types.TransactionOverride) (*types.YNABTransaction, error) {
@@ -80,6 +82,9 @@ func CreateEQTransaction(ctx context.Context, account, date string, amount int64
 				return t, nil
 			}
 		}
+	}
+	if lookupErr == nil && errors.Is(err, errDuplicateImport) {
+		return nil, bank.Fail(bank.Invalid, "previous-import-missing")
 	}
 	return nil, err
 }

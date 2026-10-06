@@ -405,10 +405,13 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 		linked := ""
 		var settled *types.YNABTransaction
 		for _, tx := range rows {
+			exact := tx.ImportID != nil && *tx.ImportID == importID
 			if tx.Deleted {
+				if exact && newRecords[key] {
+					return nil, fmt.Errorf("previously deleted import requires an explicit restoration or exclusion review")
+				}
 				continue
 			}
-			exact := tx.ImportID != nil && *tx.ImportID == importID
 			chosen := input.Links[key] != "" && input.Links[key] == tx.ID
 			matches := tx.Amount == record.Amount && near(tx.Date, record.Date, 14)
 			// Posted entries with the exact import ID may have deliberate user

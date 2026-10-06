@@ -252,6 +252,10 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 }
 
 func (e *Engine) recovered(ctx context.Context, name string, health Health) (Outcome, error) {
+	// Successful authentication cannot resolve an outstanding financial review.
+	if e.Job.Purpose == "maintain-session" && health.ImportReview {
+		return e.complete(ctx)
+	}
 	var err error
 	if health.Notified && !e.Job.DryRun {
 		var incident Notification
@@ -292,6 +296,9 @@ func (e *Engine) failure(ctx context.Context, cause error) (Outcome, error) {
 		return e.outcome("failed", 0), err
 	}
 	health.Failures++
+	if e.Job.Purpose == "retrieve" && (f.Kind == bank.Invalid || f.Kind == bank.Uncertain) {
+		health.ImportReview = true
+	}
 	health.Kind = f.Kind
 	if health.Episode == "" {
 		health.Episode = e.Job.ID
@@ -344,6 +351,9 @@ func (e *Engine) failure(ctx context.Context, cause error) (Outcome, error) {
 			message = "YNAB may have accepted a write from " + name + ", but confirmation was lost. Review the identified operation before allowing another write. [uncertain-write]"
 		}
 
+		if f.Operation == "previous-import-missing" {
+			message = "YNAB remembers this import, but its transaction was deleted or is no longer available. Review whether to restore or exclude it before importing again. [previous-import-missing]"
+		}
 		if err := e.notifyOnce(ctx, "incident#"+health.Episode, message, "Bank requires attention"); err != nil {
 			return e.outcome("failed", 0), err
 		}

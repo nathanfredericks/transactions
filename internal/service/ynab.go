@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -26,6 +27,8 @@ type ynabClient struct {
 	budgetID    string
 	httpClient  *http.Client
 }
+
+var errDuplicateImport = errors.New("YNAB retained the import identity")
 
 type ynabErrorResponse struct {
 	APIError *struct {
@@ -147,8 +150,9 @@ func createTransaction(ctx context.Context, budgetID string, payload ynabPayload
 
 	response := struct {
 		Data struct {
-			Transaction  *types.YNABTransaction   `json:"transaction"`
-			Transactions []*types.YNABTransaction `json:"transactions"`
+			DuplicateImportIDs []string                 `json:"duplicate_import_ids"`
+			Transaction        *types.YNABTransaction   `json:"transaction"`
+			Transactions       []*types.YNABTransaction `json:"transactions"`
 		} `json:"data"`
 	}{}
 
@@ -162,6 +166,11 @@ func createTransaction(ctx context.Context, budgetID string, payload ynabPayload
 	}
 	if len(response.Data.Transactions) > 0 {
 		return response.Data.Transactions[0], nil
+	}
+	for _, id := range response.Data.DuplicateImportIDs {
+		if payload.ImportID != nil && id == *payload.ImportID {
+			return nil, errDuplicateImport
+		}
 	}
 	return nil, fmt.Errorf("ynab api returned no created transaction")
 }

@@ -32,6 +32,13 @@ type Write struct {
 	ImportID      string `json:"importId,omitempty"`
 }
 
+func writeFailure(cause error, operation string) error {
+	if bank.Classify(cause).Kind == bank.Invalid {
+		return cause
+	}
+	return bank.Fail(bank.Uncertain, operation)
+}
+
 func bankStateError() error { return bank.Fail(bank.Invalid, "state") }
 func (e *Engine) mapping(ctx context.Context, s bank.Snapshot) (map[string]service.YNABAccount, error) {
 	all, err := service.GetAccounts(ctx)
@@ -86,6 +93,27 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error 
 		if previous.Status == "complete" {
 			continue
 		}
+		if previous.Status == "started" {
+			rows, err := service.GetAccountTransactions(ctx, target.ID)
+			if err != nil {
+				return err
+			}
+			for _, tx := range rows {
+				if !tx.Deleted && tx.ImportID != nil && *tx.ImportID == id {
+					previous.Status, previous.TransactionID = "complete", tx.ID
+					break
+				}
+			}
+			if previous.Status != "complete" {
+				return bank.Fail(bank.Uncertain, "transaction-write")
+			}
+			if !e.Job.DryRun {
+				if err := e.put(ctx, operation, previous, e.Job.ID); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if e.Job.DryRun {
 			continue
 		}
@@ -94,7 +122,7 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error 
 		}
 		tx, err := service.CreateEQTransaction(ctx, target.ID, r.Date, r.Amount, r.Description, id, "posted", nil)
 		if err != nil {
-			return bank.Fail(bank.Uncertain, "transaction-write")
+			return writeFailure(err, "transaction-write")
 		}
 		if err = e.put(ctx, operation, Write{Status: "complete", TransactionID: tx.ID, ImportID: id}, e.Job.ID); err != nil {
 			return err
@@ -210,7 +238,7 @@ func (e *Engine) notificationImport(ctx context.Context) error {
 	}
 	tx, err := service.CreateEQTransaction(ctx, e.Job.AccountID, date, amount, payee, importID, "pending", rule)
 	if err != nil {
-		return bank.Fail(bank.Uncertain, "notification-import")
+		return writeFailure(err, "notification-import")
 	}
 	return e.completeNotification(ctx, key, importID, tx, payee)
 }
