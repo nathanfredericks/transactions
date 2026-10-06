@@ -115,9 +115,11 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	slog.Info("NBDB verification submitted")
 	// New profiles can show two informational welcome screens after MFA.
 	for _, label := range []string{`^Start using online trading$`, `^Continue to my portfolio$`} {
-		if _, e = bank.ClickIfPresent(p, "button,a", label, 8*time.Second); e != nil {
-			return bank.Session{}, e
+		clicked, clickErr := bank.ClickIfPresent(p, "button,a", label, 15*time.Second)
+		if clickErr != nil {
+			return bank.Session{}, clickErr
 		}
+		slog.Info("NBDB welcome screen", "control", label, "clicked", clicked)
 	}
 	stage = "account-capture"
 	discovery, e := o.Wait(ctx, func(v bank.Exchange) bool {
