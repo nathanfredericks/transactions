@@ -40,7 +40,7 @@ Go build/vet, Go CDK build/vet, admin typecheck/lint/build, CDK inspection and p
 
 The deployed architecture has two application Lambdas, one Step Functions workflow, one on-demand browser task definition, four schedules and no NAT gateway. The repository's CDK context now retains production activation so a later normal deployment does not silently disable schedules.
 
-Old bank schedules and maintenance were paused. At 23:04:31 UTC, SES routing switched to the new private email bucket with imports disabled, preserving incoming messages as durable paused jobs. Old workflows drained before the five old runtime Lambdas were disabled. Original settings are retained privately for pre-import rollback; after new writes, any rollback requires reconciliation.
+Old bank schedules and maintenance were paused. At 23:04:31 UTC, SES routing switched to the new private email bucket with imports disabled, preserving incoming messages as durable paused jobs. Old workflows drained before the five old runtime Lambdas were disabled. Original settings were retained privately for pre-import rollback, then deleted with the recovery assets at the user’s request; after new writes, any rollback requires reconciliation.
 
 The webhook is no longer used, as confirmed by the user. No sender migration is required. The temporary Codex health-check automation was deleted at the user's request; no recurring Codex monitor remains.
 
