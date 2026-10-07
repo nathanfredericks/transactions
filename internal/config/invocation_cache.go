@@ -9,9 +9,7 @@ import (
 type invocationCacheKey struct{}
 
 type invocationCache struct {
-	config     *types.Config
-	parameters *types.Parameters
-	secrets    *types.Secrets
+	secrets *types.Secrets
 }
 
 func WithInvocationCache(ctx context.Context) context.Context {

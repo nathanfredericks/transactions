@@ -49,7 +49,7 @@ func main() {
 	table := res("State", "AWS::DynamoDB::Table", M{"BillingMode": "PAY_PER_REQUEST", "AttributeDefinitions": []M{{"AttributeName": "pk", "AttributeType": "S"}, {"AttributeName": "sk", "AttributeType": "S"}}, "KeySchema": []M{{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}}, "PointInTimeRecoverySpecification": M{"PointInTimeRecoveryEnabled": true}, "SSESpecification": M{"SSEEnabled": true}})
 	retain(table)
 	bucketName := "transactions-engine-private-187489282488-ca-central-1"
-	bucket := res("PrivateState", "AWS::S3::Bucket", M{"BucketName": bucketName, "BucketEncryption": M{"ServerSideEncryptionConfiguration": []M{{"ServerSideEncryptionByDefault": M{"SSEAlgorithm": "AES256"}}}}, "PublicAccessBlockConfiguration": M{"BlockPublicAcls": true, "BlockPublicPolicy": true, "IgnorePublicAcls": true, "RestrictPublicBuckets": true}, "VersioningConfiguration": M{"Status": "Enabled"}, "LifecycleConfiguration": M{"Rules": []M{{"Id": "sessions", "Prefix": "sessions/", "Status": "Enabled", "ExpirationInDays": 7}, {"Id": "incoming", "Prefix": "incoming/", "Status": "Enabled", "ExpirationInDays": 30}, {"Id": "diagnostics", "Prefix": "diagnostics/", "Status": "Enabled", "ExpirationInDays": 7}, {"Id": "snapshots", "Prefix": "snapshots/", "Status": "Enabled", "ExpirationInDays": 90}, {"Id": "oldVersions", "Status": "Enabled", "NoncurrentVersionExpiration": M{"NoncurrentDays": 7}}}}})
+	bucket := res("PrivateState", "AWS::S3::Bucket", M{"BucketName": bucketName, "BucketEncryption": M{"ServerSideEncryptionConfiguration": []M{{"ServerSideEncryptionByDefault": M{"SSEAlgorithm": "AES256"}}}}, "PublicAccessBlockConfiguration": M{"BlockPublicAcls": true, "BlockPublicPolicy": true, "IgnorePublicAcls": true, "RestrictPublicBuckets": true}, "VersioningConfiguration": M{"Status": "Enabled"}, "LifecycleConfiguration": M{"Rules": []M{{"Id": "sessions", "Prefix": "sessions/", "Status": "Enabled", "ExpirationInDays": 7}, {"Id": "incoming", "Prefix": "incoming/", "Status": "Enabled", "ExpirationInDays": 30}, {"Id": "diagnostics", "Prefix": "diagnostics/", "Status": "Enabled", "ExpirationInDays": 7}, {"Id": "snapshots", "Prefix": "snapshots/", "Status": "Enabled", "ExpirationInDays": 90}, {"Id": "retired", "Prefix": "retired/", "Status": "Enabled", "ExpirationInDays": 90}, {"Id": "oldVersions", "Status": "Enabled", "NoncurrentVersionExpiration": M{"NoncurrentDays": 7}}}}})
 	retain(bucket)
 	failures := res("DeliveryFailures", "AWS::SQS::Queue", M{"MessageRetentionPeriod": 1209600, "SqsManagedSseEnabled": true})
 	retain(failures)
@@ -70,6 +70,12 @@ func main() {
 	allow := func(actions []string, resources ...any) M {
 		return M{"Effect": "Allow", "Action": actions, "Resource": resources}
 	}
+	// This account-wide logging role also serves unrelated REST APIs. Own it
+	// here so retiring TransactionsStack cannot strand their logging access.
+	apiLoggingRole := role("APIGatewayLoggingRole", "apigateway.amazonaws.com", []M{allow([]string{"logs:CreateLogGroup", "logs:CreateLogStream", "logs:DescribeLogGroups", "logs:DescribeLogStreams", "logs:PutLogEvents", "logs:GetLogEvents", "logs:FilterLogEvents"}, "*")})
+	apiLoggingAccount := res("APIGatewayLoggingAccount", "AWS::ApiGateway::Account", M{"CloudWatchRoleArn": att(apiLoggingRole, "Arn")})
+	retain(apiLoggingRole)
+	retain(apiLoggingAccount)
 	workflowARN := "arn:aws:states:ca-central-1:187489282488:stateMachine:transactions-engine"
 	common := []M{allow([]string{"dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:Query", "dynamodb:TransactWriteItems", "dynamodb:ConditionCheckItem"}, att(table, "Arn")), allow([]string{"ssm:GetParameter"}, sub("arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/transactions-engine/settings")), allow([]string{"logs:CreateLogStream", "logs:PutLogEvents"}, sub("arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/transactions-engine/*:*"))}
 	objectArn := "arn:aws:s3:::" + bucketName + "/*"
@@ -164,12 +170,33 @@ func main() {
 		adminPassword := res("AdminPassword", "AWS::SecretsManager::Secret", M{"Name": "transactions-engine/admin-password", "GenerateSecretString": M{"PasswordLength": 32, "ExcludePunctuation": true}})
 		retain(adminPassword)
 		adminPassword.CfnOptions().SetDeletionPolicy(awscdk.CfnDeletionPolicy_RETAIN_EXCEPT_ON_CREATE)
-		admin := res("Admin", "AWS::Amplify::App", M{"Name": "Transactions Engine Admin", "BasicAuthConfig": M{"EnableBasicAuth": true, "Username": "operator", "Password": sub("{{resolve:secretsmanager:${AdminPassword}:SecretString}}")}, "Platform": "WEB_COMPUTE", "Repository": repo, "AccessToken": fmt.Sprintf("{{resolve:secretsmanager:%v:SecretString:token}}", token), "ComputeRoleArn": att(adminRole, "Arn"), "EnvironmentVariables": []M{{"Name": "BACKEND_FUNCTION", "Value": gateway.Ref()}, {"Name": "AMPLIFY_MONOREPO_APP_ROOT", "Value": "admin"}}, "BuildSpec": "version: 1\napplications:\n  - appRoot: admin\n    frontend:\n      phases:\n        preBuild:\n          commands:\n            - npm ci\n        build:\n          commands:\n            - echo \"BACKEND_FUNCTION=$BACKEND_FUNCTION\" >> .env.production\n            - npm run build\n      artifacts:\n        baseDirectory: .next\n        files:\n          - '**/*'\n      cache:\n        paths:\n          - node_modules/**/*\n"})
+		username := app.Node().TryGetContext(jsii.String("adminUsername"))
+		if username == nil {
+			username = "operator"
+		}
+		admin := res("Admin", "AWS::Amplify::App", M{"Name": "Transactions Engine Admin", "BasicAuthConfig": M{"EnableBasicAuth": true, "Username": username, "Password": sub("{{resolve:secretsmanager:${AdminPassword}:SecretString}}")}, "Platform": "WEB_COMPUTE", "Repository": repo, "AccessToken": fmt.Sprintf("{{resolve:secretsmanager:%v:SecretString:token}}", token), "ComputeRoleArn": att(adminRole, "Arn"), "EnvironmentVariables": []M{{"Name": "BACKEND_FUNCTION", "Value": gateway.Ref()}, {"Name": "AMPLIFY_MONOREPO_APP_ROOT", "Value": "admin"}}, "BuildSpec": "version: 1\napplications:\n  - appRoot: admin\n    frontend:\n      phases:\n        preBuild:\n          commands:\n            - npm ci\n        build:\n          commands:\n            - echo \"BACKEND_FUNCTION=$BACKEND_FUNCTION\" >> .env.production\n            - npm run build\n      artifacts:\n        baseDirectory: .next\n        files:\n          - '**/*'\n      cache:\n        paths:\n          - node_modules/**/*\n"})
 		branch := app.Node().TryGetContext(jsii.String("adminBranch"))
 		if branch == nil {
 			branch = "main"
 		}
-		res("AdminBranch", "AWS::Amplify::Branch", M{"AppId": att(admin, "AppId"), "BranchName": branch, "EnableAutoBuild": true, "Framework": "Next.js - SSR"})
+		adminBranch := res("AdminBranch", "AWS::Amplify::Branch", M{"AppId": att(admin, "AppId"), "BranchName": branch, "EnableAutoBuild": true, "Framework": "Next.js - SSR"})
+		if domain := app.Node().TryGetContext(jsii.String("adminDomain")); domain != nil {
+			prefix := app.Node().TryGetContext(jsii.String("adminSubdomain"))
+			if prefix == nil {
+				prefix = ""
+			}
+			properties := M{"AppId": att(admin, "AppId"), "DomainName": domain, "EnableAutoSubDomain": false, "SubDomainSettings": []M{{"Prefix": prefix, "BranchName": branch}}}
+			if certificate := app.Node().TryGetContext(jsii.String("adminCertificateArn")); certificate != nil {
+				properties["CertificateSettings"] = M{"CertificateType": "CUSTOM", "CustomCertificateArn": certificate}
+			}
+			adminDomain := res("AdminDomain", "AWS::Amplify::Domain", properties)
+			adminDomain.AddDependency(adminBranch)
+			adminURL := fmt.Sprintf("https://%v", domain)
+			if prefix != "" {
+				adminURL = fmt.Sprintf("https://%v.%v", prefix, domain)
+			}
+			awscdk.NewCfnOutput(stack, jsii.String("OutputAdminURL"), &awscdk.CfnOutputProps{Value: &adminURL})
+		}
 		awscdk.NewCfnOutput(stack, jsii.String("OutputAdminApp"), &awscdk.CfnOutputProps{Value: toString(att(admin, "AppId"))})
 	}
 	outputs := M{"Gateway": gateway.Ref(), "Processor": processor.Ref(), "Workflow": workflowARN, "StateTable": table.Ref(), "StateBucket": bucket.Ref(), "Settings": settings.Ref(), "ApplicationSecret": appSecret.Ref(), "Webhook": sub("https://${WebhookAPI}.execute-api.${AWS::Region}.amazonaws.com/webhook"), "BrowserTask": task.Ref(), "AlarmTopic": alarmTopic.Ref()}

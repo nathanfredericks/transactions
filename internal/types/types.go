@@ -9,11 +9,6 @@ type PayeeMatch struct {
 	Payee string `json:"payee"`
 }
 
-type WebhookPayload struct {
-	Notification string `json:"notification"`
-	Bank         string `json:"bank"`
-}
-
 type EmailConfig struct {
 	Bank          string   `json:"bank"`
 	YNABAccountID string   `json:"ynabAccountId"`
@@ -26,11 +21,6 @@ type WebhookConfig struct {
 	YNABAccountID string   `json:"ynabAccountId"`
 	Bank          string   `json:"bank"`
 	Last4         []string `json:"last4"`
-}
-
-type Config struct {
-	Email   []EmailConfig   `json:"email"`
-	Webhook []WebhookConfig `json:"webhook"`
 }
 
 type Secrets struct {
@@ -46,16 +36,6 @@ type Parameters struct {
 	Timezone          string
 	OpenAIEndpoint    string
 	OpenAIModel       string
-}
-
-type Env struct {
-	AWSSecretARN                         string
-	AppConfigApplication                 string
-	AppConfigEnvironment                 string
-	AppConfigConfiguration               string
-	AWSS3BucketName                      string
-	YNABBudgetID                         string
-	AWSTransactionOverridesDynamoDBTable string
 }
 
 type TransactionOverride struct {
@@ -84,10 +64,4 @@ type YNABTransaction struct {
 	PayeeName         *string `json:"payee_name"`
 	CategoryID        *string `json:"category_id"`
 	Memo              *string `json:"memo"`
-}
-
-type SESNotification struct {
-	Mail struct {
-		MessageID string `json:"messageId"`
-	} `json:"mail"`
 }

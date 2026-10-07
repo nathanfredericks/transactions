@@ -57,3 +57,17 @@ The cutover completed with imports enabled and the old writers still stopped. EQ
 A second real retrieval for every bank, followed by real session-maintenance jobs for every bank, produced **zero YNAB changes**. All six jobs used saved authentication without a browser. At the final check, all three banks were healthy, all recorded writes were complete, notification delivery had no pending/failed rows, all five CloudWatch alarms were OK, and the failure queue had zero visible or in-flight messages. Scheduled EQ maintenance also renewed and rotated its access token successfully.
 
 The deployed application commit is `38e7142`; its CI and Amplify builds passed. Subsequent documentation-only commits describe these observed results. The original schedule times remain in place, and no extra Codex automation is active.
+
+## Legacy retirement and admin domain (6 October, Atlantic time)
+
+The custom admin domain is defined in Go CDK with the existing wildcard certificate and existing username/password. DNS was changed with the Cloudflare `cf` CLI. Moving directly between Amplify distributions failed because AWS observed the previous CloudFront target; clearing only the admin CNAME before recreating the association allowed the certificate and alias to attach. Authenticated HTTPS returned 200 from the rebuilt admin. Runtime notification links now use `https://transactions-admin.fredericks.app`.
+
+`BankImportStack` and `TransactionsStack` were deleted after the cutover. Before deletion, the old SES activation custom resource was marked Retain to prevent its delete hook from disabling the new receipt set. The account-wide API Gateway logging role was transferred to the new CDK stack so unrelated APIs retain logging.
+
+Removed the legacy Amplify app, unused webhook domain and DNS record, old databases, buckets, logs, schedules, task-definition revisions, AppConfig configuration, SSM settings, dedicated IAM roles/policies and the old bank-import user/access key. The two legacy secrets are inaccessible and scheduled for permanent deletion after seven days. The `bank-import` and `transactions-admin` GitHub repositories are archived. Shared CDK asset storage, unrelated applications and the wildcard certificate remain intact.
+
+Old table records, job history, email and configuration were archived under the encrypted private bucket's `retired/2026-10-07/` prefix. The CDK lifecycle expires this archive after 90 days; the existing noncurrent-version cleanup applies afterward. Old session object folders were not copied. Removed the obsolete SAM template, Makefile/email event and unused legacy configuration fields from the active repository.
+
+The latest observed failure was EQ session-maintenance verification-email timeout at 23:51 UTC. The following scheduled job authenticated successfully by 23:56 UTC; subsequent maintenance jobs completed in roughly 2–3 seconds. The email arrived within the expected window, so the original polling miss remains unexplained; no speculative authentication change was made. All three banks were unblocked and the five infrastructure alarms were OK during retirement verification.
+
+At the user's request, a Codex thread monitor runs every 30 minutes to inspect failures, repair recoverable issues and verify the admin. It remains quiet for unchanged/non-actionable state and never retries an uncertain financial write or removes a financial review hold.

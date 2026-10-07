@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/nathanfredericks/transactions/internal/types"
@@ -32,8 +33,7 @@ func GetSecrets(ctx context.Context) (*types.Secrets, error) {
 	if cache := getInvocationCache(ctx); cache != nil && cache.secrets != nil {
 		return cache.secrets, nil
 	}
-	env := GetEnv()
-	payload, err := loadSecretPayload(ctx, env.AWSSecretARN)
+	payload, err := loadSecretPayload(ctx, os.Getenv("AWS_SECRET_ARN"))
 	if err != nil {
 		return nil, err
 	}
