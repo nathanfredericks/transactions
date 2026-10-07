@@ -10,6 +10,8 @@ go.work.sum
 /admin/node_modules/
 /admin/.next/
 /admin/*.tsbuildinfo
+/admin/.env*
+!/admin/.env.example
 /cdk/outputs.json
 /cdk/deploy.local.json
 

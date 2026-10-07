@@ -66,3 +66,9 @@ AWS_REGION=ca-central-1 go run ./cmd/operator -function transactions-engine-proc
 Repeat for each bank. Compare the private normalized snapshots with browser observations before approving baselines. Verify a real ECS login once after the local selectors are stable. See [cutover](cutover.md) for the remaining gates.
 
 For baseline changes, the operator can run the current Go code locally against a real saved snapshot and current YNAB data without redeploying. Set the normal state table/bucket, settings parameter and application secret ARN environment variables, then add `-local-preview` to `baseline.preview`. This option rejects every other action and cannot approve or import.
+
+## Admin authentication
+
+Copy `admin/.env.example` to the ignored `admin/.env.local`, populate the dedicated Transactions Auth0 credentials and verified-email allowlist, and generate a separate local session secret. Use the Auth0 application’s registered localhost callback. Run `npm --prefix admin run dev`; local authentication remains mandatory. Use read-only pages for login verification. Do not invoke imports or resume a financial review hold merely to verify authentication.
+
+The initial implementation passed type checking, lint, production build, Go CDK build/vet and synthesis. Read-only local requests using the real StarRez Auth0 client in process memory confirmed that unauthenticated reads and POSTs redirect to login, deep links are preserved, the Auth0 authorization redirect uses the configured callback, transaction cookies are HttpOnly/SameSite=Lax, invalid callbacks show a safe error, and the browser access-token endpoint is disabled. No authenticated session was fabricated. A successful sign-in with the new Transactions client and the production logout round trip remain release gates.

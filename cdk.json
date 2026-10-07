@@ -5,9 +5,11 @@
     "repository": "https://github.com/nathanfredericks/transactions",
     "githubTokenSecretArn": "transactions-engine/github",
     "adminBranch": "codex/shared-bank-engine",
-    "adminUsername": "nathanfredericks",
     "adminDomain": "fredericks.app",
     "adminSubdomain": "transactions-admin",
-    "adminCertificateArn": "arn:aws:acm:us-east-1:187489282488:certificate/dea000aa-76aa-4629-a7e7-9e7099d4031a"
+    "adminCertificateArn": "arn:aws:acm:us-east-1:187489282488:certificate/dea000aa-76aa-4629-a7e7-9e7099d4031a",
+    "adminBaseUrl": "https://transactions-admin.fredericks.app",
+    "adminAuth0Domain": "auth.fredericks.app",
+    "adminAllowedEmails": "nathanfredericks@icloud.com"
   }
 }

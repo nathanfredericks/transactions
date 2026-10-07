@@ -167,14 +167,20 @@ func main() {
 	repo := app.Node().TryGetContext(jsii.String("repository"))
 	token := app.Node().TryGetContext(jsii.String("githubTokenSecretArn"))
 	if repo != nil && token != nil {
-		adminPassword := res("AdminPassword", "AWS::SecretsManager::Secret", M{"Name": "transactions-engine/admin-password", "GenerateSecretString": M{"PasswordLength": 32, "ExcludePunctuation": true}})
-		retain(adminPassword)
-		adminPassword.CfnOptions().SetDeletionPolicy(awscdk.CfnDeletionPolicy_RETAIN_EXCEPT_ON_CREATE)
-		username := app.Node().TryGetContext(jsii.String("adminUsername"))
-		if username == nil {
-			username = "operator"
+		adminAuth := res("AdminAuth0", "AWS::SecretsManager::Secret", M{"Name": "transactions-engine/admin-auth0", "GenerateSecretString": M{"SecretStringTemplate": `{"clientId":"","clientSecret":""}`, "GenerateStringKey": "sessionSecret", "PasswordLength": 64, "ExcludePunctuation": true}})
+		retain(adminAuth)
+		adminAuth.CfnOptions().SetDeletionPolicy(awscdk.CfnDeletionPolicy_RETAIN_EXCEPT_ON_CREATE)
+		adminEnv := []M{
+			{"Name": "BACKEND_FUNCTION", "Value": gateway.Ref()},
+			{"Name": "AMPLIFY_MONOREPO_APP_ROOT", "Value": "admin"},
+			{"Name": "APP_BASE_URL", "Value": app.Node().TryGetContext(jsii.String("adminBaseUrl"))},
+			{"Name": "AUTH0_DOMAIN", "Value": app.Node().TryGetContext(jsii.String("adminAuth0Domain"))},
+			{"Name": "AUTH0_ALLOWED_EMAILS", "Value": app.Node().TryGetContext(jsii.String("adminAllowedEmails"))},
+			{"Name": "AUTH0_CLIENT_ID", "Value": sub("{{resolve:secretsmanager:${AdminAuth0}:SecretString:clientId}}")},
+			{"Name": "AUTH0_CLIENT_SECRET", "Value": sub("{{resolve:secretsmanager:${AdminAuth0}:SecretString:clientSecret}}")},
+			{"Name": "AUTH0_SECRET", "Value": sub("{{resolve:secretsmanager:${AdminAuth0}:SecretString:sessionSecret}}")},
 		}
-		admin := res("Admin", "AWS::Amplify::App", M{"Name": "Transactions Engine Admin", "BasicAuthConfig": M{"EnableBasicAuth": true, "Username": username, "Password": sub("{{resolve:secretsmanager:${AdminPassword}:SecretString}}")}, "Platform": "WEB_COMPUTE", "Repository": repo, "AccessToken": fmt.Sprintf("{{resolve:secretsmanager:%v:SecretString:token}}", token), "ComputeRoleArn": att(adminRole, "Arn"), "EnvironmentVariables": []M{{"Name": "BACKEND_FUNCTION", "Value": gateway.Ref()}, {"Name": "AMPLIFY_MONOREPO_APP_ROOT", "Value": "admin"}}, "BuildSpec": "version: 1\napplications:\n  - appRoot: admin\n    frontend:\n      phases:\n        preBuild:\n          commands:\n            - npm ci\n        build:\n          commands:\n            - echo \"BACKEND_FUNCTION=$BACKEND_FUNCTION\" >> .env.production\n            - npm run build\n      artifacts:\n        baseDirectory: .next\n        files:\n          - '**/*'\n      cache:\n        paths:\n          - node_modules/**/*\n"})
+		admin := res("Admin", "AWS::Amplify::App", M{"Name": "Transactions Engine Admin", "BasicAuthConfig": M{"EnableBasicAuth": false}, "Platform": "WEB_COMPUTE", "Repository": repo, "AccessToken": fmt.Sprintf("{{resolve:secretsmanager:%v:SecretString:token}}", token), "ComputeRoleArn": att(adminRole, "Arn"), "EnvironmentVariables": adminEnv, "BuildSpec": "version: 1\napplications:\n  - appRoot: admin\n    frontend:\n      phases:\n        preBuild:\n          commands:\n            - npm ci\n        build:\n          commands:\n            - node scripts/write-hosting-env.mjs\n            - npm run build\n      artifacts:\n        baseDirectory: .next\n        files:\n          - '**/*'\n      cache:\n        paths:\n          - node_modules/**/*\n"})
 		branch := app.Node().TryGetContext(jsii.String("adminBranch"))
 		if branch == nil {
 			branch = "main"

@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@auth0/nextjs-auth0": "4.31.0",
+    "@aws-sdk/client-lambda": "3.1032.0",
     "@react-querybuilder/bootstrap": "^8.5.0",
     "bootstrap": "^5.3.5",
     "bootstrap-icons": "^1.11.3",
@@ -20,9 +22,8 @@
     "react-bootstrap": "^2.10.9",
     "react-dom": "^19",
     "react-querybuilder": "^8.5.0",
-    "yup": "^1.6.1",
-    "@aws-sdk/client-lambda": "3.1032.0",
-    "server-only": "0.0.1"
+    "server-only": "0.0.1",
+    "yup": "^1.6.1"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",

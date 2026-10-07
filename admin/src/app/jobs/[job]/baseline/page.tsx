@@ -1,5 +1,5 @@
 import { backend } from "../../../utils/backend";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import Link from "next/link";
 import { Alert, Card, CardBody, FormCheck, Table } from "react-bootstrap";
 import SubmitButton from "../../../components/SubmitButton";
@@ -80,7 +80,8 @@ export default async function Baseline({
         { approved: true, links, settlements, newRecords },
         { bank: bank!, jobId },
       );
-    } catch {
+    } catch (error) {
+      unstable_rethrow(error);
       failed = true;
     }
     redirect(

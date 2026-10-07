@@ -1,5 +1,6 @@
 import "server-only";
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
+import { requireAdmin } from "@/lib/require-admin";
 const client = new LambdaClient({
   region: process.env.AWS_REGION || "ca-central-1",
 });
@@ -9,6 +10,7 @@ export async function backend<T>(
   job?: { bank: string; jobId: string },
   submission?: unknown,
 ): Promise<T> {
+  await requireAdmin();
   if (!process.env.BACKEND_FUNCTION)
     throw new Error("Backend is not configured.");
   const result = await client.send(

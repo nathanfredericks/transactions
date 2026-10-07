@@ -3,7 +3,15 @@ import { Container, Nav, Navbar } from "react-bootstrap";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-export default function Navigation() {
+export default function Navigation({
+  authorized,
+  signedIn,
+  logoutUrl,
+}: {
+  authorized: boolean;
+  signedIn: boolean;
+  logoutUrl: string;
+}) {
   const path = usePathname();
   const activity = path.startsWith("/jobs") || path.startsWith("/banks");
   return (
@@ -19,21 +27,28 @@ export default function Navigation() {
         <Navbar.Toggle aria-controls="main-navigation" />
         <Navbar.Collapse id="main-navigation">
           <Nav className="ms-auto gap-sm-2">
-            <Nav.Link
-              as={Link}
-              href="/jobs"
-              active={activity}
-              aria-current={activity ? "page" : undefined}
-            >
-              Bank activity
-            </Nav.Link>
-            <Nav.Link
-              as={Link}
-              href="/"
-              active={!activity}
-              aria-current={!activity ? "page" : undefined}
-            >
-              Transaction rules
+            {authorized && (
+              <>
+                <Nav.Link
+                  as={Link}
+                  href="/jobs"
+                  active={activity}
+                  aria-current={activity ? "page" : undefined}
+                >
+                  Bank activity
+                </Nav.Link>
+                <Nav.Link
+                  as={Link}
+                  href="/"
+                  active={!activity}
+                  aria-current={!activity ? "page" : undefined}
+                >
+                  Transaction rules
+                </Nav.Link>
+              </>
+            )}
+            <Nav.Link href={signedIn ? logoutUrl : "/auth/login"}>
+              {signedIn ? "Sign out" : "Sign in"}
             </Nav.Link>
           </Nav>
         </Navbar.Collapse>

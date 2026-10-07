@@ -1,5 +1,5 @@
 import { backend } from "../../utils/backend";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import Link from "next/link";
 import { Alert, Badge, Card, CardBody, Col, Row } from "react-bootstrap";
 import SubmitButton from "../../components/SubmitButton";
@@ -62,7 +62,8 @@ export default async function JobPage({
     let failed = false;
     try {
       await backend(action, undefined, { bank: bank!, jobId });
-    } catch {
+    } catch (error) {
+      unstable_rethrow(error);
       failed = true;
     }
     redirect(`/jobs/${jobId}?bank=${bank}${failed ? "&error=operation" : ""}`);

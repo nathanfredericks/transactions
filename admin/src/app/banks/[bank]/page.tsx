@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import { backend } from "../../utils/backend";
 import { Alert, Card, CardBody, Col, Row } from "react-bootstrap";
 import SubmitButton from "../../components/SubmitButton";
@@ -27,7 +27,8 @@ export default async function BankPage({
     let failed = false;
     try {
       await backend("bank.resume", undefined, { bank, jobId: "" });
-    } catch {
+    } catch (error) {
+      unstable_rethrow(error);
       failed = true;
     }
     redirect(
@@ -47,7 +48,8 @@ export default async function BankPage({
         purpose: "retrieve",
         dryRun: true,
       });
-    } catch {
+    } catch (error) {
+      unstable_rethrow(error);
       failed = true;
     }
     redirect(
