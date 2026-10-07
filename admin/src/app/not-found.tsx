@@ -1,4 +1,4 @@
-import Link from "next/link";
+import LinkButton from "./components/LinkButton";
 import { Card, CardBody } from "react-bootstrap";
 export default function NotFound() {
   return (
@@ -8,9 +8,7 @@ export default function NotFound() {
         <p className="text-body-secondary">
           This page may have moved or no longer exists.
         </p>
-        <Link className="btn btn-primary" href="/jobs">
-          Go to bank activity
-        </Link>
+        <LinkButton href="/jobs">Go to bank activity</LinkButton>
       </CardBody>
     </Card>
   );

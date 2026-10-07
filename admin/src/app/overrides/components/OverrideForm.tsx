@@ -4,7 +4,7 @@ import { serializeQuery } from "@/app/utils/rules";
 import * as yup from "yup";
 import { Formik, type FormikProps } from "formik";
 import { Alert, Button, Card, Form } from "react-bootstrap";
-import Link from "next/link";
+import LinkButton from "@/app/components/LinkButton";
 import NewTransactionForm from "@/app/overrides/components/NewTransactionForm";
 import type { CategoryGroup, InitialValues, Payee } from "@/app/types";
 import dynamic from "next/dynamic";
@@ -112,7 +112,9 @@ export function OverrideForm(props: Props) {
               </Form.Control.Feedback>
             </Form.Group>
             <Card>
-              <Card.Header as="h2">When a transaction matches</Card.Header>
+              <Card.Header as="h2" className="h5">
+                When a transaction matches
+              </Card.Header>
               <Card.Body>
                 <TransactionQueryBuilder
                   query={values.query}
@@ -121,7 +123,9 @@ export function OverrideForm(props: Props) {
               </Card.Body>
             </Card>
             <Card>
-              <Card.Header as="h2">Apply these details</Card.Header>
+              <Card.Header as="h2" className="h5">
+                Apply these details
+              </Card.Header>
               <Card.Body>
                 <NewTransactionForm
                   categoryGroups={categoryGroups}
@@ -130,10 +134,10 @@ export function OverrideForm(props: Props) {
               </Card.Body>
             </Card>
 
-            <div className="d-flex gap-2 justify-content-end">
-              <Link href="/" className="btn btn-outline-secondary">
+            <div className="d-flex gap-2 flex-wrap justify-content-end">
+              <LinkButton href="/" variant="outline-secondary">
                 Cancel
-              </Link>
+              </LinkButton>
               <Button disabled={isSubmitting} type="submit" variant="primary">
                 {isSubmitting ? "Saving…" : "Save rule"}
               </Button>

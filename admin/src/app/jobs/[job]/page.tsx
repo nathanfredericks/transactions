@@ -1,9 +1,20 @@
 import { backend } from "../../utils/backend";
 import { redirect, unstable_rethrow } from "next/navigation";
 import Link from "next/link";
-import { Alert, Badge, Card, CardBody, Col, Row } from "react-bootstrap";
+import {
+  Alert,
+  Badge,
+  Card,
+  CardBody,
+  CardHeader,
+  Col,
+  Form,
+  Row,
+} from "react-bootstrap";
 import SubmitButton from "../../components/SubmitButton";
 import StatusBadge from "../../components/StatusBadge";
+import AutoRefresh from "../../components/AutoRefresh";
+import LinkButton from "../../components/LinkButton";
 import {
   atlanticDate,
   displayLabel,
@@ -72,22 +83,21 @@ export default async function JobPage({
   const retryJob = run.bind(null, "job.retry");
   return (
     <>
+      <AutoRefresh />
       <Link href="/jobs">← Bank activity</Link>
-      <header className="page-heading">
+      <header className="d-flex justify-content-between align-items-center flex-wrap gap-3">
         <div>
           <h1>{name}</h1>
-          <p>
-            {displayLabel(result.job.purpose)} ·{" "}
-            {atlanticDate(result.job.receivedAt)} Atlantic
+          <p className="text-body-secondary mb-0">
+            {displayLabel(result.job.purpose)}
+          </p>
+          <p className="text-body-secondary mb-0">
+            Received {atlanticDate(result.job.receivedAt)} Atlantic
           </p>
         </div>
         <div className="d-flex gap-2 align-items-center">
           <StatusBadge status={result.job.status} />
-          {result.job.dryRun && (
-            <Badge bg="secondary-subtle" text="secondary-emphasis">
-              Dry run
-            </Badge>
-          )}
+          {result.job.dryRun && <Badge bg="secondary">Dry run</Badge>}
         </div>
       </header>
       {error && (
@@ -99,7 +109,7 @@ export default async function JobPage({
         <Alert
           variant={result.job.status === "complete" ? "warning" : "danger"}
         >
-          <h2>{displayLabel(result.job.error)}</h2>
+          <h2 className="h4">{displayLabel(result.job.error)}</h2>
           <p className="mb-0">
             This is the result recorded for this job. Check the bank’s current
             status before taking action.
@@ -111,7 +121,7 @@ export default async function JobPage({
           <Row as="dl" className="gy-3 mb-3">
             <Col md={8}>
               <dt>Job reference</dt>
-              <dd className="job-id mb-0">{jobId}</dd>
+              <dd className="text-break mb-0">{jobId}</dd>
             </Col>
             <Col md={4}>
               <dt>Issue</dt>
@@ -131,20 +141,20 @@ export default async function JobPage({
           {["failed", "review-required", "paused"].includes(
             result.job.status,
           ) && (
-            <form action={retryJob} className="mt-3">
+            <Form action={retryJob} className="mt-3">
               <SubmitButton variant="outline-primary">
                 Retry this job after resolving its issue
               </SubmitButton>
-            </form>
+            </Form>
           )}
           {result.job.dryRun && result.job.snapshotKey && (
             <div className="mt-3">
-              <Link
-                className="btn btn-outline-primary"
+              <LinkButton
+                variant="outline-primary"
                 href={`/jobs/${jobId}/baseline?bank=${bank}`}
               >
                 Review starting point
-              </Link>
+              </LinkButton>
             </div>
           )}
         </CardBody>
@@ -156,11 +166,11 @@ export default async function JobPage({
         <div className="d-flex flex-column gap-3">
           {notices.map((n) => (
             <Card as="article" key={n.id}>
+              <CardHeader className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h3 className="h5 mb-0">{n.title}</h3>
+                <StatusBadge status={n.status} />
+              </CardHeader>
               <CardBody>
-                <div className="page-heading mb-2">
-                  <h3 className="mb-0">{n.title}</h3>
-                  <StatusBadge status={n.status} />
-                </div>
                 <p>{n.message}</p>
                 <p className="small text-body-secondary mb-0">
                   Delivery attempts: {n.attempts}
@@ -178,7 +188,7 @@ export default async function JobPage({
           )}
         </div>
         {undelivered && (
-          <form action={retry} className="mt-3">
+          <Form action={retry} className="mt-3">
             <SubmitButton variant="outline-secondary">
               Retry undelivered notifications
             </SubmitButton>
@@ -186,7 +196,7 @@ export default async function JobPage({
               This only retries notification delivery. It does not import
               transactions.
             </p>
-          </form>
+          </Form>
         )}
       </section>
     </>

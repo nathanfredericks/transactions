@@ -15,18 +15,14 @@ export default function Navigation({
   const path = usePathname();
   const activity = path.startsWith("/jobs") || path.startsWith("/banks");
   return (
-    <Navbar
-      expand="sm"
-      className="bg-white border-bottom py-3"
-      aria-label="Main navigation"
-    >
+    <Navbar expand="sm" bg="body-tertiary" aria-label="Main navigation">
       <Container>
         <Navbar.Brand as={Link} href="/">
           Transactions
         </Navbar.Brand>
         <Navbar.Toggle aria-controls="main-navigation" />
         <Navbar.Collapse id="main-navigation">
-          <Nav className="ms-auto gap-sm-2">
+          <Nav className="ms-auto">
             {authorized && (
               <>
                 <Nav.Link

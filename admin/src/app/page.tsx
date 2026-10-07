@@ -1,4 +1,5 @@
-import Link from "next/link";
+import AutoRefresh from "@/app/components/AutoRefresh";
+import LinkButton from "@/app/components/LinkButton";
 import OverridesList from "@/app/components/OverridesList";
 import { listOverrides } from "@/app/utils/overrides";
 export const dynamic = "force-dynamic";
@@ -8,14 +9,15 @@ export default async function Page() {
 
   return (
     <>
-      <header className="page-heading">
+      <AutoRefresh />
+      <header className="d-flex justify-content-between align-items-center flex-wrap gap-3">
         <div>
           <h1>Transaction rules</h1>
-          <p>Choose how matching purchases appear in YNAB.</p>
+          <p className="text-body-secondary mb-0">
+            Choose how matching purchases appear in YNAB.
+          </p>
         </div>
-        <Link className="btn btn-primary" href="/overrides/new">
-          New rule
-        </Link>
+        <LinkButton href="/overrides/new">New rule</LinkButton>
       </header>
 
       <OverridesList overrides={sortedOverrides} />

@@ -1,11 +1,18 @@
 "use client";
 import {
-  ActionElement,
+  type ActionProps,
   defaultOperators,
   type Field,
   QueryBuilder,
   type RuleGroupType,
+  toOptions,
+  ValueEditor,
+  type ValueEditorProps,
+  type ValueSelectorProps,
+  useSelectElementChangeHandler,
+  useValueSelector,
 } from "react-querybuilder";
+import { Button, Form } from "react-bootstrap";
 import "react-querybuilder/dist/query-builder-layout.css";
 import { validNumber } from "@/app/utils/rules";
 import { QueryBuilderBootstrap } from "@react-querybuilder/bootstrap";
@@ -14,6 +21,56 @@ type Props = {
   query: RuleGroupType;
   setQuery: (query: RuleGroupType) => void;
 };
+
+function RuleSelect(props: ValueSelectorProps) {
+  const { onChange, val } = useValueSelector(props);
+  const handleChange = useSelectElementChangeHandler({
+    multiple: props.multiple,
+    onChange,
+  });
+  return (
+    <Form.Select
+      className={props.className?.replace(
+        /\bform-(?:select|control)(?:-sm|-lg)?\b/g,
+        "",
+      )}
+      value={val}
+      title={props.title}
+      aria-label={props.title}
+      disabled={props.disabled}
+      multiple={!!props.multiple}
+      onChange={handleChange}
+      data-testid={props.testID}
+    >
+      {toOptions(props.options)}
+    </Form.Select>
+  );
+}
+
+function RuleValueEditor(props: ValueEditorProps) {
+  return (
+    <ValueEditor
+      {...props}
+      className={`${props.className?.replace(/\bform-(?:select|control)-(?:sm|lg)\b/g, "") ?? ""} form-control`}
+      selectorComponent={RuleSelect}
+    />
+  );
+}
+
+function RuleAction(props: ActionProps & { variant?: string }) {
+  return (
+    <Button
+      type="button"
+      variant={props.variant ?? "primary"}
+      title={props.title}
+      disabled={props.disabled}
+      onClick={(event) => props.handleOnClick(event)}
+      data-testid={props.testID}
+    >
+      {props.label}
+    </Button>
+  );
+}
 
 export function TransactionQueryBuilder(props: Props) {
   const { query, setQuery } = props;
@@ -76,28 +133,25 @@ export function TransactionQueryBuilder(props: Props) {
     <QueryBuilderBootstrap>
       <QueryBuilder
         controlClassnames={{
-          ruleGroup: "p-3 card",
-          combinators: "form-select w-auto",
-          addRule: "btn btn-primary",
-          addGroup: "btn btn-primary",
-          fields: "form-select",
-          operators: "form-select",
-          removeRule: "btn btn-danger",
-          removeGroup: "btn btn-danger",
+          ruleGroup: "border rounded p-3",
+          combinators: "w-auto",
         }}
         controlElements={{
+          combinatorSelector: RuleSelect,
+          fieldSelector: RuleSelect,
+          operatorSelector: RuleSelect,
+          valueSelector: RuleSelect,
+          valueEditor: RuleValueEditor,
           addGroupAction: (props) =>
             props.level === 0 ? (
-              <ActionElement {...props} label="Add group" />
+              <RuleAction {...props} label="Add group" variant="secondary" />
             ) : null,
-          addRuleAction: (props) => (
-            <ActionElement {...props} label="Add rule" />
-          ),
+          addRuleAction: (props) => <RuleAction {...props} label="Add rule" />,
           removeRuleAction: (props) => (
-            <ActionElement {...props} label="Remove" />
+            <RuleAction {...props} label="Remove" variant="danger" />
           ),
           removeGroupAction: (props) => (
-            <ActionElement {...props} label="Remove" />
+            <RuleAction {...props} label="Remove" variant="danger" />
           ),
         }}
         fields={fields}

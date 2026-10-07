@@ -17,9 +17,12 @@ export default async function RootLayout({
 }>) {
   const session = await auth0.getSession();
   return (
-    <html lang="en" data-scroll-behavior="smooth">
+    <html lang="en">
       <body>
-        <a className="visually-hidden-focusable skip-link" href="#main-content">
+        <a
+          className="visually-hidden-focusable position-absolute top-0 start-0 z-3 bg-body p-3"
+          href="#main-content"
+        >
           Skip to content
         </a>
         <Navigation
@@ -28,7 +31,7 @@ export default async function RootLayout({
           logoutUrl={`/auth/logout?returnTo=${encodeURIComponent(`${appBaseUrl}/sign-in`)}`}
         />
         <main id="main-content" tabIndex={-1}>
-          <Container className="d-flex flex-column gap-4 py-4 py-lg-5">
+          <Container className="d-flex flex-column gap-4 py-4">
             {children}
           </Container>
         </main>

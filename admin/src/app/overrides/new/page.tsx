@@ -13,9 +13,9 @@ export default async function Page() {
 
   return (
     <>
-      <div className="page-heading">
+      <header>
         <h1>New rule</h1>
-      </div>
+      </header>
       <NewOverride categoryGroups={categoryGroups} payees={payees} />
     </>
   );

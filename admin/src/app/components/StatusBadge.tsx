@@ -10,11 +10,7 @@ export default function StatusBadge({ status }: { status: string }) {
         ? "warning"
         : "secondary";
   return (
-    <Badge
-      className="status-badge"
-      bg={`${variant}-subtle`}
-      text={`${variant}-emphasis`}
-    >
+    <Badge bg={variant} text={variant === "warning" ? "dark" : undefined}>
       {displayLabel(status)}
     </Badge>
   );

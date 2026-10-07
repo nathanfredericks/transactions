@@ -37,9 +37,49 @@ const labels: Record<string, string> = {
 };
 export const displayLabel = (value: string) =>
   labels[value] ?? value.replaceAll("-", " ");
-export const atlanticDate = (value: string) => {
+const dateOptions: Intl.DateTimeFormatOptions = {
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+};
+const atlanticDayFormatter = new Intl.DateTimeFormat("en-US", {
+  ...dateOptions,
+  timeZone: "America/Halifax",
+});
+const calendarDayFormatter = new Intl.DateTimeFormat("en-US", {
+  ...dateOptions,
+  timeZone: "UTC",
+});
+const atlanticTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+  timeZone: "America/Halifax",
+});
+
+function parseDate(value: string) {
   const date = new Date(value);
   return !Number.isFinite(date.getTime()) || value.startsWith("0001-")
-    ? "Time unavailable"
-    : date.toLocaleString("en-CA", { timeZone: "America/Halifax" });
-};
+    ? undefined
+    : date;
+}
+
+export function displayDate(value: string) {
+  const date = parseDate(value);
+  if (!date) return "Date unavailable";
+  // Transaction dates are calendar dates, so never shift them into the previous day.
+  const formatter = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? calendarDayFormatter
+    : atlanticDayFormatter;
+  return formatter.format(date);
+}
+
+export function displayTime(value: string) {
+  const date = parseDate(value);
+  return date ? atlanticTimeFormatter.format(date) : "Time unavailable";
+}
+
+export const atlanticDate = (value: string) =>
+  parseDate(value)
+    ? `${displayDate(value)} at ${displayTime(value)}`
+    : "Time unavailable";

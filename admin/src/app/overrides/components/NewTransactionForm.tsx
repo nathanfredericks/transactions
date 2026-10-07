@@ -1,4 +1,4 @@
-import { Form } from "react-bootstrap";
+import { Accordion, Form } from "react-bootstrap";
 import { useFormikContext } from "formik";
 import { CategoryGroup, InitialValues, Payee } from "@/app/types";
 
@@ -60,24 +60,31 @@ export default function NewTransactionForm(props: Props) {
         </Form.Control.Feedback>
       </Form.Group>
 
-      <details className="bg-body-tertiary border rounded p-3 mb-3">
-        <summary className="fw-medium">Memo templates</summary>
-        <p>
-          Use Go templates. <code>{"{{.Date}}"}</code> is the transaction date
-          (YYYY-MM-DD).
-        </p>
-        <p>
-          Format dates with Go layouts:{" "}
-          <code>{'{{formatDate .Date "January 2006"}}'}</code>.
-        </p>
-        <p>
-          Previous month:{" "}
-          <code>
-            {'{{formatDate (subtractMonthFromDate .Date) "January 2006"}}'}
-          </code>
-          . Month-end dates are clamped to the last valid day.
-        </p>
-      </details>
+      <Accordion className="mb-3">
+        <Accordion.Item eventKey="memo-templates">
+          <Accordion.Header>Memo templates</Accordion.Header>
+          <Accordion.Body>
+            <p>
+              Use Go templates. <code>{"{{.Date}}"}</code> is the transaction
+              date (YYYY-MM-DD).
+            </p>
+            <p>
+              Format dates with Go layouts:{" "}
+              <code className="text-break">
+                {'{{formatDate .Date "January 2006"}}'}
+              </code>
+              .
+            </p>
+            <p>
+              Previous month:{" "}
+              <code className="text-break">
+                {'{{formatDate (subtractMonthFromDate .Date) "January 2006"}}'}
+              </code>
+              . Month-end dates are clamped to the last valid day.
+            </p>
+          </Accordion.Body>
+        </Accordion.Item>
+      </Accordion>
       <Form.Group className="mb-3" controlId="memo">
         <Form.Label>Memo</Form.Label>
         <Form.Control

@@ -1,8 +1,17 @@
 import Link from "next/link";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { backend } from "../../utils/backend";
-import { Alert, Card, CardBody, Col, Row } from "react-bootstrap";
+import {
+  Alert,
+  Card,
+  CardBody,
+  CardHeader,
+  Col,
+  Form,
+  Row,
+} from "react-bootstrap";
 import SubmitButton from "../../components/SubmitButton";
+import AutoRefresh from "../../components/AutoRefresh";
 import { displayLabel, type BankSummary } from "../../utils/display";
 export const dynamic = "force-dynamic";
 export default async function BankPage({
@@ -58,11 +67,14 @@ export default async function BankPage({
   }
   return (
     <>
+      <AutoRefresh />
       <Link href="/jobs">← Bank activity</Link>
-      <header className="page-heading">
+      <header>
         <div>
           <h1>{current.name}</h1>
-          <p>Authentication, imports and starting-point review.</p>
+          <p className="text-body-secondary mb-0">
+            Authentication, imports and starting-point review.
+          </p>
         </div>
       </header>
       {query.error && (
@@ -103,29 +115,31 @@ export default async function BankPage({
         </CardBody>
       </Card>
       <Card>
+        <CardHeader as="h2" className="h5">
+          Check bank data
+        </CardHeader>
         <CardBody>
-          <h2>Check bank data</h2>
           <p className="text-body-secondary">
             A dry run reads bank and YNAB data without importing or sending
             purchase notifications.
           </p>
-          <form action={dryRun}>
+          <Form action={dryRun}>
             <SubmitButton>Fetch a dry run</SubmitButton>
-          </form>
+          </Form>
         </CardBody>
       </Card>
       {current.health.blocked && (
         <Alert variant="warning">
-          <h2>Resume sign-in</h2>
+          <h2 className="h4">Resume sign-in</h2>
           <p>
             Update rejected credentials or resolve the authentication challenge
             first. This does not clear uncertain financial writes.
           </p>
-          <form action={resume}>
+          <Form action={resume}>
             <SubmitButton variant="warning">
               Resume automatic authentication
             </SubmitButton>
-          </form>
+          </Form>
         </Alert>
       )}
     </>

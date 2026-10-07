@@ -1,8 +1,13 @@
 import { backend } from "../../../utils/backend";
 import { redirect, unstable_rethrow } from "next/navigation";
 import Link from "next/link";
-import { Alert, Card, CardBody, FormCheck, Table } from "react-bootstrap";
+import { Alert, Card, CardBody, Form, FormCheck, Table } from "react-bootstrap";
 import SubmitButton from "../../../components/SubmitButton";
+import {
+  atlanticDate,
+  displayDate,
+  displayLabel,
+} from "../../../utils/display";
 export const dynamic = "force-dynamic";
 type Candidate = {
   id: string;
@@ -96,11 +101,7 @@ export default async function Baseline({
       <header>
         <h1>Review starting balances and transactions</h1>
         <p className="text-body-secondary mb-0">
-          Snapshot:{" "}
-          {new Date(preview.baseline.at).toLocaleString("en-CA", {
-            timeZone: "America/Halifax",
-          })}{" "}
-          Atlantic.
+          Snapshot: {atlanticDate(preview.baseline.at)} Atlantic.
         </p>
       </header>
       {error && (
@@ -125,62 +126,89 @@ export default async function Baseline({
         Keep all imports disabled during this review. The previous importers
         must remain paused.
       </Alert>
-      <form action={approve} className="d-flex flex-column gap-3">
+      <Form action={approve} className="d-flex flex-column gap-3">
         {preview.review.map((row, index) => (
-          <fieldset
-            className="bg-white border rounded p-3 p-md-4"
-            key={row.key}
-          >
-            <legend className="fs-5 fw-semibold float-none w-auto">
-              {row.record.description} · {money(row.record.amount)}
-            </legend>
-            <p className="text-body-secondary">
-              {row.record.date} · {row.record.status} ·{" "}
-              {preview.ynabAccounts[row.record.accountId]?.name}
-            </p>
-            <p id={`help-${index}`} className="small">
-              Known imported entries and nearby amount matches are shown.
-              Confirm that the payee describes the same transaction, and review
-              any differences before choosing.
-            </p>
-            {row.candidates.map((tx) => (
+          <Card key={row.key}>
+            <CardBody as="fieldset">
+              <legend className="h5">{row.record.description}</legend>
+              <p className="fw-semibold">{money(row.record.amount)}</p>
+              <p className="text-body-secondary">
+                <span className="d-block">{displayDate(row.record.date)}</span>
+                <span className="d-block">
+                  Status: {displayLabel(row.record.status)}
+                </span>
+                <span className="d-block">
+                  Account: {preview.ynabAccounts[row.record.accountId]?.name}
+                </span>
+              </p>
+              <p id={`help-${index}`} className="small">
+                Known imported entries and nearby amount matches are shown.
+                Confirm that the payee describes the same transaction, and
+                review any differences before choosing.
+              </p>
+              {row.candidates.map((tx) => (
+                <FormCheck
+                  className="mb-2"
+                  key={tx.id}
+                  id={`match-${index}-${tx.id}`}
+                  type="radio"
+                  name={`record-${index}`}
+                  value={tx.id}
+                  defaultChecked={preview.baseline.links[row.key] === tx.id}
+                  required
+                  aria-describedby={`help-${index}`}
+                  label={
+                    <>
+                      <span className="d-block">
+                        Already in YNAB: {tx.payee_name || "Unnamed payee"}
+                      </span>
+                      <span className="d-block">{displayDate(tx.date)}</span>
+                      <span className="d-block">
+                        {money(tx.amount)}, {displayLabel(tx.cleared)}
+                      </span>
+                    </>
+                  }
+                />
+              ))}
+              {(row.settlementCandidates || []).map((tx) => (
+                <FormCheck
+                  className="mb-2"
+                  key={tx.id}
+                  id={`settle-${index}-${tx.id}`}
+                  type="radio"
+                  name={`record-${index}`}
+                  value={`settle:${tx.id}`}
+                  required
+                  aria-describedby={`help-${index}`}
+                  label={
+                    <>
+                      <span className="d-block">
+                        Settle existing pending entry:{" "}
+                        {tx.payee_name || "Unnamed payee"}
+                      </span>
+                      <span className="d-block">{displayDate(tx.date)}</span>
+                      <span className="d-block">
+                        Current amount: {money(tx.amount)}. Bank amount:{" "}
+                        {money(row.record.amount)}.
+                      </span>
+                      <span className="d-block">
+                        Mark cleared when imports resume.
+                      </span>
+                    </>
+                  }
+                />
+              ))}
               <FormCheck
-                className="review-option"
-                key={tx.id}
-                id={`match-${index}-${tx.id}`}
+                id={`new-${index}`}
                 type="radio"
                 name={`record-${index}`}
-                value={tx.id}
-                defaultChecked={preview.baseline.links[row.key] === tx.id}
+                value="new"
                 required
                 aria-describedby={`help-${index}`}
-                label={`Already in YNAB: ${tx.date} · ${tx.payee_name || "Unnamed payee"} · ${money(tx.amount)} · ${tx.cleared}`}
+                label="Missing from YNAB: import when imports resume"
               />
-            ))}
-            {(row.settlementCandidates || []).map((tx) => (
-              <FormCheck
-                className="review-option"
-                key={tx.id}
-                id={`settle-${index}-${tx.id}`}
-                type="radio"
-                name={`record-${index}`}
-                value={`settle:${tx.id}`}
-                required
-                aria-describedby={`help-${index}`}
-                label={`Settle existing pending entry: ${tx.date} · ${tx.payee_name || "Unnamed payee"} · ${money(tx.amount)} → ${money(row.record.amount)} · mark cleared when imports resume`}
-              />
-            ))}
-            <FormCheck
-              className="review-option"
-              id={`new-${index}`}
-              type="radio"
-              name={`record-${index}`}
-              value="new"
-              required
-              aria-describedby={`help-${index}`}
-              label="Missing from YNAB: import when imports resume"
-            />
-          </fieldset>
+            </CardBody>
+          </Card>
         ))}
         {preview.review.length === 0 && (
           <Card>
@@ -217,7 +245,7 @@ export default async function Baseline({
         <Card>
           <CardBody>
             <FormCheck
-              className="mb-3 review-option"
+              className="mb-3"
               id="reviewed"
               type="checkbox"
               name="reviewed"
@@ -228,7 +256,7 @@ export default async function Baseline({
             <SubmitButton>Approve starting point</SubmitButton>
           </CardBody>
         </Card>
-      </form>
+      </Form>
     </>
   );
 }

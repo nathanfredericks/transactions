@@ -28,10 +28,10 @@ export default async function Page({
 
   return (
     <>
-      <div className="page-heading">
-        <h1>Edit {Item.name || "rule"}</h1>
+      <header className="d-flex justify-content-between align-items-center flex-wrap gap-3">
+        <h1 className="mb-0">Edit {Item.name || "rule"}</h1>
         <DeleteOverrideButton id={override} revision={Item.revision} />
-      </div>
+      </header>
       <EditOverride
         category={Item.category || ""}
         categoryGroups={categoryGroups}
