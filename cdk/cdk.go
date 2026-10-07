@@ -167,7 +167,7 @@ func main() {
 	repo := app.Node().TryGetContext(jsii.String("repository"))
 	token := app.Node().TryGetContext(jsii.String("githubTokenSecretArn"))
 	if repo != nil && token != nil {
-		adminAuth := res("AdminAuth0", "AWS::SecretsManager::Secret", M{"Name": "transactions-engine/admin-auth0", "GenerateSecretString": M{"SecretStringTemplate": `{"clientId":"","clientSecret":""}`, "GenerateStringKey": "sessionSecret", "PasswordLength": 64, "ExcludePunctuation": true}})
+		adminAuth := res("AdminAuth0", "AWS::SecretsManager::Secret", M{"Name": "transactions-engine/admin-auth0", "GenerateSecretString": M{"SecretStringTemplate": `{"clientId":"","clientSecret":""}`, "GenerateStringKey": "sessionSecret", "PasswordLength": 64, "ExcludePunctuation": true, "ExcludeUppercase": true, "ExcludeCharacters": "ghijklmnopqrstuvwxyz"}})
 		retain(adminAuth)
 		adminAuth.CfnOptions().SetDeletionPolicy(awscdk.CfnDeletionPolicy_RETAIN_EXCEPT_ON_CREATE)
 		adminEnv := []M{
