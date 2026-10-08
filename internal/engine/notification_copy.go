@@ -9,6 +9,9 @@ import (
 // Only safe display names enter these templates; bank response details never do.
 func failureNotice(name string, f *bank.Failure) (title, message string) {
 	key := string(f.Kind)
+	if strings.HasSuffix(f.Operation, "/browser-access-rejected") {
+		key = "browser-access-rejected"
+	}
 	if f.Operation == "previous-import-missing" || f.Operation == "purchase-not-found" {
 		key = f.Operation
 	}
@@ -19,6 +22,9 @@ func failureNotice(name string, f *bank.Failure) (title, message string) {
 	case "credentials-rejected":
 		title = "{bank}: Saved credentials were rejected"
 		message = "{bank} rejected the saved credentials. Automatic login is paused until the credentials are updated and this bank is resumed. [credentials-rejected]"
+	case "browser-access-rejected":
+		title = "{bank}: Browser sign-in rejected"
+		message = "{bank} blocked the browser before email verification could begin. Automatic login is paused while browser access is reviewed. [challenge-required]"
 	case "challenge-required":
 		title = "{bank}: Verification step needed"
 		message = "{bank} requires a verification step that cannot be completed automatically. Automatic login is paused until the challenge is resolved and this bank is resumed. [challenge-required]"

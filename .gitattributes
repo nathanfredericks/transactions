@@ -1,0 +1,2 @@
+# Preserve byte-exact frozen upstream sources, including original whitespace.
+third_party/cloakbrowser-0.3.25/** -whitespace

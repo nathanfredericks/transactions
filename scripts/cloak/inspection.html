@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Cloak input inspection</title>
+<style>body{font:16px system-ui;margin:0;padding:220px 60px 60px}label{display:block;margin-block:12px 4px}input,button,select{font:inherit;padding:12px}#bottom{margin-top:1600px}iframe{display:block;width:700px;height:220px;margin-top:20px}</style>
+<main><h1>Local browser input inspection</h1>
+<label for="text">Sample text</label><input id="text" name="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+<label for="check">Sample option</label><input id="check" name="check" type="checkbox">
+<label for="choice">Sample selection</label><select id="choice" name="choice"><option value="one">One</option><option value="two">Two</option></select>
+<button id="action" type="button">Inspect</button><button id="focus" type="button">Focus only</button>
+<iframe id="frame" title="Child frame input" src="/frame"></iframe>
+<div id="bottom"><label for="far">Distant field</label><input id="far" name="far" autocomplete="off"><button id="drag" type="button">Drag source</button><button id="drop" type="button">Drag target</button></div>
+</main><script>
+window.events=[];window.pressed=new Set();window.clicks=0;
+for(const type of ['mousemove','mousedown','mouseup','click','dblclick','wheel','keydown','keyup','input','focusin']) document.addEventListener(type,e=>{
+ const item={type,trusted:e.isTrusted,time:performance.now(),target:e.target.id||'',key:e.key,code:e.code,shift:e.shiftKey,ctrl:e.ctrlKey,x:e.clientX,y:e.clientY,dy:e.deltaY};events.push(item);
+ if(type==='keydown')pressed.add(e.code);if(type==='keyup')pressed.delete(e.code);if(type==='click'&&e.target.id==='action')clicks++;
+},{passive:true});
+window.report=()=>({identity:{ua:navigator.userAgent,platform:navigator.platform,language:navigator.language,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,width:innerWidth,height:innerHeight,screenWidth:screen.width,screenHeight:screen.height,outerWidth,outerHeight,webdriver:navigator.webdriver},text:document.querySelector('#text').value,far:document.querySelector('#far').value,checked:document.querySelector('#check').checked,choice:document.querySelector('#choice').value,clicks,pressed:[...pressed],events});
+</script></html>

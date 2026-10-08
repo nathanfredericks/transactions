@@ -6,6 +6,7 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/nathanfredericks/transactions/internal/bank"
+	"github.com/nathanfredericks/transactions/internal/cloak"
 	"regexp"
 	"strings"
 	"time"
@@ -38,7 +39,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	}
 	o := bank.Observe(p)
 	defer o.Close()
-	router := p.HijackRequests()
+	router := cloak.NewRequestRouter(p)
 	e = router.Add("https://selfserve.apis.rogersbank.com/*", "", func(h *rod.Hijack) {
 		headers := []*proto.FetchHeaderEntry{}
 		for k, v := range h.Request.Headers() {
@@ -62,8 +63,10 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	if e != nil {
 		return bank.Session{}, e
 	}
-	go router.Run()
-	defer router.Stop()
+	if e = cloak.StartRequestRouter(p, router); e != nil {
+		return bank.Session{}, e
+	}
+	defer cloak.StopRequestRouter(p, router)
 	if e = p.Navigate("https://selfserve.rogersbank.com/home"); e != nil {
 		return bank.Session{}, bank.Fail(bank.Temporary, "navigation")
 	}
@@ -82,7 +85,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		return bank.Session{}, e
 	}
 	if !checked.Bool() {
-		if e = remember.Click(proto.InputMouseButtonLeft, 1); e != nil {
+		if e = bank.ClickElement(p, remember); e != nil {
 			return bank.Session{}, bank.Fail(bank.Challenge, "remember-device")
 		}
 	}
@@ -115,7 +118,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		if e != nil {
 			return bank.Session{}, bank.Fail(bank.Challenge, "email-option")
 		}
-		if e = email.Click(proto.InputMouseButtonLeft, 1); e != nil {
+		if e = bank.ClickElement(p, email); e != nil {
 			return bank.Session{}, e
 		}
 		after := time.Now()

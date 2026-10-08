@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
+	"github.com/nathanfredericks/transactions/internal/cloak"
 	"github.com/nathanfredericks/transactions/internal/config"
 	"github.com/nathanfredericks/transactions/internal/engine"
 	"github.com/nathanfredericks/transactions/internal/state"
@@ -96,42 +97,49 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 	if binary == "" {
 		return session, bank.Fail(bank.Invalid, "browser-binary")
 	}
-	launch := launcher.New().Context(ctx).Bin(binary).Headless(false).NoSandbox(true).Set("disable-dev-shm-usage")
+
+	var browser *rod.Browser
 	if r.Browser == "cloak" {
-		// Match the pinned CloakBrowser wrapper's documented Linux launch defaults.
-		launch.Delete("enable-automation").Delete("enable-unsafe-swiftshader").
-			Set("fingerprint", "54321").Set("fingerprint-platform", "windows").
-			Set("fingerprint-timezone", "America/Halifax").Set("ignore-gpu-blocklist").Set("window-size", "1920,1080")
-	}
-	control, err := launch.Launch()
-	if err != nil {
-		return session, bank.Fail(bank.Temporary, "browser-start")
-	}
-	defer launch.Cleanup()
-	// Rod defaults to a Chrome 114 Mac device; preserve the actual Chromium identity.
-	browser := rod.New().NoDefaultDevice().ControlURL(control).Context(ctx)
-	if err = browser.Connect(); err != nil {
-		launch.Kill()
-		return session, bank.Fail(bank.Temporary, "browser-connect")
-	}
-	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
-		closed := make(chan error, 1)
-		go func() { closed <- browser.Context(cleanupCtx).Close() }()
-		select {
-		case closeErr := <-closed:
-			if closeErr != nil {
-				// Cleanup waits for process exit. A failed Close must not leave
-				// it waiting forever on an expired authentication context.
-				launch.Kill()
-				slog.Warn("browser force-stopped after close failure", "errorType", fmt.Sprintf("%T", closeErr))
-			}
-		case <-cleanupCtx.Done():
-			launch.Kill()
-			slog.Warn("browser force-stopped after cleanup deadline")
+		owned, err := cloak.LaunchContext(ctx, cloak.Options{Binary: binary, Headless: cloak.Headed(), Humanize: true, HumanPreset: "careful", GeoIP: true, Timezone: "America/Halifax"})
+		if err != nil {
+			return session, bank.Fail(bank.Temporary, "browser-start")
 		}
-	}()
+		defer owned.Close()
+		browser = owned.Raw
+		slog.Info("CloakBrowser wrapper enabled", "wrapper", cloak.WrapperVersion, "preset", "careful")
+	} else {
+		launch := launcher.New().Context(ctx).Bin(binary).Headless(false).NoSandbox(true).Set("disable-dev-shm-usage")
+		control, err := launch.Launch()
+		if err != nil {
+			return session, bank.Fail(bank.Temporary, "browser-start")
+		}
+		defer launch.Cleanup()
+		// Rod defaults to a Chrome 114 Mac device; preserve the actual Chromium identity.
+		browser = rod.New().NoDefaultDevice().ControlURL(control).Context(ctx)
+		if err = browser.Connect(); err != nil {
+			launch.Kill()
+			return session, bank.Fail(bank.Temporary, "browser-connect")
+		}
+		defer func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			closed := make(chan error, 1)
+			go func() { closed <- browser.Context(cleanupCtx).Close() }()
+			select {
+			case closeErr := <-closed:
+				if closeErr != nil {
+					// Cleanup waits for process exit. A failed Close must not leave
+					// it waiting forever on an expired authentication context.
+					launch.Kill()
+					slog.Warn("browser force-stopped after close failure", "errorType", fmt.Sprintf("%T", closeErr))
+				}
+			case <-cleanupCtx.Done():
+				launch.Kill()
+				slog.Warn("browser force-stopped after cleanup deadline")
+			}
+		}()
+
+	}
 	var previous *bank.Session
 	var pointer engine.SessionPointer
 	if found, e := app.Store.Get(ctx, "BANK#"+r.ID, "SESSION", &pointer); e != nil {

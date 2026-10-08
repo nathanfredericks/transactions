@@ -1,18 +1,34 @@
 # CloakBrowser wrapper and Rod
 
-The Go worker uses the same pinned CloakBrowser binary as the previous application. The wrapper's JavaScript does additional work, so selecting the binary alone is insufficient.
+The runtime translates the installed `cloakbrowser@0.3.25` wrapper into Go-Rod. The frozen executable JavaScript, declarations, source hashes and licenses are in `third_party/cloakbrowser-0.3.25`; Playwright's effective Chromium arguments are frozen alongside it. The native ARM64 Chromium binary remains pinned to build `146.0.7680.177.3`, with executable SHA-256 `3cf5231598c4fd44be1ed10c58cab4a1d59cd18b05a4800c73b946e0bfc4d34f`. Node and Playwright are removed from the final runtime image.
 
-| Wrapper behavior | Rod implementation |
-|---|---|
-| Preserve the actual browser identity | `NoDefaultDevice()` disables Rod's default Chrome 114 / Mac emulation. Removing that override got NBDB past AK000001 and into MFA. |
-| Suppress the automation launch flag; configure Linux fingerprint and GPU behavior | Apply the pinned wrapper's Linux launch flags, a stable fingerprint seed, and its timezone flag. |
-| Set timezone through the binary | CloakBrowser receives its native timezone flag; Chromium inherits the container timezone. No page timezone override is layered over CloakBrowser. |
-| Wait for visible, enabled controls | Shared Rod helpers select visible controls, wait for pointer events and enabled state, and match accessible/visible labels. |
-| Enter fields and verify completion | NBDB's username, password and MFA code use Rod key-down/key-up events, explicit Shift events and context-bounded timing within the wrapper's careful ranges. Non-ASCII input uses native text insertion; field entry checks the resulting value before submitting credentials. No values are logged. |
-| Remember Rogers devices | Preserve Rogers' actual SecureLS device and username entries plus their key metadata. Restoring plain strings was incorrect. |
+## Source coverage
 
-The keyboard helper uses fixed durations within the wrapper's ranges rather than implementing its randomized pauses, simulated mistakes and mouse-path framework. We have not claimed equivalent behavior for that complete framework. Current verification isolates necessary differences before adding custom behavior; Rod remains the sole production browser driver.
+| Reference | Implementation and observed check |
+| --- | --- |
+| `config`, `args`, Playwright launch defaults | `internal/cloak/browser.go` and `chromium-args.json`: argument precedence, original launch switches, random seed 10000–99999, native platform, headed GPU, no Rod device emulation. Reference and Go reported the same UA/platform/timezone and geometry. |
+| `playwright` | `LaunchContext`, `LaunchBrowser`, `LaunchPersistentContext`, independent contexts, target setup, cookies/storage and caller-owned profile cleanup. Real context isolation, automatic popup setup and persistent-profile reopening passed. Banking uses original headed/careful options and 1920×947 viewport. |
+| `human/config` | Exact default/careful presets in `human/presets.json`, typed overrides and cancellable random delay helpers. Both reference presets were transcribed from executable source. |
+| `human/mouse` | Bezier/easing/wobble, bursts, overshoot/correction, input/button targets, aim/hold and idle drift in `human/mouse.go`. Actual trusted trajectories and clicks were recorded from both drivers. |
+| `human/keyboard` | Physical codes, Shift and named keys, Unicode insertion, pauses, neighboring-key mistakes and backspace correction in `human/keyboard.go`. Real mixed ASCII/symbol/Unicode entry was exact; key-down/up events balanced. |
+| `human/scroll` | Cursor positioning, target zones, acceleration/deceleration, wheel chunks, overshoot and settling in `human/scroll.go`. Actual wheel events reached the far-field target. |
+| `human/index`, `human/elementhandle` | Isolated worlds, cursor sharing, page/frame/handle composition, nested selectors, focus, checked/select state, type/fill/clear/press, hover/click/double-click/tap, drag and raw inputs in `human/page.go`. Full executable inspection passed, including a child frame, navigation, no-click focus and cancellation releasing held input. Element bounding boxes use the border quad, matching Playwright. |
+| `proxy` | `network.go` parses HTTP/HTTPS/SOCKS configuration, credentials and bypass; `auth.go` separates proxy/origin auth, bounds repeated challenges and composes with Rod routing. Repeated real local origin-auth challenges with routing passed. External proxy/SOCKS authentication is not exercised. |
+| `geoip` | Optional proxy exit-IP resolution, database caching, locale mapping, explicit overrides and WebRTC handling in `network.go`. As in the original wrapper, no proxy means no GeoIP lookup. Production uses no proxy. Optional external GeoIP paths are implemented but not operationally verified. |
+| `download`, `cli` | Immutable image build and `scripts/cloak/binary.sh` use the pinned original installer/CLI for platform selection, cache/version markers, checksums, extraction and explicit updates. Both inspected images had identical native executable hashes. Runtime updates stay disabled. |
+| `index`, `types`, declarations | Typed Go options and launch/context/page/element contracts expose the translated operations and raw Rod access. Arbitrary Playwright/Puppeteer option bags and their whole driver APIs are not claimed as drop-in compatible. |
+| `puppeteer`, `human-puppeteer/*` | Audited counterpart of the shared wrapper algorithms; the Go runtime has one Rod driver implementation. A Puppeteer compatibility API is not introduced. |
 
-The current NBDB UI uses “Receive by email”, `validation-code`, and optional informational welcome screens. Selectors follow that observed UI. Authentication can be captured from any authenticated request to the observed wealth API; the worker then fetches and validates the expected accounts directly. It does not depend on the web application issuing one particular portfolio-summary request. AK000001 is explicitly recognized as a browser-verification challenge because NBDB's own application routes that code to its bot-manager screen.
+## Manual comparison
 
-Local success alone does not establish AWS compatibility. After the keyboard and capture changes, a real ECS login validated both NBDB accounts and completed its callback; separate Lambda fetch and renewal also passed. An earlier ECS run received AK000001 and correctly paused automatic login. The old wrapper also recorded intermittent HTTP 403 responses, so these changes do not prove that future security challenges are eliminated.
+The original wrapper and Go executable ran the same non-secret fixture in the ARM64 browser image. Both reported Windows/Win32 Chrome 146, `en-US`, `America/Halifax`, inner size 1920×947, screen 1920×1080, outer size 1920×1032, and `webdriver=false`. Both entered `Ab9@!_é🙂` exactly, clicked, checked and scrolled using trusted native input. One observed pair produced 287/300 mouse moves and 82/78 wheel events; paths and counts vary with the original random distributions. The reference generated and corrected a simulated typing mistake.
+
+The extended Go inspection additionally exercised handles, nested focus, value-based selection, uncheck, double-click, child-frame typing, dragging, navigation, isolated context storage, new popups and cancelled typing. Cancellation left no keys pressed. Selection emits the same untrusted DOM input/change events as the underlying Playwright selector operation; mouse and keyboard events are native. Separate runs confirmed cookies/storage survive closing and reopening a caller-owned persistent profile, and origin authentication continues across challenges with a request router.
+
+The translation intentionally forwards frame operations to the actual child frame rather than reproducing the reference forwarding defect. Cleanup is bounded and releases held keys/buttons when an action is cancelled. Missing element geometry returns an error rather than falling back to an unhumanized click. These are explicit correctness differences.
+
+## Bank integration
+
+All Cloak bank helper typing and clicks, including previously returned element handles, use the wrapper. EQ continues to use bundled Chromium. NBDB waits for exact field contents, repairs credential entry only when its observed browser-update dialog intercepted it, and correlates a completed authorization-code exchange with the bearer actually used on a wealth request. This avoids selecting another client's OAuth response. Expected account identities are validated before publishing authentication.
+
+NBDB's `AK000001` is reported as browser sign-in rejected, with a distinct stage before email verification. The 7 October failure reached that bank restriction screen before requesting a code. The same native binary was already present, so missing wrapper behavior is a plausible contributor rather than a proven sole cause. Local success and the release checks are recorded in [verification results](verification-results.md). No port can guarantee that every future bank security check accepts a cloud browser.

@@ -7,12 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/proto"
+	"github.com/nathanfredericks/transactions/internal/cloak"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -90,6 +91,22 @@ func (o *Observer) Latest(match func(Exchange) bool) (Exchange, bool) {
 		return *latest, true
 	}
 	return Exchange{}, false
+}
+
+// Matches snapshots observed exchanges in request order. Callers can inspect
+// response bodies after the observer lock is released, without blocking events.
+func (o *Observer) Matches(match func(Exchange) bool) []Exchange {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var result []Exchange
+	for _, value := range o.items {
+		copy := *value
+		if match(copy) {
+			result = append(result, copy)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Sequence < result[j].Sequence })
+	return result
 }
 func (o *Observer) Wait(ctx context.Context, match func(Exchange) bool) (Exchange, error) {
 	for {
@@ -200,6 +217,28 @@ func BrowserSession(b *rod.Browser, id string, headers map[string]string, auth a
 func Input(p *rod.Page, selector, value string) error { return enterText(p, selector, value, false) }
 func Type(p *rod.Page, selector, value string) error  { return enterText(p, selector, value, true) }
 func enterText(p *rod.Page, selector, value string, typed bool) error {
+	if human, ok := cloak.ForPage(p); ok {
+		// Original fill() and pressSequentially() compose different focus/clear paths.
+		var err error
+		if typed {
+			err = human.PressSequentially(selector, value)
+		} else {
+			err = human.Fill(selector, value)
+		}
+		if err != nil {
+			return Fail(Temporary, "input-events")
+		}
+		el, err := human.Element(selector)
+		if err != nil {
+			return Fail(Challenge, "input-missing")
+		}
+		entered, err := el.Raw.Property("value")
+		if err != nil || entered.Str() != value {
+			return Fail(Challenge, "input-value")
+		}
+		return nil
+	}
+
 	el, e := p.Timeout(30 * time.Second).ElementByJS(rod.Eval(`(selector)=>Array.from(document.querySelectorAll(selector)).find(el=>el.getClientRects().length && getComputedStyle(el).visibility!=="hidden")||null`, selector))
 	if e != nil {
 		// Field structure only: no input values, page bodies, URLs or screenshots.
@@ -215,19 +254,10 @@ func enterText(p *rod.Page, selector, value string, typed bool) error {
 	if e = el.SelectAllText(); e != nil {
 		return Fail(Challenge, "input-selection")
 	}
-	if typed {
-		if e = el.WaitEnabled(); e == nil {
-			e = el.WaitWritable()
-		}
-		if e == nil {
-			e = typeText(p, value)
-		}
-		if e != nil {
-			return Fail(Temporary, "input-events")
-		}
-	} else if e = el.Input(value); e != nil {
+	if e = el.Input(value); e != nil {
 		return Fail(Challenge, "input")
 	}
+
 	entered, e := el.Property("value")
 	if e != nil || entered.Str() != value {
 		return Fail(Challenge, "input-value")
@@ -235,71 +265,16 @@ func enterText(p *rod.Page, selector, value string, typed bool) error {
 	return nil
 }
 
-// Use Rod's key mapping instead of reimplementing CDP key codes. These bounded
-// timings sit within CloakBrowser 0.3.25's careful preset; no simulated mistakes
-// or synthetic page keyboard events are used for credentials.
-func typeText(p *rod.Page, value string) error {
-	wait := func(duration time.Duration) error {
-		timer := time.NewTimer(duration)
-		defer timer.Stop()
-		select {
-		case <-p.GetContext().Done():
-			return p.GetContext().Err()
-		case <-timer.C:
-			return nil
-		}
-	}
-	if err := wait(time.Second); err != nil {
-		return err
-	}
-	// Clear the selected value even when the requested replacement is empty.
-	if err := p.Keyboard.Type(input.Backspace); err != nil {
-		return err
-	}
-	for _, character := range value {
-		if character < 32 || character > 126 {
-			if err := p.InsertText(string(character)); err != nil {
-				return err
-			}
-		} else {
-			shift := character >= 'A' && character <= 'Z' || strings.ContainsRune("~!@#$%^&*()_+{}|:\"<>?", character)
-			if shift {
-				if err := p.Keyboard.Press(input.ShiftLeft); err != nil {
-					return err
-				}
-				if err := wait(60 * time.Millisecond); err != nil {
-					return err
-				}
-			}
-			key := input.Key(character)
-			if err := p.Keyboard.Press(key); err != nil {
-				return err
-			}
-			if err := wait(30 * time.Millisecond); err != nil {
-				return err
-			}
-			if err := p.Keyboard.Release(key); err != nil {
-				return err
-			}
-			if shift {
-				if err := wait(50 * time.Millisecond); err != nil {
-					return err
-				}
-				if err := p.Keyboard.Release(input.ShiftLeft); err != nil {
-					return err
-				}
-			}
-		}
-		if err := wait(100 * time.Millisecond); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 const visibleButtonJS = `(selector,label)=>Array.from(document.querySelectorAll(selector)).find(el=>el.getClientRects().length && getComputedStyle(el).visibility!=="hidden" && getComputedStyle(el).pointerEvents!=="none" && !el.disabled && el.getAttribute("aria-disabled")!=="true" && new RegExp(label).test((el.getAttribute("aria-label")||el.innerText||el.textContent).trim()))||null`
 
 func Click(p *rod.Page, selector, label string) error {
+	if human, ok := cloak.ForPage(p); ok {
+		if err := human.Click(selector, label); err != nil {
+			return Fail(Temporary, "button-events")
+		}
+		return nil
+	}
+
 	el, e := p.Timeout(30 * time.Second).ElementByJS(rod.Eval(visibleButtonJS, selector, label))
 	if e != nil {
 		LogControls(p)
@@ -326,6 +301,23 @@ func LogControls(p *rod.Page) {
 
 // ClickIfPresent handles known informational screens without delaying normal API access.
 func ClickIfPresent(p *rod.Page, selector, label string, timeout time.Duration) (bool, error) {
+	if human, ok := cloak.ForPage(p); ok {
+		ctx, cancel := context.WithTimeout(p.GetContext(), timeout)
+		_, err := human.Context(ctx).ElementLabel(selector, label)
+		cancel()
+		if err != nil {
+			if p.GetContext().Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+				return false, nil
+			}
+			return false, Fail(Temporary, "optional-control")
+		}
+		// Lookup deadline must not expire the click's context.
+		if err = human.Click(selector, label); err != nil {
+			return false, Fail(Temporary, "optional-control")
+		}
+		return true, nil
+	}
+
 	el, err := p.Timeout(timeout).ElementByJS(rod.Eval(visibleButtonJS, selector, label))
 	if err != nil {
 		if p.GetContext().Err() == nil && errors.Is(err, context.DeadlineExceeded) {
@@ -343,5 +335,16 @@ func NewPage(ctx context.Context, b *rod.Browser) (*rod.Page, error) {
 	if e != nil {
 		return nil, Fail(Temporary, "browser-page")
 	}
+	if _, e = cloak.SetupPage(p); e != nil {
+		return nil, Fail(Temporary, "browser-page-setup")
+	}
 	return p, nil
+}
+
+// ClickElement ensures handle-level operations follow the same behavior layer.
+func ClickElement(p *rod.Page, el *rod.Element) error {
+	if human, ok := cloak.ForPage(p); ok {
+		return human.Wrap(el).Click()
+	}
+	return el.Click(proto.InputMouseButtonLeft, 1)
 }

@@ -1,0 +1,256 @@
+{
+  "default": {
+    "typing_delay": 70,
+    "typing_delay_spread": 40,
+    "typing_pause_chance": 0.1,
+    "typing_pause_range": [
+      400,
+      1000
+    ],
+    "shift_down_delay": [
+      30,
+      70
+    ],
+    "shift_up_delay": [
+      20,
+      50
+    ],
+    "key_hold": [
+      15,
+      35
+    ],
+    "field_switch_delay": [
+      800,
+      1500
+    ],
+    "mistype_chance": 0.02,
+    "mistype_delay_notice": [
+      100,
+      300
+    ],
+    "mistype_delay_correct": [
+      50,
+      150
+    ],
+    "mouse_steps_divisor": 8,
+    "mouse_min_steps": 25,
+    "mouse_max_steps": 80,
+    "mouse_wobble_max": 1.5,
+    "mouse_overshoot_chance": 0.15,
+    "mouse_overshoot_px": [
+      3,
+      6
+    ],
+    "mouse_burst_size": [
+      3,
+      5
+    ],
+    "mouse_burst_pause": [
+      8,
+      18
+    ],
+    "click_aim_delay_input": [
+      60,
+      140
+    ],
+    "click_aim_delay_button": [
+      80,
+      200
+    ],
+    "click_hold_input": [
+      40,
+      100
+    ],
+    "click_hold_button": [
+      60,
+      150
+    ],
+    "click_input_x_range": [
+      0.05,
+      0.3
+    ],
+    "idle_drift_px": 3,
+    "idle_pause_range": [
+      300,
+      1000
+    ],
+    "scroll_delta_base": [
+      80,
+      130
+    ],
+    "scroll_delta_variance": 0.2,
+    "scroll_pause_fast": [
+      30,
+      80
+    ],
+    "scroll_pause_slow": [
+      80,
+      200
+    ],
+    "scroll_accel_steps": [
+      2,
+      3
+    ],
+    "scroll_decel_steps": [
+      2,
+      3
+    ],
+    "scroll_overshoot_chance": 0.1,
+    "scroll_overshoot_px": [
+      50,
+      150
+    ],
+    "scroll_settle_delay": [
+      300,
+      600
+    ],
+    "scroll_target_zone": [
+      0.2,
+      0.8
+    ],
+    "scroll_pre_move_delay": [
+      100,
+      300
+    ],
+    "initial_cursor_x": [
+      400,
+      700
+    ],
+    "initial_cursor_y": [
+      45,
+      60
+    ],
+    "idle_between_actions": false,
+    "idle_between_duration": [
+      0.3,
+      0.8
+    ]
+  },
+  "careful": {
+    "typing_delay": 100,
+    "typing_delay_spread": 50,
+    "typing_pause_chance": 0.15,
+    "typing_pause_range": [
+      500,
+      1200
+    ],
+    "shift_down_delay": [
+      40,
+      90
+    ],
+    "shift_up_delay": [
+      30,
+      70
+    ],
+    "key_hold": [
+      20,
+      45
+    ],
+    "field_switch_delay": [
+      1000,
+      2000
+    ],
+    "mistype_chance": 0.03,
+    "mistype_delay_notice": [
+      150,
+      400
+    ],
+    "mistype_delay_correct": [
+      80,
+      200
+    ],
+    "mouse_steps_divisor": 8,
+    "mouse_min_steps": 25,
+    "mouse_max_steps": 80,
+    "mouse_wobble_max": 1.5,
+    "mouse_overshoot_chance": 0.1,
+    "mouse_overshoot_px": [
+      3,
+      6
+    ],
+    "mouse_burst_size": [
+      3,
+      5
+    ],
+    "mouse_burst_pause": [
+      12,
+      25
+    ],
+    "click_aim_delay_input": [
+      80,
+      180
+    ],
+    "click_aim_delay_button": [
+      120,
+      280
+    ],
+    "click_hold_input": [
+      60,
+      140
+    ],
+    "click_hold_button": [
+      80,
+      200
+    ],
+    "click_input_x_range": [
+      0.05,
+      0.3
+    ],
+    "idle_drift_px": 3,
+    "idle_pause_range": [
+      300,
+      1000
+    ],
+    "scroll_delta_base": [
+      80,
+      130
+    ],
+    "scroll_delta_variance": 0.2,
+    "scroll_pause_fast": [
+      100,
+      200
+    ],
+    "scroll_pause_slow": [
+      250,
+      600
+    ],
+    "scroll_accel_steps": [
+      2,
+      3
+    ],
+    "scroll_decel_steps": [
+      2,
+      3
+    ],
+    "scroll_overshoot_chance": 0.1,
+    "scroll_overshoot_px": [
+      50,
+      150
+    ],
+    "scroll_settle_delay": [
+      400,
+      800
+    ],
+    "scroll_target_zone": [
+      0.2,
+      0.8
+    ],
+    "scroll_pre_move_delay": [
+      150,
+      400
+    ],
+    "initial_cursor_x": [
+      400,
+      700
+    ],
+    "initial_cursor_y": [
+      45,
+      60
+    ],
+    "idle_between_actions": true,
+    "idle_between_duration": [
+      0.4,
+      1
+    ]
+  }
+}

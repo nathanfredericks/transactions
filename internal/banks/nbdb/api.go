@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"github.com/nathanfredericks/transactions/internal/bank"
+	"log/slog"
 	"math"
 	"net/url"
 	"strings"
@@ -128,7 +129,14 @@ func (a *Adapter) Fetch(ctx context.Context, s bank.Session, r bank.FetchRequest
 			} `json:"portfolioSummaryList"`
 		} `json:"data"`
 	}
-	e := bank.NewHTTP(&s).JSON(ctx, "GET", summary, s.Headers, nil, &data)
+	h := bank.NewHTTP(&s)
+	h.Check = func(status int, _ []byte) error {
+		if status >= 400 {
+			slog.Warn("NBDB account request rejected", "httpStatus", status)
+		}
+		return nil
+	}
+	e := h.JSON(ctx, "GET", summary, s.Headers, nil, &data)
 	if e != nil {
 		return out, s, e
 	}

@@ -72,3 +72,18 @@ For baseline changes, the operator can run the current Go code locally against a
 Copy `admin/.env.example` to the ignored `admin/.env.local`, populate the dedicated Transactions Auth0 credentials and verified-email allowlist, and generate a separate local session secret. Use the Auth0 application’s registered localhost callback. Run `npm --prefix admin run dev`; local authentication remains mandatory. Use read-only pages for login verification. Do not invoke imports or resume a financial review hold merely to verify authentication.
 
 The initial implementation passed type checking, lint, production build, Go CDK build/vet and synthesis. Read-only local requests using the real StarRez Auth0 client in process memory confirmed that unauthenticated reads and POSTs redirect to login, deep links are preserved, the Auth0 authorization redirect uses the configured callback, transaction cookies are HttpOnly/SameSite=Lax, invalid callbacks show a safe error, and the browser access-token endpoint is disabled. No authenticated session was fabricated. A successful sign-in with the new Transactions client and the production logout round trip remain release gates.
+
+## Wrapper inspection
+
+`cmd/cloak-inspect` uses only a local non-secret event/geometry fixture; it never loads AWS configuration or bank credentials. Build it for the ARM64 image, then mount the executable and fixture into the existing browser image:
+
+```sh
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o dist/cloak-inspect ./cmd/cloak-inspect
+docker run --rm --init --mount "type=bind,src=$PWD,dst=/workspace" --workdir /workspace --entrypoint xvfb-run transactions-engine-browser:cloak-rod -a /workspace/dist/cloak-inspect -full
+# Repeat with -profiles or -auth for persistent storage and HTTP auth/routing.
+docker build --platform linux/arm64 --target browsers -t transactions-cloak-reference:inspect .
+docker run --rm --init --mount "type=bind,src=$PWD,dst=/workspace" --workdir /workspace --entrypoint xvfb-run transactions-cloak-reference:inspect -a node scripts/cloak/inspect-reference.mjs
+scripts/cloak/binary.sh info
+```
+
+The reference script imports the installed pinned wrapper from the browsers stage. `binary.sh` also supports deliberate `install`, `update` and `clear-cache`, with an optional operator cache directory. These commands are never invoked by production; do not update the pinned validation image while comparing behavior. Optional external proxy/GeoIP paths need their own real configured checks before operational use.

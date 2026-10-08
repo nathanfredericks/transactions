@@ -26,8 +26,6 @@ flowchart TD
   Intent --> Delivery[Separate notification delivery step]
   Delivery --> Pushover[Pushover]
   Delivery -->|Failure| Retry[Bounded notification-only retry]
-  Upkeep[EQ session maintenance] --> Gateway
-  Upkeep -.->|Authentication only: no YNAB path| Adapter
   AWS[Lambda / workflow / delivery alarms] --> SNS[Independent SNS email]
 ```
 
@@ -50,7 +48,9 @@ Authentication expiry permits renewal and one browser attempt per job. Credentia
 
 A bank lease fences every state change with a generation. Session objects are immutable; publishing their pointer requires the current lease. Browser results are saved before callbacks and recovered if the callback is lost. Browser work has an absolute deadline shorter than the callback timeout. EQ missing-activity waits release the lease for 1, 5 and 15 minutes.
 
-Session maintenance has no import path. EQ maintains its renewable session; hard expiry launches browser authentication. Rogers/NBDB authenticate when their scheduled retrieval needs it. Bank-enforced session limits still apply.
+EQ four-hour imports process cleared transactions only. Purchase-alert jobs retain the pending authorization import path.
+
+EQ authentication runs on demand during four-hour imports and purchase-alert lookups. These jobs reuse usable sessions and renew or launch browser authentication when needed; sessions may expire between jobs, so purchase alerts can take longer to resolve. There is no background EQ upkeep schedule. Previously queued EQ upkeep jobs finish without authentication or bank requests. Explicit manual session verification remains available and has no import path. Rogers/NBDB authenticate when their scheduled retrieval needs it. Bank-enforced session limits still apply.
 
 YNAB writes have no generic retry wrapper. Transaction creation uses stable import IDs; updates check the identified transaction after uncertain completion. An uncertain NBDB adjustment leaves an account hold that later jobs cannot bypass. Notifications have separate status and bounded delivery attempts; retrying delivery cannot import anything.
 

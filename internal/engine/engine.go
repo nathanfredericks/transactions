@@ -67,6 +67,11 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 			out, err = e.failure(ctx, err)
 		}
 	}()
+	// Retired upkeep jobs may still be queued or returning from a browser.
+	// Finish them under their lease without touching authentication or bank data.
+	if e.Job.Bank == "eq-bank" && e.Job.Source == "session" && e.Job.Purpose == "maintain-session" {
+		return e.complete(ctx)
+	}
 	var health Health
 	if _, err = e.get(ctx, e.healthKey(), &health); err != nil {
 		return out, err

@@ -5,6 +5,7 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/nathanfredericks/transactions/internal/bank"
+	"github.com/nathanfredericks/transactions/internal/cloak"
 	"log/slog"
 	"net/url"
 	"regexp"
@@ -25,12 +26,14 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	if e != nil {
 		return bank.Session{}, e
 	}
-	router := p.HijackRequests()
+	router := cloak.NewRequestRouter(p)
 	if e = router.Add("https://sdk.privacy-center.org/*", "", func(h *rod.Hijack) { h.Response.Fail(proto.NetworkErrorReasonBlockedByClient) }); e != nil {
 		return bank.Session{}, e
 	}
-	go router.Run()
-	defer router.Stop()
+	if e = cloak.StartRequestRouter(p, router); e != nil {
+		return bank.Session{}, e
+	}
+	defer cloak.StopRequestRouter(p, router)
 	o := bank.Observe(p)
 	defer o.Close()
 	defer func() {
@@ -45,10 +48,10 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	if _, e = bank.ClickIfPresent(p, "button,a", `Ignore the update`, 5*time.Second); e != nil {
 		return bank.Session{}, e
 	}
-	if e = bank.Type(p, "#username", a.Dependencies.Credentials.Username); e != nil {
+	if e = enterCredentials(p, "#username", a.Dependencies.Credentials.Username, bank.Type); e != nil {
 		return bank.Session{}, e
 	}
-	if e = bank.Type(p, "#password-hidden", a.Dependencies.Credentials.Password); e != nil {
+	if e = enterCredentials(p, "#password-hidden", a.Dependencies.Credentials.Password, bank.Input); e != nil {
 		return bank.Session{}, e
 	}
 	// The update notice can arrive while the credentials are being entered,
@@ -74,7 +77,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		return bank.Session{}, e
 	}
 	if state.Error == "AK000001" {
-		return bank.Session{}, bank.Fail(bank.Challenge, "browser-verification")
+		return bank.Session{}, bank.Fail(bank.Challenge, "browser-access-rejected")
 	}
 	if state.Error == "E0000004" {
 		return bank.Session{}, bank.Fail(bank.Credentials, "login")
@@ -110,7 +113,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		if e != nil {
 			return bank.Session{}, e
 		}
-		if e = bank.Type(p, `input[id="validation-code"], input[autocomplete="one-time-code"], input[name="passCode"]`, code); e != nil {
+		if e = bank.Input(p, `input[id="validation-code"], input[autocomplete="one-time-code"], input[name="passCode"]`, code); e != nil {
 			return bank.Session{}, e
 		}
 		stage = "email-confirm"
@@ -174,12 +177,58 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		}
 	}
 
-	token, e := o.Wait(captureCtx, func(v bank.Exchange) bool {
-		return v.Request.Method == "POST" && strings.HasPrefix(v.Request.URL, "https://api.bnc.ca/bnc/prod-okta/sso/oauth2/") && strings.HasSuffix(v.Request.URL, "/v1/token") && v.Response != nil && v.Response.Status == 200 && v.Finished
-	})
-	if e != nil {
-		return bank.Session{}, e
+	// Multiple OAuth clients can complete exchanges during the redirect. Match
+	// a finished authorization-code response to the bearer actually used by a
+	// wealth request; the first completed token can belong to the login client.
+	stage = "token-capture"
+	var token bank.Exchange
+	var response struct {
+		Scope  string `json:"scope"`
+		Access string `json:"access_token"`
 	}
+	matched := false
+	for !matched {
+		wealth := o.Matches(func(v bank.Exchange) bool {
+			return strings.HasPrefix(v.Request.URL, "https://iiroc.investments.apis.bnc.ca/orion-api/")
+		})
+		tokens := o.Matches(func(v bank.Exchange) bool {
+			return v.Sequence > login.Sequence && v.Request.Method == "POST" && strings.HasPrefix(v.Request.URL, "https://api.bnc.ca/bnc/prod-okta/sso/oauth2/") && strings.HasSuffix(v.Request.URL, "/v1/token") && v.Response != nil && v.Response.Status == 200 && v.Finished
+		})
+		for i := len(tokens) - 1; i >= 0 && !matched; i-- {
+			candidate := tokens[i]
+			body, err := o.PostData(candidate)
+			if err != nil {
+				return bank.Session{}, err
+			}
+			form, err := url.ParseQuery(body)
+			if err != nil || form.Get("grant_type") != "authorization_code" {
+				continue
+			}
+			if e = o.Body(candidate, &response); e != nil {
+				return bank.Session{}, e
+			}
+			if response.Access == "" {
+				continue
+			}
+			for j := len(wealth) - 1; j >= 0; j-- {
+				headers := bank.SafeHeaders(wealth[j].Request.Headers)
+				if headers["authorization"] == "Bearer "+response.Access {
+					token = candidate
+					discovery = wealth[j]
+					matched = true
+					break
+				}
+			}
+		}
+		if !matched {
+			select {
+			case <-captureCtx.Done():
+				return bank.Session{}, bank.Fail(bank.Temporary, "token-correlation-timeout")
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	}
+	slog.Info("NBDB wealth authentication correlated")
 	data, e := o.PostData(token)
 	if e != nil {
 		return bank.Session{}, e
@@ -188,19 +237,30 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	if e != nil || form.Get("grant_type") != "authorization_code" {
 		return bank.Session{}, bank.Fail(bank.Invalid, "token-capture")
 	}
-	var response struct {
-		Scope  string `json:"scope"`
-		Access string `json:"access_token"`
-	}
-	if e = o.Body(token, &response); e != nil {
-		return bank.Session{}, e
-	}
-	if response.Access == "" {
-		return bank.Session{}, bank.Fail(bank.Invalid, "token-capture")
-	}
-	// The app can issue wealth requests before its token store has caught up.
-	// Use their API metadata, but take authentication from the completed exchange.
+	// Both API metadata and the completed response now refer to the same token.
 	headers := bank.SafeHeaders(discovery.Request.Headers)
 	headers["authorization"] = "Bearer " + response.Access
 	return bank.BrowserSession(b, "nbdb", headers, auth{TokenURL: token.Request.URL, ClientID: form.Get("client_id"), RedirectURI: form.Get("redirect_uri"), Scope: response.Scope, Headers: bank.SafeHeaders(token.Request.Headers)})
+}
+
+// The known browser-update dialog can appear after initial page loading and
+// intercept a credential-field click. Dismiss it and re-enter that field once;
+// this happens before the authentication POST and never repeats a login request.
+func enterCredentials(p *rod.Page, selector, value string, enter func(*rod.Page, string, string) error) error {
+	err := enter(p, selector, value)
+	if err == nil {
+		return nil
+	}
+	failure := bank.Classify(err)
+	if failure.Operation != "input-value" && failure.Operation != "input-events" {
+		return err
+	}
+	dismissed, noticeErr := bank.ClickIfPresent(p, "button,a", `Ignore the update`, 2*time.Second)
+	if noticeErr != nil {
+		return noticeErr
+	}
+	if !dismissed {
+		return err
+	}
+	return enter(p, selector, value)
 }

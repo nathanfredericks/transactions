@@ -138,7 +138,6 @@ func main() {
 	for _, b := range banks.All {
 		schedule("Schedule-"+b.ID, b.Schedule, M{"action": "submit", "job": M{"version": 1, "bank": b.ID, "source": "scheduled", "purpose": "retrieve", "dryRun": false}})
 	}
-	schedule("EQUpkeep", "rate(1 minute)", M{"action": "maintain"})
 	api := res("WebhookAPI", "AWS::ApiGatewayV2::Api", M{"Name": "transactions-engine", "ProtocolType": "HTTP"})
 	integration := res("WebhookIntegration", "AWS::ApiGatewayV2::Integration", M{"ApiId": api.Ref(), "IntegrationType": "AWS_PROXY", "IntegrationUri": att(gateway, "Arn"), "PayloadFormatVersion": "2.0"})
 	res("WebhookRoute", "AWS::ApiGatewayV2::Route", M{"ApiId": api.Ref(), "RouteKey": "POST /webhook", "Target": sub("integrations/${WebhookIntegration}")})

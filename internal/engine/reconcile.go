@@ -88,6 +88,17 @@ func exactMatch(a, b Record) bool {
 func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline Baseline) (bool, error) {
 	job := s.Job
 	result := struct{ Records []Record }{snapshot.Records}
+	// Routine EQ retrievals import cleared rows only. Purchase-email jobs retain
+	// the authorization path so their pending purchase can be imported promptly.
+	if job.Bank == "eq-bank" && job.Source != "alert" {
+		result.Records = make([]Record, 0, len(snapshot.Records))
+		for _, record := range snapshot.Records {
+			if record.Status == "posted" {
+				result.Records = append(result.Records, record)
+			}
+		}
+		slog.Info("EQ import eligibility", "source", job.Source, "posted", len(result.Records), "pendingSkipped", len(snapshot.Records)-len(result.Records))
+	}
 	mapping := map[string]string{}
 	mapped, err := s.mapping(ctx, snapshot)
 	if err != nil {
