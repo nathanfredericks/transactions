@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"github.com/go-rod/rod"
 	"github.com/nathanfredericks/transactions/internal/bank"
+	"log/slog"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,6 +21,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (bank.Sessio
 	defer o.Close()
 	stage := "login-email"
 	fail := func(e error) (bank.Session, error) {
+		slog.Warn("EQ browser authentication failed", "stage", stage, "kind", bank.Classify(e).Kind, "exchanges", o.Diagnostics("eqbank.ca"))
 		text, _ := p.Timeout(2 * time.Second).Element("body")
 		if text != nil {
 			value, _ := text.Text()
@@ -66,15 +69,42 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (bank.Sessio
 		return fail(e)
 	}
 	stage = "account-capture"
-	discovery, e := o.Wait(ctx, func(v bank.Exchange) bool {
-		return v.Request.Method == "GET" && v.Request.URL == api+"/accounts/v2/accounts" && v.Response != nil && v.Response.Status == 200
-	})
+	// Leave the page alive for maintenance classification and diagnostics.
+	// Waiting until the whole authentication context expires prevents fail()
+	// from inspecting the page and disguises maintenance as an ordinary timeout.
+	captureCtx, cancelCapture := context.WithTimeout(ctx, 60*time.Second)
+	defer cancelCapture()
+	waitResponse := func(method, endpoint string) (bank.Exchange, error) {
+		v, err := o.Wait(captureCtx, func(v bank.Exchange) bool {
+			return v.Request.Method == method && v.Request.URL == endpoint && (v.Failed || v.Response != nil)
+		})
+		if err != nil {
+			return v, err
+		}
+		if v.Failed {
+			return v, bank.Fail(bank.Temporary, "browser-network")
+		}
+		status := v.Response.Status
+		switch {
+		case status == 200:
+			return v, nil
+		case status == 429:
+			headers := bank.SafeHeaders(v.Response.Headers)
+			return v, bank.Throttle("browser-http", headers["retry-after"])
+		case status == 401 || status == 419 || status == 440:
+			return v, bank.Fail(bank.Authentication, "browser-http")
+		case status >= 500:
+			return v, bank.Fail(bank.Temporary, "browser-http")
+		default:
+			return v, bank.Fail(bank.Invalid, "browser-http-status-"+strconv.Itoa(status))
+		}
+	}
+	discovery, e := waitResponse("GET", api+"/accounts/v2/accounts")
 	if e != nil {
 		return fail(e)
 	}
-	token, e := o.Wait(ctx, func(v bank.Exchange) bool {
-		return v.Request.Method == "POST" && v.Request.URL == "https://api.eqbank.ca/auth/v3/access-token" && v.Response != nil && v.Response.Status == 200
-	})
+	stage = "token-capture"
+	token, e := waitResponse("POST", "https://api.eqbank.ca/auth/v3/access-token")
 	if e != nil {
 		return fail(e)
 	}

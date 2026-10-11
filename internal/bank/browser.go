@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -20,12 +21,15 @@ import (
 )
 
 type Exchange struct {
-	Request  *proto.NetworkRequest
-	Response *proto.NetworkResponse
-	ID       proto.NetworkRequestID
-	Sequence int
-	Finished bool
-	Failed   bool
+	Request       *proto.NetworkRequest
+	Response      *proto.NetworkResponse
+	ID            proto.NetworkRequestID
+	Sequence      int
+	Finished      bool
+	Failed        bool
+	NetworkStatus int
+	NetworkError  string
+	CorsError     proto.NetworkCorsError
 }
 type Observer struct {
 	Page     *rod.Page
@@ -69,6 +73,19 @@ func Observe(page *rod.Page) *Observer {
 		o.mu.Lock()
 		if v := o.items[e.RequestID]; v != nil {
 			v.Failed = true
+			if regexp.MustCompile(`^net::ERR_[A-Z_]+$`).MatchString(e.ErrorText) {
+				v.NetworkError = e.ErrorText
+			}
+			if e.CorsErrorStatus != nil {
+				v.CorsError = e.CorsErrorStatus.CorsError
+			}
+		}
+		o.mu.Unlock()
+		signal()
+	}, func(e *proto.NetworkResponseReceivedExtraInfo) {
+		o.mu.Lock()
+		if v := o.items[e.RequestID]; v != nil {
+			v.NetworkStatus = e.StatusCode
 		}
 		o.mu.Unlock()
 		signal()
@@ -147,15 +164,18 @@ func (o *Observer) Diagnostics(hostSuffix string) []map[string]any {
 		operation := path.Base(u.Path)
 		if u.Hostname() == "iiroc.investments.apis.bnc.ca" && strings.HasPrefix(u.Path, "/orion-api/") {
 			operation = "wealth-api"
+			if u.Path == "/orion-api/v1/1/users/session" {
+				operation = "wealth-session"
+			}
 		}
-		if operation != "wealth-api" && operation != "summary" && operation != "token" && operation != "authn" && operation != "verify" {
+		if operation != "wealth-session" && operation != "wealth-api" && operation != "summary" && operation != "token" && operation != "authn" && operation != "verify" && !(hostSuffix == "eqbank.ca" && (operation == "accounts" || operation == "access-token")) {
 			continue
 		}
-		status := 0
+		status := x.NetworkStatus
 		if x.Response != nil {
 			status = x.Response.Status
 		}
-		result = append(result, map[string]any{"operation": operation, "method": x.Request.Method, "status": status, "finished": x.Finished, "networkFailed": x.Failed})
+		result = append(result, map[string]any{"operation": operation, "method": x.Request.Method, "status": status, "finished": x.Finished, "networkFailed": x.Failed, "networkError": x.NetworkError, "corsError": x.CorsError})
 	}
 	return result
 }
@@ -331,12 +351,9 @@ func ClickIfPresent(p *rod.Page, selector, label string, timeout time.Duration) 
 	return true, nil
 }
 func NewPage(ctx context.Context, b *rod.Browser) (*rod.Page, error) {
-	p, e := b.Context(ctx).Page(proto.TargetCreateTarget{URL: "about:blank"})
+	p, e := cloak.NewPage(ctx, b)
 	if e != nil {
 		return nil, Fail(Temporary, "browser-page")
-	}
-	if _, e = cloak.SetupPage(p); e != nil {
-		return nil, Fail(Temporary, "browser-page-setup")
 	}
 	return p, nil
 }

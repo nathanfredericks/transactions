@@ -122,6 +122,15 @@ func ExtractTransactionDetails(ctx context.Context, text string) (*types.Merchan
 }
 
 func MatchPayee(ctx context.Context, merchant string, payees []string) (string, error) {
+	cleanedMerchant := strings.TrimSpace(merchantPrefixRe.ReplaceAllString(merchant, ""))
+	// Bank descriptors often already name an existing payee. Preserve YNAB's
+	// spelling without making a slow, fallible inference for an exact match.
+	for _, payee := range payees {
+		if strings.EqualFold(strings.TrimSpace(payee), cleanedMerchant) {
+			return payee, nil
+		}
+	}
+
 	var payeeLines []string
 	for _, p := range payees {
 		payeeLines = append(payeeLines, "* "+p)
@@ -131,8 +140,6 @@ func MatchPayee(ctx context.Context, merchant string, payees []string) (string, 
 		"Payees:\n%s Select the most similar payee to the merchant from the list. If no match is found, create a new payee in Title Case using the merchant.",
 		strings.Join(payeeLines, "\n"),
 	)
-
-	cleanedMerchant := merchantPrefixRe.ReplaceAllString(merchant, "")
 
 	rawText, err := callResponsesAPI(ctx, systemPrompt, cleanedMerchant, "payee", payeeSchema)
 	if err != nil {

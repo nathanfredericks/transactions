@@ -101,3 +101,17 @@ The same released ECS image also completed Rogers' normal callback workflow at 2
 Release artifacts: browser image digest `sha256:2f1c5c2f17e140333a9cda94ea1e78a7e55b62a96e5dba88e0b7059b5807a5a4`; final Lambda ZIP SHA-256 `07a8c733b298622e8fa695b8224ede53bc0abf030785b9b1956e86c705a27304`. The deployed workflow references `TransactionsEngine-BrowserTask-KJZthJMMyogy:1`. Final Lambda hashes were compared against the uploaded ZIP, and both scoped stack updates completed successfully.
 
 After the AWS-created NBDB access token naturally expired at 22:41:05, a separate final-release Lambda renewed authentication and fetched both expected accounts successfully in 1613 ms. Its new expiry was 2026-10-08T01:46:25Z. Separate final-release Rogers retrieval returned 37 rows in 2175 ms.
+
+## Overnight failure follow-up (9 October, Atlantic time)
+
+The NBDB browser repair recorded in local-verification.md was already deployed on 8 October. The remaining overnight EQ failure, `scheduled-eq-bank-29858820`, reached email verification but timed out waiting for account discovery at 04:05. The 08:00 scheduled run recovered normally. The existing logs do not establish why the earlier account response was missing.
+
+EQ now bounds account/token capture to 60 seconds, leaving time to inspect the live page for maintenance. Previously capture could exhaust the entire authentication context, preventing that inspection. Known authentication, throttling, server and network failures are classified immediately instead of waiting only for HTTP 200. Safe diagnostics record the capture stage and endpoint status without headers, bodies or credentials. The failure paths were reviewed without provoking bank errors; a future natural failure remains necessary to observe their classification in production.
+
+The BMO email job `mail-35312bd37ec5d19567730ad0db39654a801f39ea4860a79cf3fe89d6a2e9d12b` failed this morning after three temporary errors. A real read-only probe spent 26.1 seconds matching AIR CANADA to the existing Air Canada payee, near the 30-second AI request deadline. Exact payee matches now reuse YNAB's spelling without an AI request; the same real check completed matching in less than one millisecond. Extraction and matching failures also retain separate safe operation names. This removes an unnecessary timeout opportunity; the older generic failure record does not identify which AI call timed out.
+
+The original BMO job had no financial write marker before its retry. After deployment, its original job completed, its YNAB write was confirmed as `cc1c5551-c9a8-42e6-bd42-565b0ead346c`, and purchase/recovery notifications were delivered through the normal engine. No uncertain financial hold was removed.
+
+Go build/vet and diff checks passed. EQ passed two real local authentication checks, including one with the final code. The scoped CloudFormation release updated the gateway, processor and browser image; both Lambda code hashes matched the released ZIP. Fresh AWS session-only dry-run workflow `verify-overnight-eq-20261009` completed email MFA, validated both accounts and finished at 10:10:36. A separate deployed Lambda reused that AWS-created session and retrieved six records in 3.5 seconds. All five infrastructure alarms were OK. No test suites were run.
+
+Release artifacts: browser digest `sha256:85bd78a2eb950d62be9749ccc9a71016123a31dbb8fc58e45b83429ca5953172`; Lambda ZIP SHA-256/base64 `DjQ7XPg0LiPcfWgqTXjHMzIWCDfl2/IavaOl7GTX0j0=`. Existing changes from the NBDB repair remain in the working tree.

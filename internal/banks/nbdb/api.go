@@ -18,11 +18,12 @@ const summary = "https://iiroc.investments.apis.bnc.ca/orion-api/v1/1/portfolios
 
 type Adapter struct{ Dependencies bank.Dependencies }
 type auth struct {
-	TokenURL    string            `json:"tokenUrl"`
-	ClientID    string            `json:"clientId"`
-	RedirectURI string            `json:"redirectUri"`
-	Scope       string            `json:"scope"`
-	Headers     map[string]string `json:"headers"`
+	TokenURL      string            `json:"tokenUrl"`
+	ClientID      string            `json:"clientId"`
+	RedirectURI   string            `json:"redirectUri"`
+	Scope         string            `json:"scope"`
+	Headers       map[string]string `json:"headers"`
+	DeviceCookies []bank.Cookie     `json:"deviceCookies,omitempty"`
 }
 
 func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, error) {

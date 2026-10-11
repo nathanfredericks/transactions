@@ -46,6 +46,9 @@ func Classify(err error) *Failure {
 }
 
 type Session struct {
+	BrowserPlatform  string            `json:"browserPlatform,omitempty"`
+	BrowserVersion   string            `json:"browserVersion,omitempty"`
+	BrowserSeed      int               `json:"browserSeed,omitempty"`
 	RenewalUncertain bool              `json:"renewalUncertain,omitempty"`
 	Version          int               `json:"version"`
 	Bank             string            `json:"bank"`

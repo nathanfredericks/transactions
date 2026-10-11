@@ -2,6 +2,7 @@ package nbdb
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/nathanfredericks/transactions/internal/bank"
@@ -26,6 +27,33 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	if e != nil {
 		return bank.Session{}, e
 	}
+	if previous := a.Dependencies.Previous; previous != nil {
+		var saved auth
+		if json.Unmarshal(previous.Auth, &saved) != nil {
+			return bank.Session{}, bank.Fail(bank.Invalid, "device-state")
+		}
+		cookies := saved.DeviceCookies
+		if previous.BrowserSeed < 10000 || previous.BrowserSeed > 99999 {
+			// Old cookies belong to an unknown randomized fingerprint. Establish
+			// a fresh device once, then keep its validated seed and cookies together.
+			cookies = nil
+		}
+		params := []*proto.NetworkCookieParam{}
+		for _, cookie := range deviceCookies(cookies) {
+			v := cookie.Value
+			param := &proto.NetworkCookieParam{Name: v.Name, Value: v.Value, URL: cookie.URL, Domain: v.Domain, Path: v.Path, Secure: v.Secure, HTTPOnly: v.HttpOnly}
+			if !v.Expires.IsZero() {
+				param.Expires = proto.TimeSinceEpoch(float64(v.Expires.Unix()))
+			}
+			params = append(params, param)
+		}
+		if len(params) > 0 {
+			if e = b.SetCookies(params); e != nil {
+				return bank.Session{}, bank.Fail(bank.Temporary, "device-restore")
+			}
+		}
+		slog.Info("NBDB remembered browser restored", "cookies", len(params))
+	}
 	router := cloak.NewRequestRouter(p)
 	if e = router.Add("https://sdk.privacy-center.org/*", "", func(h *rod.Hijack) { h.Response.Fail(proto.NetworkErrorReasonBlockedByClient) }); e != nil {
 		return bank.Session{}, e
@@ -45,6 +73,12 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	if e = p.Navigate("https://client.bnc.ca/nbdb/login"); e != nil {
 		return bank.Session{}, bank.Fail(bank.Temporary, "navigation")
 	}
+	// Match the wrapper's awaited navigation: visible inputs can appear before
+	// the page's browser-access scripts finish loading.
+	if e = p.Timeout(60 * time.Second).WaitLoad(); e != nil {
+		return bank.Session{}, bank.Fail(bank.Temporary, "navigation-ready")
+	}
+	slog.Info("NBDB login page loaded")
 	if _, e = bank.ClickIfPresent(p, "button,a", `Ignore the update`, 5*time.Second); e != nil {
 		return bank.Session{}, e
 	}
@@ -136,12 +170,12 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 			discovery, captured = o.Latest(func(v bank.Exchange) bool {
 				// Native Fetch validates the expected accounts before saving the session,
 				// even if the web app's own portfolio request fails.
-				if !strings.HasPrefix(v.Request.URL, "https://iiroc.investments.apis.bnc.ca/orion-api/") {
+				if v.Request.Method != "GET" || !strings.HasPrefix(v.Request.URL, "https://iiroc.investments.apis.bnc.ca/orion-api/") {
 					return false
 				}
-				// Portfolio navigation varies between sessions. Any authenticated
-				// wealth request carries the same API headers; native account-only
-				// validation remains the authority for accepting this session.
+				// Portfolio navigation varies between sessions. Capture a read's
+				// API bearer, excluding the separate session-creation OAuth client.
+				// Native account validation remains the authority for this session.
 				for name, value := range v.Request.Headers {
 					if strings.EqualFold(name, "authorization") && strings.HasPrefix(value.Str(), "Bearer ") {
 						return true
@@ -189,7 +223,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	matched := false
 	for !matched {
 		wealth := o.Matches(func(v bank.Exchange) bool {
-			return strings.HasPrefix(v.Request.URL, "https://iiroc.investments.apis.bnc.ca/orion-api/")
+			return v.Request.Method == "GET" && strings.HasPrefix(v.Request.URL, "https://iiroc.investments.apis.bnc.ca/orion-api/")
 		})
 		tokens := o.Matches(func(v bank.Exchange) bool {
 			return v.Sequence > login.Sequence && v.Request.Method == "POST" && strings.HasPrefix(v.Request.URL, "https://api.bnc.ca/bnc/prod-okta/sso/oauth2/") && strings.HasSuffix(v.Request.URL, "/v1/token") && v.Response != nil && v.Response.Status == 200 && v.Finished
@@ -228,6 +262,16 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 			}
 		}
 	}
+	// Token exchange and wealth-session establishment are separate requests.
+	// The first portfolio GET can be aborted while the session POST is still
+	// setting context cookies; do not snapshot cookies or validate the API yet.
+	stage = "wealth-session"
+	if _, e = o.Wait(captureCtx, func(v bank.Exchange) bool {
+		u, err := url.Parse(v.Request.URL)
+		return err == nil && v.Sequence > login.Sequence && v.Request.Method == "POST" && u.Scheme == "https" && u.Host == "iiroc.investments.apis.bnc.ca" && u.Path == "/orion-api/v1/1/users/session" && v.Response != nil && v.Response.Status == 200 && v.Finished
+	}); e != nil {
+		return bank.Session{}, e
+	}
 	slog.Info("NBDB wealth authentication correlated")
 	data, e := o.PostData(token)
 	if e != nil {
@@ -240,7 +284,41 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	// Both API metadata and the completed response now refer to the same token.
 	headers := bank.SafeHeaders(discovery.Request.Headers)
 	headers["authorization"] = "Bearer " + response.Access
-	return bank.BrowserSession(b, "nbdb", headers, auth{TokenURL: token.Request.URL, ClientID: form.Get("client_id"), RedirectURI: form.Get("redirect_uri"), Scope: response.Scope, Headers: bank.SafeHeaders(token.Request.Headers)})
+	session, e = bank.BrowserSession(b, "nbdb", headers, nil)
+	if e != nil {
+		return bank.Session{}, e
+	}
+	session.Auth, e = json.Marshal(auth{TokenURL: token.Request.URL, ClientID: form.Get("client_id"), RedirectURI: form.Get("redirect_uri"), Scope: response.Scope, Headers: bank.SafeHeaders(token.Request.Headers), DeviceCookies: deviceCookies(session.Cookies)})
+	return session, e
+}
+
+// Restore only NBDB's device and browser-access cookies. Expired authentication
+// cookies are deliberately excluded; the ordinary login and MFA still run.
+func deviceCookies(cookies []bank.Cookie) []bank.Cookie {
+	var result []bank.Cookie
+	seen := map[string]bool{}
+	for _, cookie := range cookies {
+		v := cookie.Value
+		switch v.Name {
+		case "DT", "_abck", "bm_sz", "ak_bmsc", "bm_sv":
+		default:
+			continue
+		}
+		u, err := url.Parse(cookie.URL)
+		if err != nil || u.Scheme != "https" || (u.Hostname() != "bnc.ca" && !strings.HasSuffix(u.Hostname(), ".bnc.ca")) || (v.Domain != "" && strings.TrimPrefix(v.Domain, ".") != "bnc.ca" && !strings.HasSuffix(v.Domain, ".bnc.ca")) || (!v.Expires.IsZero() && !v.Expires.After(time.Now())) {
+			continue
+		}
+		domain := v.Domain
+		if domain == "" {
+			domain = u.Hostname()
+		}
+		key := strings.TrimPrefix(domain, ".") + "\x00" + v.Path + "\x00" + v.Name
+		if !seen[key] {
+			seen[key] = true
+			result = append(result, cookie)
+		}
+	}
+	return result
 }
 
 // The known browser-update dialog can appear after initial page loading and

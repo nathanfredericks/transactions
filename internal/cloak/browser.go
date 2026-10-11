@@ -9,12 +9,14 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/cdp"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/launcher/flags"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/nathanfredericks/transactions/internal/cloak/human"
 	"math/rand/v2"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -43,6 +45,7 @@ type Options struct {
 	Proxy                                                *Proxy
 	GeoIP                                                bool
 	Context                                              ContextOptions
+	Pipe                                                 bool
 }
 
 // ContextOptions are explicit equivalents of the Playwright options supported
@@ -69,6 +72,9 @@ type Browser struct {
 	runtime     *runtimeState
 	cancel      context.CancelFunc
 	ownsProcess bool
+	process     *exec.Cmd
+	processDone <-chan error
+	pipe        *pipeTransport
 }
 type runtimeKey struct{}
 type runtimeState struct {
@@ -188,19 +194,41 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 			launch.Set(flags.Flag(parts[0]))
 		}
 	}
-	launch.Set("no-startup-window")
+	if o.UserDataDir == "" {
+		launch.Set("no-startup-window")
+	}
 	if o.UserDataDir != "" {
 		launch.UserDataDir(o.UserDataDir)
 	}
-	control, err := launch.Launch()
-	if err != nil {
-		cleanupLaunch(launch, o.UserDataDir != "")
-		return nil, errors.New("cloak launch failed")
+	root := rod.New().NoDefaultDevice().Context(ctx)
+	var process *exec.Cmd
+	var processDone <-chan error
+	var pipe *pipeTransport
+	if o.Pipe {
+		launch.Delete(flags.RemoteDebuggingPort).Set("remote-debugging-pipe")
+		process, processDone, pipe, err = launchPipe(o.Binary, launch.FormatArgs())
+		if err != nil {
+			return nil, errors.New("cloak pipe launch failed")
+		}
+		root.Client(cdp.New().Start(pipe))
+	} else {
+		control, e := launch.Launch()
+		if e != nil {
+			cleanupLaunch(launch, o.UserDataDir != "")
+			return nil, errors.New("cloak launch failed")
+		}
+		root.ControlURL(control)
 	}
-	root := rod.New().NoDefaultDevice().ControlURL(control).Context(ctx)
 	if err = root.Connect(); err != nil {
-		launch.Kill()
-		cleanupLaunch(launch, o.UserDataDir != "")
+		if pipe != nil {
+			stopPipe(process, processDone, pipe)
+			if o.UserDataDir == "" {
+				_ = os.RemoveAll(launch.Get(flags.UserDataDir))
+			}
+		} else {
+			launch.Kill()
+			cleanupLaunch(launch, o.UserDataDir != "")
+		}
 		return nil, errors.New("cloak connection failed")
 	}
 	raw := root
@@ -208,14 +236,19 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 		raw, err = root.Incognito()
 		if err != nil {
 			_ = root.Close()
-			cleanupLaunch(launch, o.UserDataDir != "")
+			if pipe != nil {
+				stopPipe(process, processDone, pipe)
+				_ = os.RemoveAll(launch.Get(flags.UserDataDir))
+			} else {
+				cleanupLaunch(launch, o.UserDataDir != "")
+			}
 			return nil, err
 		}
 	}
 	state := &runtimeState{options: o, cfg: cfg}
 	lifetime, cancel := context.WithCancel(context.WithValue(ctx, runtimeKey{}, state))
 	raw = raw.Context(lifetime)
-	result := &Browser{Raw: raw, root: root, launch: launch, runtime: state, cancel: cancel, ownsProcess: true}
+	result := &Browser{Raw: raw, root: root, launch: launch, runtime: state, cancel: cancel, ownsProcess: true, process: process, processDone: processDone, pipe: pipe}
 	// Context-level configuration happens before any bank page is created.
 
 	if err = configureContext(raw, o); err != nil {
@@ -226,7 +259,16 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 	return result, nil
 }
 func (b *Browser) NewPage(ctx context.Context) (*rod.Page, error) {
-	p, err := b.Raw.Context(context.WithValue(ctx, runtimeKey{}, b.runtime)).Page(proto.TargetCreateTarget{URL: "about:blank"})
+	return NewPage(ctx, b.Raw)
+}
+
+// NewPage preserves the browser's behavior configuration when applying the
+// caller's deadline. Rod.Context replaces its context, including all values.
+func NewPage(ctx context.Context, browser *rod.Browser) (*rod.Page, error) {
+	if state, ok := browser.GetContext().Value(runtimeKey{}).(*runtimeState); ok {
+		ctx = context.WithValue(ctx, runtimeKey{}, state)
+	}
+	p, err := browser.Context(ctx).Page(proto.TargetCreateTarget{URL: "about:blank"})
 	if err != nil {
 		return nil, err
 	}
@@ -290,11 +332,20 @@ func (b *Browser) Close() error {
 		return b.Raw.Context(ctx).Close()
 	}
 	defer b.cancel()
-	defer cleanupLaunch(b.launch, b.runtime.options.UserDataDir != "")
+	if b.pipe != nil {
+		defer func() {
+			stopPipe(b.process, b.processDone, b.pipe)
+			if b.runtime.options.UserDataDir == "" {
+				_ = os.RemoveAll(b.launch.Get(flags.UserDataDir))
+			}
+		}()
+	} else {
+		defer cleanupLaunch(b.launch, b.runtime.options.UserDataDir != "")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	err := b.root.Context(ctx).Close()
-	if err != nil {
+	if err != nil && b.pipe == nil {
 		b.launch.Kill()
 	}
 	return err

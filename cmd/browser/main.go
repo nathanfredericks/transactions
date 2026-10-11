@@ -19,6 +19,7 @@ import (
 	"github.com/nathanfredericks/transactions/internal/engine"
 	"github.com/nathanfredericks/transactions/internal/state"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"time"
 )
@@ -90,17 +91,87 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 	if secret.SecretString == nil || json.Unmarshal([]byte(*secret.SecretString), &credentials) != nil || credentials.Username == "" || credentials.Password == "" || credentials.MailToken == "" {
 		return session, bank.Fail(bank.Invalid, "credentials-config")
 	}
+	var previous *bank.Session
+	var pointer engine.SessionPointer
+	if found, e := app.Store.Get(ctx, "BANK#"+r.ID, "SESSION", &pointer); e != nil {
+		return session, e
+	} else if found && pointer.Key != "" {
+		var saved bank.Session
+		if e = app.Store.Download(ctx, pointer.Key, &saved); e != nil {
+			var missing *s3types.NoSuchKey
+			if !errors.As(e, &missing) {
+				return session, e
+			}
+		} else {
+			if saved.Bank != r.ID {
+				return session, bank.Fail(bank.Invalid, "saved-bank")
+			}
+			previous = &saved
+		}
+	}
 	binary := os.Getenv("CHROMIUM_PATH")
 	if r.Browser == "cloak" {
 		binary = os.Getenv("CLOAK_PATH")
+		if r.ID == "nbdb" && os.Getenv("NBDB_CLOAK_PATH") != "" {
+			binary = os.Getenv("NBDB_CLOAK_PATH")
+		}
 	}
 	if binary == "" {
 		return session, bank.Fail(bank.Invalid, "browser-binary")
 	}
 
 	var browser *rod.Browser
+	browserSeed := 0
+	browserVersion := ""
+	browserPlatform := "windows"
 	if r.Browser == "cloak" {
-		owned, err := cloak.LaunchContext(ctx, cloak.Options{Binary: binary, Headless: cloak.Headed(), Humanize: true, HumanPreset: "careful", GeoIP: true, Timezone: "America/Halifax"})
+		options := cloak.Options{Binary: binary, Headless: cloak.Headed(), Humanize: true, HumanPreset: "careful", GeoIP: true, Timezone: "America/Halifax"}
+		if r.ID == "nbdb" {
+			if v := os.Getenv("NBDB_BROWSER_PLATFORM"); v != "" {
+				if v != "windows" && v != "linux" && v != "macos" {
+					return session, bank.Fail(bank.Invalid, "browser-platform")
+				}
+				browserPlatform = v
+			}
+			browserVersion = os.Getenv("NBDB_BROWSER_VERSION")
+			if browserVersion == "" {
+				browserVersion = "146.0.7680.177.3"
+			}
+			previousVersion := "146.0.7680.177.3"
+			if previous != nil && previous.BrowserVersion != "" {
+				previousVersion = previous.BrowserVersion
+			}
+			previousPlatform := "windows"
+			if previous != nil && previous.BrowserPlatform != "" {
+				previousPlatform = previous.BrowserPlatform
+			}
+			if previousVersion != browserVersion || previousPlatform != browserPlatform {
+				// Native fingerprint profiles change between builds. Establish a
+				// new device instead of pairing old cookies with a different one.
+				previous = nil
+			}
+			// Retain the fingerprint belonging to the validated browser cookies.
+			// Older sessions have no recorded seed and establish a fresh device once.
+			browserSeed = 10000 + rand.IntN(90000)
+			if previous != nil && previous.BrowserSeed >= 10000 && previous.BrowserSeed <= 99999 {
+				browserSeed = previous.BrowserSeed
+			}
+			options.Args = []string{fmt.Sprintf("--fingerprint=%d", browserSeed), "--fingerprint-platform=" + browserPlatform}
+			if os.Getenv("NBDB_CLOAK_PATH") != "" {
+				// Current CloakBrowser's headed defaults use the actual display
+				// and a normal browser context rather than CDP viewport emulation.
+				profile, e := os.MkdirTemp("", "nbdb-browser-")
+				if e != nil {
+					return session, bank.Fail(bank.Temporary, "browser-profile")
+				}
+				defer os.RemoveAll(profile)
+				options.UserDataDir, options.NoViewport = profile, true
+				options.Locale = "en-CA"
+				options.Pipe = true
+			}
+			slog.Info("NBDB browser build", "version", browserVersion)
+		}
+		owned, err := cloak.LaunchContext(ctx, options)
 		if err != nil {
 			return session, bank.Fail(bank.Temporary, "browser-start")
 		}
@@ -140,28 +211,15 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 		}()
 
 	}
-	var previous *bank.Session
-	var pointer engine.SessionPointer
-	if found, e := app.Store.Get(ctx, "BANK#"+r.ID, "SESSION", &pointer); e != nil {
-		return session, e
-	} else if found && pointer.Key != "" {
-		var saved bank.Session
-		if e = app.Store.Download(ctx, pointer.Key, &saved); e != nil {
-			var missing *s3types.NoSuchKey
-			if !errors.As(e, &missing) {
-				return session, e
-			}
-		} else {
-			if saved.Bank != r.ID {
-				return session, bank.Fail(bank.Invalid, "saved-bank")
-			}
-			previous = &saved
-		}
-	}
 	adapter := r.New(bank.Dependencies{Previous: previous, Credentials: credentials, EmailSender: settings.EmailSender, EmailSubject: settings.EmailSubject, EmailCodeLength: settings.EmailCodeLength})
 	session, err = adapter.Authenticate(ctx, browser)
 	if err != nil {
 		return session, err
+	}
+	if r.ID == "nbdb" {
+		session.BrowserSeed = browserSeed
+		session.BrowserVersion = browserVersion
+		session.BrowserPlatform = browserPlatform
 	}
 	snapshot, updated, err := adapter.Fetch(ctx, session, bank.FetchRequest{AccountsOnly: true})
 	session = updated

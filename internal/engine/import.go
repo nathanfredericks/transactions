@@ -202,7 +202,7 @@ func (e *Engine) notificationImport(ctx context.Context) error {
 	}
 	details, err := service.ExtractTransactionDetails(ctx, e.Job.Text)
 	if err != nil {
-		return err
+		return bank.Fail(bank.Temporary, "notification-extract")
 	}
 	rules, err := override.GetTransactionOverrides(ctx)
 	if err != nil {
@@ -220,7 +220,7 @@ func (e *Engine) notificationImport(ctx context.Context) error {
 		}
 		payee, err = service.MatchPayee(ctx, payee, payees)
 		if err != nil {
-			return err
+			return bank.Fail(bank.Temporary, "notification-payee-match")
 		}
 	}
 	zone, _ := time.LoadLocation(e.Settings.Timezone)

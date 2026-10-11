@@ -6,10 +6,10 @@ The runner uses your AWS CLI identity and the **new engine's** encrypted S3 sess
 
 ## Setup once
 
-Docker, Go, Python 3 and an authenticated AWS CLI are required. Use the same AWS profile as deployment. The runtime image is ARM64; other hosts need Docker's ARM64 support.
+Docker, Go, Python 3, an authenticated AWS CLI and a CloakBrowser key saved privately at `~/.cloakbrowser/license.key` are required. The current NBDB build accepts a free GitHub key; its single-session allowance is isolated to NBDB. Rogers keeps its existing keyless binary. Use the same AWS profile as deployment. The runtime image is ARM64; other hosts need Docker's ARM64 support.
 
 ```sh
-docker build --platform linux/arm64 -t transactions-engine-browser:verify .
+docker build --platform linux/arm64 --secret id=cloak_license,src="$HOME/.cloakbrowser/license.key" -t transactions-engine-browser:verify .
 ```
 
 ## Edit, build, verify
@@ -81,9 +81,33 @@ The initial implementation passed type checking, lint, production build, Go CDK 
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o dist/cloak-inspect ./cmd/cloak-inspect
 docker run --rm --init --mount "type=bind,src=$PWD,dst=/workspace" --workdir /workspace --entrypoint xvfb-run transactions-engine-browser:cloak-rod -a /workspace/dist/cloak-inspect -full
 # Repeat with -profiles or -auth for persistent storage and HTTP auth/routing.
-docker build --platform linux/arm64 --target browsers -t transactions-cloak-reference:inspect .
+docker build --platform linux/arm64 --target browsers --secret id=cloak_license,src="$HOME/.cloakbrowser/license.key" -t transactions-cloak-reference:inspect .
 docker run --rm --init --mount "type=bind,src=$PWD,dst=/workspace" --workdir /workspace --entrypoint xvfb-run transactions-cloak-reference:inspect -a node scripts/cloak/inspect-reference.mjs
 scripts/cloak/binary.sh info
 ```
 
 The reference script imports the installed pinned wrapper from the browsers stage. `binary.sh` also supports deliberate `install`, `update` and `clear-cache`, with an optional operator cache directory. These commands are never invoked by production; do not update the pinned validation image while comparing behavior. Optional external proxy/GeoIP paths need their own real configured checks before operational use.
+
+## NBDB browser identity
+
+NBDB sessions record the CloakBrowser build version, platform, fingerprint seed and the browser's scoped, unexpired device/access cookies separately from cookies updated by native HTTP calls. Fresh login restores that pair; legacy sessions without a known seed establish a fresh device once. Deploy both Lambda functions with the browser worker so subsequent session saves preserve the new field. Resume invalidates API authentication while retaining the remembered device for reauthentication.
+
+OAuth capture matches a completed authorization-code exchange to the bearer on a wealth GET, excluding the session-creation POST's separate OAuth client. Before account validation and saving cookies, it waits for the successful wealth-session POST to finish. A successful API response and both configured account identities remain the acceptance gate.
+
+MFA email polling queries recent timestamps, checks exact sender/subject metadata, and fetches bodies only for matching messages. This avoids relying on a text-search index having updated immediately after delivery.
+
+The 2026-10-08 incident was an authentication POST returning HTTP 403 with `AK000001`, before MFA. Bank page creation replaced the Rod context and discarded the CloakBrowser runtime, silently routing input through ordinary Rod actions despite the startup log. Page creation now retains the runtime while applying the caller’s deadline. Isolated element handles also remain in their isolated world instead of being resolved into the main world. A fixed browser identity does not guarantee bank acceptance; an explicit browser-access rejection still pauses authentication for investigation, rather than triggering repeated login attempts.
+
+NBDB uses Chromium `154.0.8037.57.1`, downloaded by the pinned `0.6.0` wrapper with its official signature/checksum verification and an additional executable hash pin. The Rod interaction port remains based on `0.3.25`. Headed NBDB runs use a normal browser context with the actual display, without CDP viewport emulation, and Chromium’s CDP pipe transport. The temporary on-disk profile is removed after browser shutdown; only the scoped remembered-device cookies and identity are persisted. An upgrade establishes a fresh device instead of reusing cookies with changed native fingerprint profiles.
+
+The Docker build receives the key through a BuildKit secret. CDK defaults to `~/.cloakbrowser/license.key`; set `CLOAKBROWSER_LICENSE_FILE` to another private file when needed. Populate the retained Secrets Manager secret `transactions-engine/cloakbrowser-license` privately after its initial creation. ECS injects its value at task startup using the execution role. The key does not enter Git, image layers, CloudFormation values, workflow inputs or command arguments. Local NBDB verification reads the same private key into its temporary environment file.
+
+The upstream diagnostic confirmed the installed ARM64 build launches with a valid free license and no sessions left open. Baseline system fonts are installed; the image lacks the proprietary Windows/Office font sets recommended upstream. No font-metrics override is enabled without those fonts. IP reputation can still affect bank acceptance, so real ECS authentication is a separate release gate.
+
+The repaired flow passed two consecutive real local NBDB logins on the licensed build, a separate native API check, and native renewal after natural access-token expiry with rotation and extended expiry. Rogers also passed a real login using the corrected shared page helper and retained its remembered device. The scoped production release completed successfully; job `nbdb-cloak-cloud-auth-20261009` completed a fresh ECS login, email MFA, wealth-session establishment and both-account validation without imports or retries.
+
+The independent processor API check and dry-run workflow `nbdb-cloak-cloud-preview-20261009` also completed. Retrying `scheduled-nbdb-29858160` finished the original retrieval after two bounded temporary retries, committed one balance adjustment, and cleared the incident through the normal recovery path.
+
+During the successful scheduled retry, the processor renewed the AWS-created session with a rotated access token and extended expiry. The recovery notification was delivered and all three banks reported clear health state. The browser task stopped with exit code 0 and no running tasks remained.
+
+A final independent processor invocation after the AWS-renewed token’s natural expiry again rotated the access token, extended expiry and retrieved both configured accounts. Go build/vet, CDK build/vet and synthesis passed; no test suites were run.

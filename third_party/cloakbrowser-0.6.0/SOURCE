@@ -1,0 +1,4 @@
+CloakBrowser npm wrapper 0.6.0 (MIT)
+https://github.com/CloakHQ/CloakBrowser/tree/v0.6.0
+Used at image build time for the official signed NBDB Chromium download.
+The Rod interaction port remains based on 0.3.25.

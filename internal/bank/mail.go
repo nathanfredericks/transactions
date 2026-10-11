@@ -96,12 +96,16 @@ func ReadCode(ctx context.Context, token string, c MailChallenge) (string, error
 		var query struct {
 			IDs []string `json:"ids"`
 		}
-		if e := call("Email/query", map[string]any{"filter": map[string]any{"after": c.After.UTC().Format(time.RFC3339Nano), "from": c.Sender, "subject": c.Subject}, "sort": []any{map[string]any{"property": "receivedAt", "isAscending": false}}, "limit": 100}, &query); e != nil {
+		// Newly received messages can appear before Fastmail's text-search index
+		// catches up. Query their timestamp, then validate sender/subject from
+		// metadata before requesting any message bodies.
+		if e := call("Email/query", map[string]any{"filter": map[string]any{"after": c.After.UTC().Format(time.RFC3339Nano)}, "sort": []any{map[string]any{"property": "receivedAt", "isAscending": false}}, "limit": 100}, &query); e != nil {
 			return "", e
 		}
 		if len(query.IDs) > 0 {
 			var result struct {
 				List []struct {
+					ID       string    `json:"id"`
 					Subject  string    `json:"subject"`
 					Received time.Time `json:"receivedAt"`
 					From     []struct {
@@ -119,9 +123,10 @@ func ReadCode(ctx context.Context, token string, c MailChallenge) (string, error
 					} `json:"bodyValues"`
 				} `json:"list"`
 			}
-			if e := call("Email/get", map[string]any{"ids": query.IDs, "properties": []string{"id", "subject", "receivedAt", "from", "textBody", "htmlBody", "bodyValues"}, "fetchTextBodyValues": true, "fetchHTMLBodyValues": true, "maxBodyValueBytes": 100000}, &result); e != nil {
+			if e := call("Email/get", map[string]any{"ids": query.IDs, "properties": []string{"id", "subject", "receivedAt", "from"}}, &result); e != nil {
 				return "", e
 			}
+			var matching []string
 			for _, mail := range result.List {
 				sender := false
 				for _, f := range mail.From {
@@ -130,6 +135,15 @@ func ReadCode(ctx context.Context, token string, c MailChallenge) (string, error
 				if !sender || mail.Received.Before(c.After) || (mail.Subject != c.Subject && !(c.Prefix && strings.HasPrefix(mail.Subject, c.Subject))) {
 					continue
 				}
+				matching = append(matching, mail.ID)
+			}
+			result.List = nil
+			if len(matching) > 0 {
+				if e := call("Email/get", map[string]any{"ids": matching, "properties": []string{"id", "textBody", "htmlBody", "bodyValues"}, "fetchTextBodyValues": true, "fetchHTMLBodyValues": true, "maxBodyValueBytes": 100000}, &result); e != nil {
+					return "", e
+				}
+			}
+			for _, mail := range result.List {
 				codes := map[string]bool{}
 				for _, part := range append(mail.Text, mail.HTML...) {
 					v := mail.Bodies[part.Part]

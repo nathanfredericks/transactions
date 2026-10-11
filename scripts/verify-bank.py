@@ -41,6 +41,13 @@ values = {
 }
 if credentials.get('SessionToken'):
     values['AWS_SESSION_TOKEN'] = credentials['SessionToken']
+if args.bank == 'nbdb':
+	# Explicit diagnostic override; the image selects its production platform.
+    if os.environ.get('NBDB_BROWSER_PLATFORM'):
+        values['NBDB_BROWSER_PLATFORM'] = os.environ['NBDB_BROWSER_PLATFORM']
+    key_file = Path.home() / '.cloakbrowser/license.key'
+    if key_file.is_file():
+        values['CLOAKBROWSER_LICENSE_KEY'] = key_file.read_text().strip()
 # NamedTemporaryFile is private (0600) and removed even if Docker fails.
 with tempfile.NamedTemporaryFile(mode='w', prefix='bank-verify-', suffix='.env') as private:
     for name, value in values.items():

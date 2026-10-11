@@ -37,7 +37,15 @@ func main() {
 		panic(err)
 	}
 	asset := awss3assets.NewAsset(stack, jsii.String("GoCode"), &awss3assets.AssetProps{Path: &dist})
-	image := awsecrassets.NewDockerImageAsset(stack, jsii.String("BrowserImage"), &awsecrassets.DockerImageAssetProps{Directory: &root, Platform: awsecrassets.Platform_LINUX_ARM64(), Exclude: &[]*string{jsii.String(".git"), jsii.String("admin"), jsii.String("dist"), jsii.String("cdk.out"), jsii.String("cdk"), jsii.String("**/*_test.go")}})
+	licenseFile := os.Getenv("CLOAKBROWSER_LICENSE_FILE")
+	if licenseFile == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			panic(err)
+		}
+		licenseFile = filepath.Join(homeDir, ".cloakbrowser", "license.key")
+	}
+	image := awsecrassets.NewDockerImageAsset(stack, jsii.String("BrowserImage"), &awsecrassets.DockerImageAssetProps{Directory: &root, Platform: awsecrassets.Platform_LINUX_ARM64(), BuildSecrets: &map[string]*string{"cloak_license": awscdk.DockerBuildSecret_FromSrc(&licenseFile)}, Exclude: &[]*string{jsii.String(".git"), jsii.String("admin"), jsii.String("dist"), jsii.String("cdk.out"), jsii.String("cdk"), jsii.String("**/*_test.go")}})
 	res := func(id, kind string, p M) awscdk.CfnResource {
 		return awscdk.NewCfnResource(stack, jsii.String(id), &awscdk.CfnResourceProps{Type: &kind, Properties: &p})
 	}
@@ -55,6 +63,8 @@ func main() {
 	retain(failures)
 	appSecret := res("ApplicationSecret", "AWS::SecretsManager::Secret", M{"Name": "transactions-engine/application", "Description": "YNAB, AI, Pushover and webhook credentials"})
 	retain(appSecret)
+	cloakLicense := res("CloakBrowserLicense", "AWS::SecretsManager::Secret", M{"Name": "transactions-engine/cloakbrowser-license", "Description": "CloakBrowser free key for the NBDB browser; populate privately after creation"})
+	retain(cloakLicense)
 	connectionSecret := res("RepositoryConnection", "AWS::SecretsManager::Secret", M{"Name": "transactions-engine/github", "Description": "Repository connection for the CDK-defined admin"})
 	retain(connectionSecret)
 	bankSecrets := []any{}
@@ -83,6 +93,7 @@ func main() {
 	gatewayRole := role("GatewayRole", "lambda.amazonaws.com", append(append([]M{}, common...), allow([]string{"s3:GetObject"}, "arn:aws:s3:::"+bucketName+"/incoming/*", "arn:aws:s3:::"+bucketName+"/snapshots/*"), allow([]string{"secretsmanager:GetSecretValue"}, appSecret.Ref()), allow([]string{"states:StartExecution"}, workflowARN), allow([]string{"states:DescribeExecution"}, sub("arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:transactions-engine:*")), allow([]string{"sqs:SendMessage"}, att(failures, "Arn"))))
 	taskRole := role("BrowserRole", "ecs-tasks.amazonaws.com", append(append([]M{}, common...), allow([]string{"s3:GetObject", "s3:PutObject"}, "arn:aws:s3:::"+bucketName+"/sessions/*"), allow([]string{"secretsmanager:GetSecretValue"}, bankSecrets...), allow([]string{"states:SendTaskSuccess", "states:SendTaskFailure"}, "*")))
 	executionRole := role("TaskExecutionRole", "ecs-tasks.amazonaws.com", []M{allow([]string{"ecr:GetAuthorizationToken"}, "*"), allow([]string{"ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"}, sub("arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/*")), allow([]string{"logs:CreateLogStream", "logs:PutLogEvents"}, sub("arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/transactions-engine/*:*"))})
+	executionRole.AddPropertyOverride(jsii.String("Policies.0.PolicyDocument.Statement.3"), allow([]string{"secretsmanager:GetSecretValue"}, cloakLicense.Ref()))
 	env := M{"STATE_TABLE": table.Ref(), "STATE_BUCKET": bucketName, "SETTINGS_PARAMETER": settings.Ref(), "AWS_SECRET_ARN": appSecret.Ref(), "WORKFLOW_ARN": workflowARN, "DEPLOYMENT_COMMIT": os.Getenv("TRANSACTIONS_REVISION")}
 	lambdaFn := func(name string, r awscdk.CfnResource) awscdk.CfnResource {
 		logs := res(name+"Logs", "AWS::Logs::LogGroup", M{"LogGroupName": "/transactions-engine/" + name, "RetentionInDays": 14})
@@ -119,6 +130,7 @@ func main() {
 	browserLogs := res("BrowserLogs", "AWS::Logs::LogGroup", M{"LogGroupName": "/transactions-engine/browser", "RetentionInDays": 14})
 	retain(browserLogs)
 	task := res("BrowserTask", "AWS::ECS::TaskDefinition", M{"Cpu": "1024", "Memory": "2048", "NetworkMode": "awsvpc", "RequiresCompatibilities": []string{"FARGATE"}, "RuntimePlatform": M{"CpuArchitecture": "ARM64", "OperatingSystemFamily": "LINUX"}, "TaskRoleArn": att(taskRole, "Arn"), "ExecutionRoleArn": att(executionRole, "Arn"), "ContainerDefinitions": []M{{"Name": "browser", "Image": image.ImageUri(), "Essential": true, "StopTimeout": 30, "LinuxParameters": M{"InitProcessEnabled": true}, "Environment": []M{{"Name": "STATE_TABLE", "Value": table.Ref()}, {"Name": "STATE_BUCKET", "Value": bucketName}, {"Name": "SETTINGS_PARAMETER", "Value": settings.Ref()}, {"Name": "AWS_REGION", "Value": "ca-central-1"}}, "LogConfiguration": M{"LogDriver": "awslogs", "Options": M{"awslogs-group": browserLogs.Ref(), "awslogs-region": "ca-central-1", "awslogs-stream-prefix": "browser"}}}}})
+	task.AddPropertyOverride(jsii.String("ContainerDefinitions.0.Secrets"), []M{{"Name": "CLOAKBROWSER_LICENSE_KEY", "ValueFrom": cloakLicense.Ref()}})
 	wfRole := role("WorkflowRole", "states.amazonaws.com", []M{allow([]string{"lambda:InvokeFunction"}, att(processor, "Arn")), allow([]string{"ecs:RunTask"}, task.Ref()), allow([]string{"ecs:StopTask", "ecs:DescribeTasks"}, "*"), allow([]string{"iam:PassRole"}, att(taskRole, "Arn"), att(executionRole, "Arn"))})
 	call := func(action, next string) M {
 		return M{"Type": "Task", "Resource": att(processor, "Arn"), "Parameters": M{"action": action, "jobId.$": "$.jobId", "bank.$": "$.bank", "execution.$": "$$.Execution.Id"}, "ResultPath": "$.result", "Next": next, "Catch": []M{{"ErrorEquals": []string{"States.ALL"}, "ResultPath": "$.failure", "Next": "Failed"}}}
@@ -184,7 +196,7 @@ func main() {
 		if branch == nil {
 			branch = "main"
 		}
-		adminBranch := res("AdminBranch", "AWS::Amplify::Branch", M{"AppId": att(admin, "AppId"), "BranchName": branch, "EnableAutoBuild": true, "Framework": "Next.js - SSR"})
+		adminBranch := res("AdminBranchMain", "AWS::Amplify::Branch", M{"AppId": att(admin, "AppId"), "BranchName": branch, "EnableAutoBuild": true, "Framework": "Next.js - SSR"})
 		if domain := app.Node().TryGetContext(jsii.String("adminDomain")); domain != nil {
 			prefix := app.Node().TryGetContext(jsii.String("adminSubdomain"))
 			if prefix == nil {

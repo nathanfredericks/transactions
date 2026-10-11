@@ -86,7 +86,15 @@ npm --prefix admin run lint
 npm --prefix admin run build
 # If a local workspace does not exist: go work init . ./cdk
 npx --yes aws-cdk@2.1144.0 synth --output dist/cdk
-docker build --platform linux/arm64 -t transactions-engine-browser:verify .
+docker build --platform linux/arm64 --secret id=cloak_license,src="$HOME/.cloakbrowser/license.key" -t transactions-engine-browser:verify .
 ```
 
 Existing source-level tests in retained packages are historical, and are not the release evidence for this rebuild. The retired coordinator/handler implementations and their tests were removed with the old runtime.
+
+Production releases use committed, pushed `main` source. Run
+`python3 scripts/deploy-main.py release` from a clean `main` checkout to rebuild
+both Lambda packages and the browser image while preserving deployed settings.
+During the initial branch cutover, build the staged Amplify `main` branch, verify
+its successful build, then run `python3 scripts/deploy-main.py cutover` to switch
+the domain and retire the old hosting branch. The script refuses another branch,
+uncommitted changes, or a revision that is not the remote `main` head.

@@ -130,8 +130,9 @@ func (p *Page) Evaluate(expression string) (*proto.RuntimeRemoteObject, error) {
 	return nil, ErrElement
 }
 func (p *Page) query(selector, label string) (*rod.Element, error) {
-	// The selection world is isolated too; Rod's default Evaluate uses its utility
-	// world but ElementByJS does not expose a chosen context ID.
+	// Keep the selected object in this isolated world. Resolving its backend
+	// node without an execution context would move later DOM reads into the
+	// page's main world, where its scripts can intercept them.
 	args, _ := json.Marshal([]string{selector, label})
 	expression := `((selector,label)=>Array.from(document.querySelectorAll(selector)).find(el=>el.getClientRects().length&&getComputedStyle(el).visibility!=="hidden"&&(!label||(!el.disabled&&el.getAttribute("aria-disabled")!=="true"&&getComputedStyle(el).pointerEvents!=="none"&&new RegExp(label).test((el.getAttribute("aria-label")||el.innerText||el.textContent).trim()))))||null)(...` + string(args) + `)`
 	deadline := time.NewTimer(30 * time.Second)
@@ -160,15 +161,8 @@ func (p *Page) query(selector, label string) (*rod.Element, error) {
 		}
 		result, err := (proto.RuntimeEvaluate{Expression: expression, ContextID: p.world.id, ReturnByValue: false}).Call(p.Raw)
 		if err == nil && result.ExceptionDetails == nil && result.Result.ObjectID != "" {
-			// Resolve the node into Rod's utility world through its backend ID. This
-			// keeps handle methods compatible without querying the main world.
-			node, e := (proto.DOMDescribeNode{ObjectID: result.Result.ObjectID}).Call(p.Raw)
-			_ = (proto.RuntimeReleaseObject{ObjectID: result.Result.ObjectID}).Call(p.Raw)
 			p.world.mu.Unlock()
-			if e != nil {
-				return nil, e
-			}
-			return p.Raw.ElementFromNode(&proto.DOMNode{BackendNodeID: node.Node.BackendNodeID})
+			return p.Raw.ElementFromObject(result.Result)
 		}
 		if err != nil || result.ExceptionDetails != nil {
 			p.world.id = 0
