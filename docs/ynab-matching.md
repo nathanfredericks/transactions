@@ -46,3 +46,7 @@ existing budget transactions to remove historical import IDs.
   only the gateway and processor code properties, preserving the existing
   browser, hosting and schedule configuration. The stack reached
   `UPDATE_COMPLETE`; both deployed package hashes matched the release ZIP.
+- Production dry runs `verify-ynab-pending-rogers-bank-20261010` and
+  `verify-ynab-pending-eq-bank-20261010` both completed after fresh ECS
+  authentication. A before/after API comparison found no changes to production
+  YNAB transactions after normalizing subtransaction array ordering.
