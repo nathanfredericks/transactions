@@ -51,28 +51,15 @@ func CreateEQTransaction(ctx context.Context, account, date string, amount int64
 	if err != nil {
 		return nil, err
 	}
-	cleared := "uncleared"
-	if status == "posted" {
-		cleared = "cleared"
-	}
-	payload := ynabPayloadTransaction{AccountID: account, Date: date, Amount: amount, PayeeName: &payee, ImportID: &importID, Cleared: cleared}
-	if rule != nil {
-		payload.PayeeName = nil
-		payload.PayeeID = &rule.Payee
-		if rule.Category != "" {
-			payload.CategoryID = &rule.Category
-		}
-		if rule.Memo != "" {
-			memo, e := override.RenderMemo(rule.Memo, date)
-			if e != nil {
-				return nil, e
-			}
-			payload.Memo = &memo
-		}
+	payload, err := eqTransactionPayload(account, date, amount, payee, importID, status, rule)
+	if err != nil {
+		return nil, err
 	}
 	tx, err := createTransaction(ctx, client.budgetID, payload)
-	if err == nil {
-		return tx, nil
+	if err == nil || payload.ImportID == nil {
+		// A pending POST has no API deduplication identity. Leave an uncertain
+		// outcome held by the durable write intent; never infer it by amount/date.
+		return tx, err
 	}
 	// An interrupted POST can have succeeded. Recover by stable import ID before retrying.
 	existing, lookupErr := GetAccountTransactions(ctx, account)
@@ -88,6 +75,34 @@ func CreateEQTransaction(ctx context.Context, account, date string, amount int64
 	}
 	return nil, err
 }
+func eqTransactionPayload(account, date string, amount int64, payee, importID, status string, rule *types.TransactionOverride) (ynabPayloadTransaction, error) {
+	cleared := "uncleared"
+	if status == "posted" {
+		cleared = "cleared"
+	}
+	payload := ynabPayloadTransaction{AccountID: account, Date: date, Amount: amount, PayeeName: &payee, Cleared: cleared}
+	// Pending authorizations must remain user-entered in YNAB so a later
+	// cleared import can match them. Keep operation identities in our ledger.
+	if status == "posted" && importID != "" {
+		payload.ImportID = &importID
+	}
+	if rule != nil {
+		payload.PayeeName = nil
+		payload.PayeeID = &rule.Payee
+		if rule.Category != "" {
+			payload.CategoryID = &rule.Category
+		}
+		if rule.Memo != "" {
+			memo, e := override.RenderMemo(rule.Memo, date)
+			if e != nil {
+				return ynabPayloadTransaction{}, e
+			}
+			payload.Memo = &memo
+		}
+	}
+	return payload, nil
+}
+
 func UpdateEQTransaction(ctx context.Context, tx *types.YNABTransaction, date string, amount int64, status string) (*types.YNABTransaction, error) {
 	client, err := newYNABClient(ctx)
 	if err != nil {

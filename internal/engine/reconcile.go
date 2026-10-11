@@ -293,9 +293,20 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 				if _, err := s.get(ctx, "WRITE#"+entry.Key, &previous); err != nil {
 					return false, err
 				}
-				if previous.Status != "" {
+				// A pending create has no YNAB import ID. Its confirmed response ID
+				// still recovers a crash between completing the write and ledger save.
+				if previous.Status == "complete" && previous.TransactionID != "" {
+					for _, tx := range snapshots[r.AccountID] {
+						if !tx.Deleted && tx.ID == previous.TransactionID {
+							entry.YNABID = tx.ID
+						}
+					}
+				}
+				if previous.Status != "" && entry.YNABID == "" {
 					return false, bank.Fail(bank.Uncertain, "transaction-write")
 				}
+			}
+			if entry.YNABID == "" {
 				params, e := getParameters(ctx)
 				if e != nil {
 					return false, e

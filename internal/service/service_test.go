@@ -212,3 +212,37 @@ func TestAdminIntegration(t *testing.T) {
 		}
 	}
 }
+
+// Test the serialized boundary: omitting import_id is what makes pending
+// entries matchable in YNAB, regardless of their internal operation identity.
+func TestPendingAndPostedImportIdentity(t *testing.T) {
+	for _, status := range []string{"pending", "posted"} {
+		for _, rule := range []*types.TransactionOverride{nil, {Payee: "payee-id", Category: "category-id", Memo: "purchase {{.Date}}"}} {
+			payload, err := eqTransactionPayload("account", "2026-10-10", -12340, "merchant", "stable-operation", status, rule)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]any
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if status == "pending" {
+				if _, present := fields["import_id"]; present || payload.Cleared != "uncleared" {
+					t.Fatalf("pending payload is imported: %s", raw)
+				}
+			} else if fields["import_id"] != "stable-operation" || payload.Cleared != "cleared" {
+				t.Fatalf("posted identity lost: %s", raw)
+			}
+			if payload.Amount != -12340 || payload.Date != "2026-10-10" || payload.AccountID != "account" {
+				t.Fatal(payload)
+			}
+			if rule != nil && (payload.PayeeName != nil || *payload.PayeeID != rule.Payee || *payload.CategoryID != rule.Category || *payload.Memo != "purchase 2026-10-10") {
+				t.Fatal(payload)
+			}
+		}
+	}
+}
