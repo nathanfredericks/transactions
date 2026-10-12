@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -66,7 +67,10 @@ func (s *Store) Acquire(ctx context.Context, bank, owner string) (Lease, bool, e
 	b, _ := json.Marshal(l)
 	_, e := s.DB.PutItem(ctx, &dynamodb.PutItemInput{TableName: &s.Table, Item: map[string]d.AttributeValue{"pk": &d.AttributeValueMemberS{Value: "BANK#" + bank}, "sk": &d.AttributeValueMemberS{Value: "LEASE"}, "data": &d.AttributeValueMemberS{Value: string(b)}, "generation": &d.AttributeValueMemberS{Value: l.Generation}, "expires": &d.AttributeValueMemberN{Value: fmt.Sprint(l.Expires)}}, ConditionExpression: aws.String("attribute_not_exists(pk) OR expires < :now"), ExpressionAttributeValues: map[string]d.AttributeValue{":now": &d.AttributeValueMemberN{Value: fmt.Sprint(time.Now().Unix())}}})
 	var busy *d.ConditionalCheckFailedException
-	if errors.As(e, &busy) {
+	var conflict *d.TransactionConflictException
+	// A rejected lease PutItem can overlap the current owner's fenced commit.
+	// It acquired nothing; let the workflow wait as it does for a busy lease.
+	if errors.As(e, &busy) || errors.As(e, &conflict) {
 		var current Lease
 		found, readErr := s.Get(ctx, "BANK#"+bank, "LEASE", &current)
 		if readErr != nil {
@@ -103,17 +107,64 @@ func (s *Store) PutMany(ctx context.Context, l Lease, values map[string]any) err
 		item["data"] = &d.AttributeValueMemberS{Value: string(b)}
 		items = append(items, d.TransactWriteItem{Put: &d.Put{TableName: &s.Table, Item: item}})
 	}
-	_, err := s.DB.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{ClientRequestToken: aws.String(uuid.NewString()), TransactItems: items})
-	return err
+	input := &dynamodb.TransactWriteItemsInput{ClientRequestToken: aws.String(uuid.NewString()), TransactItems: items}
+	return retryConflict(ctx, func() error {
+		_, err := s.DB.TransactWriteItems(ctx, input)
+		return err
+	})
 }
 func (s *Store) Release(ctx context.Context, l Lease) error {
-	_, e := s.DB.DeleteItem(ctx, &dynamodb.DeleteItemInput{TableName: &s.Table, Key: key("BANK#"+l.Bank, "LEASE"), ConditionExpression: aws.String("generation = :g"), ExpressionAttributeValues: map[string]d.AttributeValue{":g": &d.AttributeValueMemberS{Value: l.Generation}}})
+	e := retryConflict(ctx, func() error {
+		_, err := s.DB.DeleteItem(ctx, &dynamodb.DeleteItemInput{TableName: &s.Table, Key: key("BANK#"+l.Bank, "LEASE"), ConditionExpression: aws.String("generation = :g"), ExpressionAttributeValues: map[string]d.AttributeValue{":g": &d.AttributeValueMemberS{Value: l.Generation}}})
+		return err
+	})
 	var missing *d.ConditionalCheckFailedException
 	if errors.As(e, &missing) {
 		return nil
 	}
 	return e
 }
+
+// Retry only rejected DynamoDB conflicts, never a bank or YNAB operation.
+// Conditional/fencing failures and mixed cancellation reasons remain failures.
+func retryConflict(ctx context.Context, operation func() error) error {
+	for attempt := 0; ; attempt++ {
+		err := operation()
+		if attempt >= 4 || !transactionConflict(err) {
+			return err
+		}
+		delay := (50 * time.Millisecond << attempt) + time.Duration(rand.IntN(50))*time.Millisecond
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+func transactionConflict(err error) bool {
+	var conflict *d.TransactionConflictException
+	if errors.As(err, &conflict) {
+		return true
+	}
+	var cancelled *d.TransactionCanceledException
+	if !errors.As(err, &cancelled) {
+		return false
+	}
+	found := false
+	for _, reason := range cancelled.CancellationReasons {
+		switch aws.ToString(reason.Code) {
+		case "None":
+		case "TransactionConflict":
+			found = true
+		default:
+			return false
+		}
+	}
+	return found
+}
+
 func (s *Store) List(ctx context.Context, pk, prefix string) ([]json.RawMessage, error) {
 	var result []json.RawMessage
 	var cursor map[string]d.AttributeValue

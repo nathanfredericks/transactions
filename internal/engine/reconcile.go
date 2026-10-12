@@ -120,6 +120,21 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 	if err != nil {
 		return false, err
 	}
+	// A pending authorization still present in the full bank snapshot belongs to
+	// its own purchase. Reserve it before matching posted rows, including when
+	// scheduled imports omit pending rows and regardless of history order.
+	pendingPresent := map[string]bool{}
+	for _, entry := range entries {
+		if entry.Record.Status != "pending" {
+			continue
+		}
+		for _, record := range snapshot.Records {
+			if record.Status == "pending" && exactMatch(entry.Record, record) {
+				pendingPresent[entry.Key] = true
+				break
+			}
+		}
+	}
 	// A native row may only claim one pending row, even when several identical purchases post together.
 	claimed := map[string]bool{}
 	resolved := map[string]*Entry{}
@@ -204,7 +219,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 		if entry == nil && r.Status == "posted" && r.Amount != 0 {
 			var candidates []*Entry
 			for _, e := range entries {
-				if e.Record.Status == "pending" && samePurchase(e.Record, r) {
+				if e.Record.Status == "pending" && !pendingPresent[e.Key] && samePurchase(e.Record, r) {
 					candidates = append(candidates, e)
 				}
 			}
