@@ -39,9 +39,12 @@ func (s *Supervisor) Running() bool {
 		return true
 	}
 }
-func (s *Supervisor) Ensure(ctx context.Context) error {
+func (s *Supervisor) Ensure(ctx context.Context, allowed func() bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !allowed() {
+		return errors.New("browser reserved")
+	}
 	if s.done != nil {
 		select {
 		case <-s.done:

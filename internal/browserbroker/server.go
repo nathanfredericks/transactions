@@ -149,7 +149,7 @@ func (s *Server) step(ctx context.Context) {
 		return
 	}
 	needsRelease := s.state.Uncertain || pending >= 0
-	if !needsRelease && s.owner == "hermes" && (!s.Supervisor.Running() || s.Supervisor.Idle(s.IdleTimeout)) {
+	if !needsRelease && s.owner == "hermes" && s.Supervisor.Idle(s.IdleTimeout) {
 		needsRelease = true
 		s.state.Uncertain = true
 		s.save()
@@ -377,7 +377,19 @@ func (s *Server) CDP() http.Handler {
 		s.Supervisor.begin()
 		s.mu.Unlock()
 		defer s.Supervisor.end()
-		if s.Supervisor.Ensure(r.Context()) != nil {
+		if s.Supervisor.Ensure(r.Context(), func() bool {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			if s.failed || s.owner != "hermes" {
+				return false
+			}
+			for _, v := range s.state.Reservations {
+				if v.Status == "queued" {
+					return false
+				}
+			}
+			return true
+		}) != nil {
 			_ = s.Supervisor.Stop()
 			http.Error(w, "browser unavailable", 503)
 			return
