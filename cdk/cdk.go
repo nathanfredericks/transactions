@@ -65,8 +65,12 @@ func main() {
 	retain(appSecret)
 	cloakLicense := res("CloakBrowserLicense", "AWS::SecretsManager::Secret", M{"Name": "transactions-engine/cloakbrowser-license", "Description": "CloakBrowser free key for the NBDB browser; populate privately after creation"})
 	retain(cloakLicense)
-	brokerToken := res("BrowserBrokerToken", "AWS::SecretsManager::Secret", M{"Name": "transactions-engine/browser-broker", "Description": "Shared browser broker bearer token; populate privately"})
-	retain(brokerToken)
+	// The bearer is provisioned privately before rollout and retained outside this
+	// stack so ordinary deployments cannot replace the shared server credential.
+	brokerToken, ok := app.Node().TryGetContext(jsii.String("browserBrokerSecretArn")).(string)
+	if !ok || brokerToken == "" {
+		panic("browserBrokerSecretArn context is required")
+	}
 	connectionSecret := res("RepositoryConnection", "AWS::SecretsManager::Secret", M{"Name": "transactions-engine/github", "Description": "Repository connection for the CDK-defined admin"})
 	retain(connectionSecret)
 	bankSecrets := []any{}
@@ -95,7 +99,7 @@ func main() {
 	gatewayRole := role("GatewayRole", "lambda.amazonaws.com", append(append([]M{}, common...), allow([]string{"s3:GetObject"}, "arn:aws:s3:::"+bucketName+"/incoming/*", "arn:aws:s3:::"+bucketName+"/snapshots/*"), allow([]string{"secretsmanager:GetSecretValue"}, appSecret.Ref()), allow([]string{"states:StartExecution"}, workflowARN), allow([]string{"states:DescribeExecution"}, sub("arn:${AWS::Partition}:states:${AWS::Region}:${AWS::AccountId}:execution:transactions-engine:*")), allow([]string{"sqs:SendMessage"}, att(failures, "Arn"))))
 	taskRole := role("BrowserRole", "ecs-tasks.amazonaws.com", append(append([]M{}, common...), allow([]string{"s3:GetObject", "s3:PutObject"}, "arn:aws:s3:::"+bucketName+"/sessions/*"), allow([]string{"secretsmanager:GetSecretValue"}, bankSecrets...), allow([]string{"states:SendTaskSuccess", "states:SendTaskFailure"}, "*")))
 	executionRole := role("TaskExecutionRole", "ecs-tasks.amazonaws.com", []M{allow([]string{"ecr:GetAuthorizationToken"}, "*"), allow([]string{"ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"}, sub("arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/*")), allow([]string{"logs:CreateLogStream", "logs:PutLogEvents"}, sub("arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/transactions-engine/*:*"))})
-	executionRole.AddPropertyOverride(jsii.String("Policies.0.PolicyDocument.Statement.3"), allow([]string{"secretsmanager:GetSecretValue"}, cloakLicense.Ref(), brokerToken.Ref()))
+	executionRole.AddPropertyOverride(jsii.String("Policies.0.PolicyDocument.Statement.3"), allow([]string{"secretsmanager:GetSecretValue"}, cloakLicense.Ref(), brokerToken))
 	env := M{"STATE_TABLE": table.Ref(), "STATE_BUCKET": bucketName, "SETTINGS_PARAMETER": settings.Ref(), "AWS_SECRET_ARN": appSecret.Ref(), "WORKFLOW_ARN": workflowARN, "DEPLOYMENT_COMMIT": os.Getenv("TRANSACTIONS_REVISION")}
 	lambdaFn := func(name string, r awscdk.CfnResource) awscdk.CfnResource {
 		logs := res(name+"Logs", "AWS::Logs::LogGroup", M{"LogGroupName": "/transactions-engine/" + name, "RetentionInDays": 14})
@@ -132,7 +136,7 @@ func main() {
 	browserLogs := res("BrowserLogs", "AWS::Logs::LogGroup", M{"LogGroupName": "/transactions-engine/browser", "RetentionInDays": 14})
 	retain(browserLogs)
 	task := res("BrowserTask", "AWS::ECS::TaskDefinition", M{"Cpu": "1024", "Memory": "2048", "NetworkMode": "awsvpc", "RequiresCompatibilities": []string{"FARGATE"}, "RuntimePlatform": M{"CpuArchitecture": "ARM64", "OperatingSystemFamily": "LINUX"}, "TaskRoleArn": att(taskRole, "Arn"), "ExecutionRoleArn": att(executionRole, "Arn"), "ContainerDefinitions": []M{{"Name": "browser", "Image": image.ImageUri(), "Essential": true, "StopTimeout": 30, "LinuxParameters": M{"InitProcessEnabled": true}, "Environment": []M{{"Name": "STATE_TABLE", "Value": table.Ref()}, {"Name": "STATE_BUCKET", "Value": bucketName}, {"Name": "SETTINGS_PARAMETER", "Value": settings.Ref()}, {"Name": "AWS_REGION", "Value": "ca-central-1"}}, "LogConfiguration": M{"LogDriver": "awslogs", "Options": M{"awslogs-group": browserLogs.Ref(), "awslogs-region": "ca-central-1", "awslogs-stream-prefix": "browser"}}}}})
-	task.AddPropertyOverride(jsii.String("ContainerDefinitions.0.Secrets"), []M{{"Name": "CLOAKBROWSER_LICENSE_KEY", "ValueFrom": cloakLicense.Ref()}, {"Name": "BROWSER_BROKER_TOKEN", "ValueFrom": brokerToken.Ref()}})
+	task.AddPropertyOverride(jsii.String("ContainerDefinitions.0.Secrets"), []M{{"Name": "CLOAKBROWSER_LICENSE_KEY", "ValueFrom": cloakLicense.Ref()}, {"Name": "BROWSER_BROKER_TOKEN", "ValueFrom": brokerToken}})
 	task.AddPropertyOverride(jsii.String("ContainerDefinitions.0.Environment"), append([]M{}, M{"Name": "STATE_TABLE", "Value": table.Ref()}, M{"Name": "STATE_BUCKET", "Value": bucketName}, M{"Name": "SETTINGS_PARAMETER", "Value": settings.Ref()}, M{"Name": "AWS_REGION", "Value": "ca-central-1"}, M{"Name": "DEPLOYMENT_COMMIT", "Value": os.Getenv("TRANSACTIONS_REVISION")}, M{"Name": "BROWSER_BROKER_URL", "Value": "https://browser-broker.fredericks.app"}))
 	wfRole := role("WorkflowRole", "states.amazonaws.com", []M{allow([]string{"lambda:InvokeFunction"}, att(processor, "Arn")), allow([]string{"ecs:RunTask"}, task.Ref()), allow([]string{"ecs:StopTask", "ecs:DescribeTasks"}, "*"), allow([]string{"iam:PassRole"}, att(taskRole, "Arn"), att(executionRole, "Arn"))})
 	call := func(action, next string) M {

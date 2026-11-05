@@ -10,6 +10,7 @@
     "adminCertificateArn": "arn:aws:acm:us-east-1:187489282488:certificate/dea000aa-76aa-4629-a7e7-9e7099d4031a",
     "adminBaseUrl": "https://transactions-admin.fredericks.app",
     "adminAuth0Domain": "auth.fredericks.app",
-    "adminAllowedEmails": "nathan@fredericks.dev"
+    "adminAllowedEmails": "nathan@fredericks.dev",
+    "browserBrokerSecretArn": "arn:aws:secretsmanager:ca-central-1:187489282488:secret:transactions-engine/browser-broker-TSNozW"
   }
 }
