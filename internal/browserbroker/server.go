@@ -45,6 +45,15 @@ func NewServer(path, token string, sup *Supervisor, seats func(context.Context) 
 		return nil, errors.New("broker token must have at least 32 characters")
 	}
 	s := &Server{StateFile: path, Token: token, Supervisor: sup, Seats: seats, owner: "releasing", IdleTimeout: 30 * time.Second, LeaseDuration: 10 * time.Minute}
+	sup.BeforeStart = func(ctx context.Context) error {
+		check, cancel := context.WithTimeout(ctx, 8*time.Second)
+		defer cancel()
+		count, err := seats(check)
+		if err != nil || count != 0 {
+			return errors.New("license capacity unconfirmed")
+		}
+		return nil
+	}
 	data, err := os.ReadFile(path)
 	if err == nil {
 		if json.Unmarshal(data, &s.state) != nil {

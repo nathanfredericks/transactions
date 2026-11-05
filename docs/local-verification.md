@@ -6,7 +6,7 @@ The runner uses your AWS CLI identity and the **new engine's** encrypted S3 sess
 
 ## Setup once
 
-Docker, Go, Python 3, an authenticated AWS CLI and a CloakBrowser key saved privately at `~/.cloakbrowser/license.key` are required. The current NBDB build accepts a free GitHub key; its single-session allowance is isolated to NBDB. Rogers keeps its existing keyless binary. Use the same AWS profile as deployment. The runtime image is ARM64; other hosts need Docker's ARM64 support.
+Docker, Go, Python 3, an authenticated AWS CLI and a CloakBrowser key saved privately at `~/.cloakbrowser/license.key` are required. The current NBDB build accepts a free GitHub key; its single-session allowance is shared with Hermes through the Go broker. Rogers reserves through the same broker and keeps its existing keyless binary. Use the same AWS profile as deployment. The runtime image is ARM64; other hosts need Docker's ARM64 support.
 
 ```sh
 docker build --platform linux/arm64 --secret id=cloak_license,src="$HOME/.cloakbrowser/license.key" -t transactions-engine-browser:verify .

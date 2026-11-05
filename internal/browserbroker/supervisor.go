@@ -18,6 +18,7 @@ type Supervisor struct {
 	mu           sync.Mutex
 	Command      []string
 	Upstream     string
+	BeforeStart  func(context.Context) error
 	cmd          *exec.Cmd
 	done         chan struct{}
 	connections  sync.Map
@@ -52,6 +53,15 @@ func (s *Supervisor) Ensure(ctx context.Context, allowed func() bool) error {
 		default:
 			return nil
 		}
+	}
+	if s.BeforeStart != nil {
+		if err := s.BeforeStart(ctx); err != nil {
+			return err
+		}
+	}
+	// A reservation may arrive while the vendor check is in flight.
+	if !allowed() {
+		return errors.New("browser reserved")
 	}
 	if len(s.Command) == 0 {
 		return errors.New("launcher not configured")

@@ -266,6 +266,22 @@ func (e *Engine) recovered(ctx context.Context, name string, health Health) (Out
 		return e.complete(ctx)
 	}
 	var err error
+	if e.Job.CapacityNotified && !e.Job.DryRun {
+		var incident Notification
+		if _, err = e.get(ctx, "NOTICE#capacity#"+e.Job.ID, &incident); err != nil {
+			return Outcome{}, err
+		}
+		if incident.Status == "sent" {
+			if err = e.notifyOnce(ctx, "capacity-recovery#"+e.Job.ID, name+" obtained browser capacity and completed successfully.", name+" browser recovered"); err != nil {
+				return Outcome{}, err
+			}
+		} else if incident.ID != "" {
+			incident.Status = "superseded"
+			if err = e.put(ctx, "NOTICE#"+incident.ID, incident, e.Job.ID); err != nil {
+				return Outcome{}, err
+			}
+		}
+	}
 	if health.Notified && !e.Job.DryRun {
 		var incident Notification
 		if _, err = e.get(ctx, "NOTICE#incident#"+health.Episode, &incident); err != nil {
