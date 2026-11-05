@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/cdp"
 	"github.com/go-rod/rod/lib/launcher"
@@ -25,6 +26,17 @@ import (
 )
 
 const WrapperVersion = "0.3.25"
+
+// LaunchError exposes only fixed stages and process exit codes. Chromium's
+// stderr and command line may contain private data and are never logged.
+type LaunchError struct {
+	Stage    string
+	ExitCode int
+}
+
+func (e *LaunchError) Error() string {
+	return fmt.Sprintf("cloak %s failed (exit code %d)", e.Stage, e.ExitCode)
+}
 
 //go:embed chromium-args.json
 var chromiumArgs []byte
@@ -208,7 +220,7 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 		launch.Delete(flags.RemoteDebuggingPort).Set("remote-debugging-pipe")
 		process, processDone, pipe, err = launchPipe(o.Binary, launch.FormatArgs())
 		if err != nil {
-			return nil, errors.New("cloak pipe launch failed")
+			return nil, &LaunchError{Stage: "pipe-launch", ExitCode: -1}
 		}
 		root.Client(cdp.New().Start(pipe))
 	} else {
@@ -220,8 +232,12 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 		root.ControlURL(control)
 	}
 	if err = root.Connect(); err != nil {
+		exitCode := -1
 		if pipe != nil {
 			stopPipe(process, processDone, pipe)
+			if process.ProcessState != nil {
+				exitCode = process.ProcessState.ExitCode()
+			}
 			if o.UserDataDir == "" {
 				_ = os.RemoveAll(launch.Get(flags.UserDataDir))
 			}
@@ -229,7 +245,7 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 			launch.Kill()
 			cleanupLaunch(launch, o.UserDataDir != "")
 		}
-		return nil, errors.New("cloak connection failed")
+		return nil, &LaunchError{Stage: "connect", ExitCode: exitCode}
 	}
 	raw := root
 	if o.UserDataDir == "" {

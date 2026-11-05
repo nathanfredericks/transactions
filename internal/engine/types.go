@@ -35,6 +35,9 @@ type Job struct {
 	Attempt          int         `json:"attempt"`
 	MissingAttempt   int         `json:"missingAttempt"`
 	BrowserDeadline  time.Time   `json:"browserDeadline"`
+	CapacitySince    time.Time   `json:"capacitySince,omitempty"`
+	CapacityWaits    int         `json:"capacityWaits,omitempty"`
+	CapacityNotified bool        `json:"capacityNotified,omitempty"`
 	BrowserAttempted bool        `json:"browserAttempted"`
 	Lease            state.Lease `json:"lease"`
 	SnapshotKey      string      `json:"snapshotKey,omitempty"`

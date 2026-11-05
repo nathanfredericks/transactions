@@ -98,3 +98,10 @@ During the initial branch cutover, build the staged Amplify `main` branch, verif
 its successful build, then run `python3 scripts/deploy-main.py cutover` to switch
 the domain and retire the old hosting branch. The script refuses another branch,
 uncommitted changes, or a revision that is not the remote `main` head.
+
+## Shared browser capacity
+
+Hermes, Rogers and NBDB share CloakBrowser capacity through the Go
+[browser broker](docs/browser-broker.md). Hermes launches its persistent browser
+on demand; bank authentication immediately reserves exclusive access. The
+public HTTPS control API requires a bearer token, while CDP stays private.

@@ -17,6 +17,7 @@ import (
 type Kind string
 
 const (
+	Capacity       Kind = "browser-capacity"
 	Authentication Kind = "authentication-required"
 	Credentials    Kind = "credentials-rejected"
 	Challenge      Kind = "challenge-required"

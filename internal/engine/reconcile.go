@@ -73,17 +73,27 @@ func exactMatch(a, b Record) bool {
 	if a.AccountID != b.AccountID {
 		return false
 	}
-	if a.ProvisionalID == b.ProvisionalID || (a.BankID != nil && b.BankID != nil && *a.BankID == *b.BankID) {
-		return true
+	if a.BankID != nil && b.BankID != nil && *a.BankID != "" && *b.BankID != "" {
+		return *a.BankID == *b.BankID
 	}
+	aHasReference, bHasReference := false, false
 	for _, x := range a.References {
+		aHasReference = aHasReference || x != ""
 		for _, y := range b.References {
+			bHasReference = bHasReference || y != ""
 			if x != "" && x == y {
 				return true
 			}
 		}
 	}
-	return false
+	// EQ can reuse a provisional hash for equal purchases on different value
+	// dates, and occurrence numbers can move when the history order changes.
+	// Distinct native references must never be merged by that fallback identity.
+	if aHasReference && bHasReference {
+		return false
+	}
+	return a.ProvisionalID != "" && a.ProvisionalID == b.ProvisionalID &&
+		a.Date == b.Date && a.Amount == b.Amount && merchant(a.Description) == merchant(b.Description)
 }
 func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline Baseline) (bool, error) {
 	job := s.Job
@@ -163,6 +173,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 	}
 	var payees []string
 	for _, r := range result.Records {
+		recordKey := r.AccountID + "#" + identity(r)
 		if mapping[r.AccountID] == "" {
 			return false, bank.Fail(bank.Invalid, "record-account")
 		}
@@ -178,15 +189,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			if entry.Record.AccountID != r.AccountID {
 				continue
 			}
-			match := entry.Record.ProvisionalID == r.ProvisionalID || (r.BankID != nil && entry.Record.BankID != nil && *r.BankID == *entry.Record.BankID)
-			for _, a := range entry.Record.References {
-				for _, b := range r.References {
-					if a != "" && a == b {
-						match = true
-					}
-				}
-			}
-			if match {
+			if exactMatch(entry.Record, r) {
 				exact = append(exact, entry)
 			}
 		}
@@ -203,6 +206,20 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			}
 			if _, err := s.get(ctx, "RESOLUTION#"+hash(r.AccountID+"#"+identity(r)), &resolution); err != nil {
 				return false, err
+			}
+			if resolution.EntryKey != "" {
+				// A resolution approves the reviewed purchase, not every future
+				// record that happens to reuse its provisional hash.
+				var review struct {
+					Record Record `json:"record"`
+				}
+				found, err := s.get(ctx, "review#"+hash(r.AccountID+"#"+identity(r)), &review)
+				if err != nil {
+					return false, err
+				}
+				if !found || !exactMatch(review.Record, r) {
+					resolution.EntryKey = ""
+				}
 			}
 			if resolution.EntryKey != "" {
 				for _, candidate := range entries {
@@ -408,7 +425,15 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			}
 			// Keep the provisional identity when the native posted identity arrives.
 			r.ProvisionalID = entry.Record.ProvisionalID
-			r.References = append(r.References, entry.Record.References...)
+			seenReferences := map[string]bool{}
+			references := []string{}
+			for _, ref := range append(r.References, entry.Record.References...) {
+				if ref != "" && !seenReferences[ref] {
+					seenReferences[ref] = true
+					references = append(references, ref)
+				}
+			}
+			r.References = references
 			entry.Record = r
 		}
 		claimed[entry.Key] = true
@@ -417,7 +442,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 				entry.Payee = *tx.PayeeName
 			}
 		}
-		resolved[identity(r)] = entry
+		resolved[recordKey] = entry
 		if !job.DryRun {
 			if err = s.put(ctx, entry.Key, entry, job.ID); err != nil {
 				return false, err
@@ -428,7 +453,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 	if job.Source == "alert" {
 		var candidates []*Entry
 		for _, r := range result.Records {
-			e := resolved[identity(r)]
+			e := resolved[r.AccountID+"#"+identity(r)]
 			if e == nil {
 				continue
 			}

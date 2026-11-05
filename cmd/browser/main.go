@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
+	"github.com/nathanfredericks/transactions/internal/browserbroker"
 	"github.com/nathanfredericks/transactions/internal/cloak"
 	"github.com/nathanfredericks/transactions/internal/config"
 	"github.com/nathanfredericks/transactions/internal/engine"
@@ -120,6 +121,26 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 		return session, bank.Fail(bank.Invalid, "browser-binary")
 	}
 
+	// The bank lease remains authoritative for bank data; this reservation only
+	// serializes CloakBrowser capacity across independent applications.
+	if r.Browser == "cloak" {
+		client, err := browserbroker.FromEnv()
+		if err != nil {
+			return session, bank.Fail(bank.Capacity, "browser-broker-unavailable")
+		}
+		reservation, err := client.Acquire(ctx, browserbroker.Request{Bank: r.ID, JobID: l.Owner, Generation: l.Generation})
+		if err != nil {
+			return session, bank.Fail(bank.Capacity, "browser-broker-busy")
+		}
+		// Registered before owned.Close so shutdown finishes before releasing capacity.
+		defer func() {
+			clean, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+			defer cancel()
+			if client.Release(clean, reservation.ID) != nil {
+				slog.Warn("browser reservation release unconfirmed", "bank", r.ID)
+			}
+		}()
+	}
 	var browser *rod.Browser
 	browserSeed := 0
 	browserVersion := ""
@@ -173,6 +194,21 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 		}
 		owned, err := cloak.LaunchContext(ctx, options)
 		if err != nil {
+			var launch *cloak.LaunchError
+			if errors.As(err, &launch) {
+				slog.Warn("browser startup failed", "bank", r.ID, "stage", launch.Stage, "exitCode", launch.ExitCode)
+				// These are the vendor's documented license-denial exit codes.
+				switch launch.ExitCode {
+				case 76:
+					return session, bank.Fail(bank.Temporary, "browser-license-session-limit")
+				case 77:
+					return session, bank.Fail(bank.Invalid, "browser-license-invalid")
+				case 78:
+					return session, bank.Fail(bank.Temporary, "browser-license-unavailable")
+				case 79:
+					return session, bank.Fail(bank.Invalid, "browser-license-config")
+				}
+			}
 			return session, bank.Fail(bank.Temporary, "browser-start")
 		}
 		defer owned.Close()

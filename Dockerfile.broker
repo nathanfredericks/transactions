@@ -1,0 +1,11 @@
+FROM golang:1.25.0-bookworm AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY internal/browserbroker ./internal/browserbroker
+COPY cmd/browser-broker ./cmd/browser-broker
+RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /browser-broker ./cmd/browser-broker
+FROM cloakhq/cloakbrowser@sha256:78d42b08f97592286312b639df571c4549f3d11ac5d31ceac3f9abd68b77b443
+COPY --from=build /browser-broker /usr/local/bin/browser-broker
+# Retain the vendor entrypoint's Xvfb/Openbox and signal handling.
+CMD ["/usr/local/bin/browser-broker", "python", "/app/persistent.py"]

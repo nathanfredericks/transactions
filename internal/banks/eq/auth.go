@@ -43,7 +43,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (bank.Sessio
 	if e = bank.Input(p, `input[type="email"], input[name="username"]`, a.Dependencies.Credentials.Username); e != nil {
 		return fail(e)
 	}
-	if e = bank.Click(p, "button", `^[Ss]ign in$`); e != nil {
+	if e = bank.Click(p, "button", `^(?:[Ss]ign in|[Ll]og in)$`); e != nil {
 		return fail(e)
 	}
 	stage = "login-password"
@@ -51,7 +51,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (bank.Sessio
 		return fail(e)
 	}
 	after := time.Now()
-	if e = bank.Click(p, "button", `^[Ss]ign in$`); e != nil {
+	if e = bank.Click(p, "button", `^(?:[Ss]ign in|[Ll]og in)$`); e != nil {
 		return fail(e)
 	}
 	if _, e = p.Timeout(25 * time.Second).Element(`input[autocomplete="one-time-code"]`); e != nil {

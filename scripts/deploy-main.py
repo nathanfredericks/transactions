@@ -79,8 +79,14 @@ def main():
         if not license_file.is_file():
             raise SystemExit('The private browser license file is required')
         image = f'{REGISTRY}/{REPOSITORY}:main-{revision}'
+        # Application releases retain the deployed, immutable browser runtime.
+        # Refreshing browser binaries is a separate, deliberately verified change.
+        browser_base = resources['BrowserTask']['Properties']['ContainerDefinitions'][0]['Image']
+        if '@sha256:' not in browser_base:
+            raise SystemExit('The deployed browser runtime must use an immutable image digest')
         subprocess.run(['docker', 'build', '--platform', 'linux/arm64', '--secret',
-                        f'id=cloak_license,src={license_file}', '-t', image, '.'], cwd=ROOT, check=True)
+                        f'id=cloak_license,src={license_file}', '--build-arg',
+                        f'BROWSER_RUNTIME_IMAGE={browser_base}', '-t', image, '.'], cwd=ROOT, check=True)
         password = run('aws', '--region', REGION, 'ecr', 'get-login-password')
         with tempfile.TemporaryDirectory(prefix='transactions-ecr-') as directory:
             auth = Path(directory) / 'config.json'
@@ -92,12 +98,24 @@ def main():
         container = resources['BrowserTask']['Properties']['ContainerDefinitions'][0]
         container['Image'] = f'{REGISTRY}/{REPOSITORY}@{digest}'
         environment = {item['Name']: item['Value'] for item in container['Environment']}
-        environment.update(DEPLOYMENT_COMMIT=revision, DEPLOYMENT_BRANCH='main')
+        environment.update(DEPLOYMENT_COMMIT=revision, DEPLOYMENT_BRANCH='main', BROWSER_BROKER_URL='https://browser-broker.fredericks.app')
         container['Environment'] = [{'Name': key, 'Value': value} for key, value in environment.items()]
+        processor_statements = resources['ProcessorRole']['Properties']['Policies'][0]['PolicyDocument']['Statement']
+        if not any(s.get('Sid') == 'CapacityNotificationWorkflow' for s in processor_statements):
+            processor_statements.append({'Sid':'CapacityNotificationWorkflow','Effect':'Allow','Action':'states:StartExecution','Resource':f'arn:aws:states:{REGION}:{ACCOUNT}:stateMachine:transactions-engine'})
+        broker_secret = aws('secretsmanager', 'describe-secret', '--secret-id', 'transactions-engine/browser-broker')['ARN']
+        container['Secrets'] = [v for v in container.get('Secrets', []) if v['Name'] != 'BROWSER_BROKER_TOKEN']
+        container['Secrets'].append({'Name': 'BROWSER_BROKER_TOKEN', 'ValueFrom': broker_secret})
+        statements = resources['TaskExecutionRole']['Properties']['Policies'][0]['PolicyDocument']['Statement']
+        if not any(s.get('Sid') == 'BrowserBrokerSecret' for s in statements):
+            statements.append({'Sid':'BrowserBrokerSecret','Effect':'Allow','Action':'secretsmanager:GetSecretValue','Resource':broker_secret})
+
         # Stage the main branch while the old branch continues serving the domain.
         if 'AdminBranchMain' not in resources:
             resources['AdminBranchMain'] = json.loads(json.dumps(resources['AdminBranch']))
             resources['AdminBranchMain']['Properties']['BranchName'] = 'main'
+        # The operator requested Pushover notifications without AWS alarm email.
+        resources.pop('OperatorEmail', None)
     else:
         if 'AdminBranchMain' not in resources:
             raise SystemExit('Release and build the main admin branch first')
@@ -113,7 +131,7 @@ def main():
 
     changed = sorted(name for name in original['Resources'].keys() | resources.keys()
                      if original['Resources'].get(name) != resources.get(name))
-    allowed = {'gateway', 'processor', 'BrowserTask', 'AdminBranchMain'} if args.phase == 'release' else {'AdminDomain', 'AdminBranch'}
+    allowed = {'gateway', 'processor', 'BrowserTask', 'AdminBranchMain', 'OperatorEmail', 'TaskExecutionRole', 'ProcessorRole'} if args.phase == 'release' else {'AdminDomain', 'AdminBranch'}
     if not set(changed) <= allowed:
         raise SystemExit(f'Unexpected resource changes: {changed}')
     path = output / f'{args.phase}-template.json'

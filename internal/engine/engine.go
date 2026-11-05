@@ -124,12 +124,17 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 			return out, bank.Fail(bank.Invalid, "stale-browser")
 		}
 		if result.Error != nil {
+			if result.Error.Kind == bank.Capacity {
+				return e.deferCapacity(ctx)
+			}
 			// This job already used its one browser attempt. Re-entering the
 			// retrieval loop with no session would misclassify the same failure
 			// as a rejected fresh login. End it; later jobs respect bank backoff.
 			e.Job.Attempt = 2
 			return out, result.Error
 		}
+		e.Job.CapacitySince = time.Time{}
+		e.Job.CapacityWaits = 0
 		e.Job.Status = "running"
 	}
 	session, se := e.session(ctx)
@@ -420,4 +425,31 @@ func (e *Engine) healthKey() string {
 		return "HEALTH#notifications"
 	}
 	return "HEALTH"
+}
+
+// Capacity waits have their own backoff and notification, preserving financial
+// health and the authentication attempt budget.
+func (e *Engine) deferCapacity(ctx context.Context) (Outcome, error) {
+	if e.Job.CapacitySince.IsZero() {
+		e.Job.CapacitySince = time.Now()
+	}
+	e.Job.CapacityWaits++
+	if time.Since(e.Job.CapacitySince) >= 15*time.Minute && !e.Job.CapacityNotified && !e.Job.DryRun {
+		if err := e.notifyOnce(ctx, "capacity#"+e.Job.ID, "Browser capacity has been unavailable for 15 minutes. The bank job is waiting for Hermes to release its browser.", "Bank browser waiting"); err != nil {
+			return Outcome{}, err
+		}
+		if _, err := e.startOperation(ctx, Request{Bank: e.Job.Bank, JobID: e.Job.ID}, "notify"); err != nil {
+			return Outcome{}, err
+		}
+		e.Job.CapacityNotified = true
+	}
+	e.Job.BrowserAttempted = false
+	e.Job.Status = "waiting"
+	e.Job.Error = ""
+	e.Job.Operation = ""
+	wait := min(300, 30*(1<<min(e.Job.CapacityWaits-1, 4)))
+	if err := e.saveJob(ctx); err != nil {
+		return Outcome{}, err
+	}
+	return e.outcome("deferred", wait), nil
 }
