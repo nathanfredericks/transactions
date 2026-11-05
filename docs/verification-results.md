@@ -2,6 +2,83 @@
 
 Verification uses real accounts and AWS resources, local production browser runs, builds and static checks. No mocks, new test files or test-suite runs were used.
 
+## Shared browser broker and import review (5 November 2026)
+
+The Go broker is deployed on Hermes through the infrastructure Compose stack.
+Transactions runtime revision `11f4134c327a263e1d37b26ee46d278bfbc2113e` is deployed
+in both Lambda functions and the browser worker. CloudFormation is
+`UPDATE_COMPLETE`; both Lambda ZIP hashes match
+`Pa61+awdQJVlGHo1Hk+x5w6cknzW1pZqmxp5hrCXmGE=`. The worker image is
+`sha256:f0987f00b7f92a14e5a800ac04026f2f3889f4f045a8d879fde405348191a4c6`;
+the pinned broker image is
+`sha256:59e5ec04c284f71c5808029d77f5832427189f48b8148697975954541acf7dff`.
+No Patchright dependency or migration was introduced.
+
+Go build/vet, application CI (including CDK synthesis and admin checks), both
+image builds, and full Compose configuration validation passed. No mock tests,
+new test files, or test-suite runs were used. A duplicated Compose block caused
+the first Portainer deployment to fail and remove the Hermes containers. The
+working stack was restored, the duplicate removed, and the corrected committed
+stack was then confirmed active in Portainer. Persistent state and profiles were
+retained.
+
+Real broker checks confirmed idle startup without Chromium, health checks that
+do not launch it, lazy CDP discovery, active Hermes WebSocket interruption, 503
+with Retry-After while reserved, exclusive FIFO NBDB/Rogers grants, duplicate
+request identity, stale/repeated releases, and reservation survival across broker
+restart. An actual abandoned ten-minute reservation expired; the broker returned
+to idle only after vendor seat confirmation. Public checks returned 401 for an
+unauthenticated request and 404 for CDP discovery on the control endpoint.
+
+NBDB workflow `verify-nbdb-broker-5fc64be67f96` completed fresh production ECS
+login, email MFA, both-account validation and a normal dry-run retrieval. A
+separate Lambda invocation reused that session and validated both accounts in
+531 ms. The earlier local check acquired and released capacity correctly but
+encountered the previously observed wealth-session POST `net::ERR_FAILED` after
+MFA; no authentication result was published from that failed check. The
+production run passed. Today's scheduled NBDB import had already completed its
+balance update before the broker rollout; historical failed jobs were retained.
+
+Rogers workflow `verify-rogers-broker-9ab201ce1d19` waited behind an exclusive
+reservation. Its worker exhausted the 60-second capacity wait and deferred with
+zero login attempts consumed, `browserAttempted=false`, unchanged healthy bank
+state, and no credential rejection. After release and workflow backoff, fresh
+ECS authentication and the dry run completed. Independent Lambda reuse validated
+the account and retrieved 27 records. A deployment interruption lost the worker's
+release request; the persisted reservation continued blocking Hermes. Operator
+cleanup confirmed the completed job, absence of running workers, and exact
+reservation job/generation before idempotent release. Automatic abandoned-lease
+expiry was verified separately.
+
+The actual Hermes navigation tool started the persistent browser through the
+broker. Its configured 120-second inactivity janitor released its browser client;
+a separate observer then confirmed broker ownership returned to idle and the
+vendor reported zero licensed sessions while the client process was still alive.
+
+Hermes's next navigation after idle successfully reconnected. A real Acadia
+Self-Service page retained the native `flatMap` getter and produced callback
+indices `[0, 1]`. Its saved profile remained mounted and populated; no profile
+cookies or browser content were logged by the broker.
+
+The prolonged-contention notification threshold and recovery handling were
+reviewed in code; no bank was deliberately denied capacity for 15 minutes to
+provoke an alert. They use the existing durable Pushover workflow. The user
+confirmed receipt of the earlier iPhone Pushover check. AWS SNS email
+subscriptions are absent, and the email subscription resource was removed from
+the deployment template and CDK defaults.
+
+EQ remains on its separate financial review hold. Read-only verification
+confirmed bank references `64345330` and `64446209` each map to a distinct,
+reconciled YNAB purchase of CAD 11.46 on October 10 and 11 respectively. The
+ledger repair made no YNAB writes and retains a private backup and audit marker.
+Replays of the affected saved snapshots passed. The current catch-up snapshot
+still encounters other manually deleted/merged YNAB entries; its full preview
+fails with `ledger-transaction-removed`. A fresh read-only audit found 14 rows
+requiring ledger review, 12 with a unique date/amount counterpart and two new
+interest rows without one. The hold was preserved to prevent duplicate imports.
+The [Jev assessment](jev-assessment.md) remains a separate recommendation; no bank
+data was sent to that provider and no model integration was deployed.
+
 ## EQ authentication on demand (7 October 2026)
 
 The operator requested allowing EQ sessions to expire between four-hour imports and purchase alerts, accepting the additional lookup delay. EQ no longer keeps authentication warm. The live one-minute upkeep schedule was disabled and then removed from CloudFormation; the three bank import schedules remain enabled, with EQ retaining `cron(0 0/4 * * ? *)` in `America/Halifax`. Explicit manual verification remains available.
