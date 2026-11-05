@@ -27,7 +27,7 @@ jobs:
       - name: CDK synthesis
         run: |
           go work init . ./cdk
-          CDK_OUTDIR=dist/cdk go run ./cdk
+          CDK_CONTEXT_JSON="$(python3 -c 'import json; print(json.dumps(json.load(open("cdk.json"))["context"]))')" CDK_OUTDIR=dist/cdk go run ./cdk
       - name: Admin checks
         run: |
           npm --prefix admin ci --ignore-scripts
