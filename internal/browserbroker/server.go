@@ -210,6 +210,24 @@ func (s *Server) step(ctx context.Context) {
 	s.state.Reservations = kept
 	s.save()
 }
+
+// present distinguishes the head request waiting for a seat release from FIFO
+// followers, while retaining the durable queued state until a grant is safe.
+// Caller holds s.mu.
+func (s *Server) present(v Reservation) Reservation {
+	if v.Status == "queued" && s.owner == "releasing" {
+		for _, pending := range s.state.Reservations {
+			if pending.Status == "queued" {
+				if pending.ID == v.ID {
+					v.Status = "releasing"
+				}
+				break
+			}
+		}
+	}
+	return v
+}
+
 func jsonResponse(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
@@ -248,7 +266,7 @@ func (s *Server) Control() http.Handler {
 		}
 		for _, v := range s.state.Reservations {
 			if v.Request == q {
-				jsonResponse(w, 200, v)
+				jsonResponse(w, 200, s.present(v))
 				return
 			}
 		}
@@ -282,7 +300,7 @@ func (s *Server) Control() http.Handler {
 		defer s.mu.Unlock()
 		for _, v := range s.state.Reservations {
 			if v.ID == r.PathValue("id") {
-				jsonResponse(w, 200, v)
+				jsonResponse(w, 200, s.present(v))
 				return
 			}
 		}

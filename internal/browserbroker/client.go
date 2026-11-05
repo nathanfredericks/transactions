@@ -74,7 +74,7 @@ func (c *Client) Acquire(ctx context.Context, q Request) (Reservation, error) {
 			granted = true
 			return r, nil
 		}
-		if r.Status != "queued" && r.Status != "granted" {
+		if r.Status != "queued" && r.Status != "releasing" && r.Status != "granted" {
 			return r, ErrCapacity
 		}
 		select {
