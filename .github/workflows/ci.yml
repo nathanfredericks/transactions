@@ -5,6 +5,11 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:2.5.2
+        ports:
+          - 8000:8000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -21,6 +26,7 @@ jobs:
           test -z "$(gofmt -l cmd internal cdk/cdk.go)"
           go vet ./...
           go build ./...
+          DYNAMODB_LOCAL=http://localhost:8000 go test ./...
           cd cdk
           go vet ./...
           go build ./...

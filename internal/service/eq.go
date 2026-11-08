@@ -46,7 +46,7 @@ func GetAccountTransactions(ctx context.Context, account string) ([]*types.YNABT
 	err = client.do(ctx, http.MethodGet, fmt.Sprintf("/budgets/%s/accounts/%s/transactions?last_knowledge_of_server=0", client.budgetID, account), nil, &response)
 	return response.Data.Transactions, err
 }
-func CreateEQTransaction(ctx context.Context, account, date string, amount int64, payee, importID, status string, rule *types.TransactionOverride) (*types.YNABTransaction, error) {
+func CreateEQTransaction(ctx context.Context, account, date string, amount int64, payee types.PayeeChoice, importID, status string, rule *types.TransactionOverride) (*types.YNABTransaction, error) {
 	client, err := newYNABClient(ctx)
 	if err != nil {
 		return nil, err
@@ -75,12 +75,19 @@ func CreateEQTransaction(ctx context.Context, account, date string, amount int64
 	}
 	return nil, err
 }
-func eqTransactionPayload(account, date string, amount int64, payee, importID, status string, rule *types.TransactionOverride) (ynabPayloadTransaction, error) {
+func eqTransactionPayload(account, date string, amount int64, payee types.PayeeChoice, importID, status string, rule *types.TransactionOverride) (ynabPayloadTransaction, error) {
 	cleared := "uncleared"
 	if status == "posted" {
 		cleared = "cleared"
 	}
-	payload := ynabPayloadTransaction{AccountID: account, Date: date, Amount: amount, PayeeName: &payee, Cleared: cleared}
+	payload := ynabPayloadTransaction{AccountID: account, Date: date, Amount: amount, Cleared: cleared}
+	// An existing payee is written by ID so YNAB cannot re-resolve it by name.
+	if payee.ID != "" {
+		payload.PayeeID = &payee.ID
+	} else if payee.Name != "" {
+		name := payee.Name
+		payload.PayeeName = &name
+	}
 	// Pending authorizations must remain user-entered in YNAB so a later
 	// cleared import can match them. Keep operation identities in our ledger.
 	if status == "posted" && importID != "" {
@@ -101,6 +108,43 @@ func eqTransactionPayload(account, date string, amount int64, payee, importID, s
 		}
 	}
 	return payload, nil
+}
+
+// amountOnlyPayload is a user-entered, uncleared, unapproved entry with no payee,
+// category, memo or import ID, so a later cleared import can match it.
+func amountOnlyPayload(account, date string, amount int64) ynabPayloadTransaction {
+	return ynabPayloadTransaction{AccountID: account, Date: date, Amount: amount, Cleared: ynabClearingStatusUncleared}
+}
+
+// CreateAmountOnlyTransaction records a purchase alert that states only an amount.
+// It has no deduplication identity: callers must hold an uncertain outcome.
+func CreateAmountOnlyTransaction(ctx context.Context, account, date string, amount int64) (*types.YNABTransaction, error) {
+	client, err := newYNABClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return createTransaction(ctx, client.budgetID, amountOnlyPayload(account, date, amount))
+}
+
+// DeleteTransaction removes a transaction this importer created.
+func DeleteTransaction(ctx context.Context, id string) error {
+	client, err := newYNABClient(ctx)
+	if err != nil {
+		return err
+	}
+	return client.do(ctx, http.MethodDelete, fmt.Sprintf("/budgets/%s/transactions/%s", client.budgetID, id), nil, nil)
+}
+
+// FlagTransaction marks a transaction for the user's attention without changing
+// any of its other fields.
+func FlagTransaction(ctx context.Context, id, color string) error {
+	client, err := newYNABClient(ctx)
+	if err != nil {
+		return err
+	}
+	// The bulk endpoint changes only the fields sent.
+	request := map[string]any{"transactions": []map[string]any{{"id": id, "flag_color": color}}}
+	return client.do(ctx, http.MethodPatch, fmt.Sprintf("/budgets/%s/transactions", client.budgetID), request, nil)
 }
 
 func UpdateEQTransaction(ctx context.Context, tx *types.YNABTransaction, date string, amount int64, status string) (*types.YNABTransaction, error) {

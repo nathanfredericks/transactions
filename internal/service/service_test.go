@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nathanfredericks/transactions/internal/config"
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/types"
 	"math"
@@ -33,8 +34,11 @@ func setupService(t *testing.T, h http.HandlerFunc) {
 	}))
 	u, _ := url.Parse(server.URL)
 	oldClient := http.DefaultClient
-	oldS, oldP := getSecrets, getParameters
+	oldS, oldP, oldL := getSecrets, getParameters, loadSettings
 	http.DefaultClient = &http.Client{Transport: redirectTransport{u}, Timeout: time.Second * 5}
+	loadSettings = func(context.Context) (*config.Settings, error) {
+		return &config.Settings{Version: 1, BudgetID: "test", Timezone: "America/Halifax"}, nil
+	}
 	getSecrets = func(context.Context) (*types.Secrets, error) {
 		return &types.Secrets{YNABAccessToken: "test", OpenAIAPIKey: "test"}, nil
 	}
@@ -42,7 +46,13 @@ func setupService(t *testing.T, h http.HandlerFunc) {
 		return &types.Parameters{Timezone: "America/Halifax", OpenAIEndpoint: server.URL + "/", OpenAIModel: "test"}, nil
 	}
 	t.Setenv("YNAB_BUDGET_ID", "test")
-	t.Cleanup(func() { http.DefaultClient = oldClient; getSecrets = oldS; getParameters = oldP; server.Close() })
+	t.Cleanup(func() {
+		http.DefaultClient = oldClient
+		getSecrets = oldS
+		getParameters = oldP
+		loadSettings = oldL
+		server.Close()
+	})
 }
 func TestOverridePayloadAndTimezone(t *testing.T) {
 	var got ynabPayloadTransaction
@@ -61,7 +71,7 @@ func TestOverridePayloadAndTimezone(t *testing.T) {
 	if got.Amount != -5690 || got.Date != "2026-10-27" || *got.PayeeID != "apple" || *got.CategoryID != "monthly" || *got.Memo != "subscription 2026-10-27" || got.PayeeName != nil {
 		t.Fatalf("%+v", got)
 	}
-	if _, e = CreateEQTransaction(context.Background(), "account", "2026-10-27", -5690, "ignored", "stable", "posted", rule); e != nil {
+	if _, e = CreateEQTransaction(context.Background(), "account", "2026-10-27", -5690, types.PayeeChoice{Name: "ignored"}, "stable", "posted", rule); e != nil {
 		t.Fatal(e)
 	}
 	if got.Cleared != "cleared" || *got.ImportID != "stable" || *got.Memo != "subscription 2026-10-27" {
@@ -79,10 +89,6 @@ func TestPayeesRecentAndCreate(t *testing.T) {
 			fmt.Fprint(w, `{"data":{"transaction":{"id":"created"}}}`)
 		}
 	})
-	p, e := GetPayees(context.Background())
-	if e != nil || len(p) != 1 || p[0] != "Apple" {
-		t.Fatal(p, e)
-	}
 	found, e := CheckForRecentTransaction(context.Background(), "account", 5.69, 10)
 	if e != nil || found {
 		t.Fatal(found, e)
@@ -106,29 +112,6 @@ func TestYNABErrorAndMalformedResponses(t *testing.T) {
 				t.Fatal("expected error")
 			}
 		})
-	}
-}
-func TestAIKeepsBillingDescriptor(t *testing.T) {
-	var output string = `{"amount":5.69,"merchant":"Apple"}`
-	setupService(t, func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"id": "resp_test", "object": "response", "output": []any{map[string]any{"type": "message", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": output, "annotations": []any{}}}}}})
-	})
-	d, e := ExtractTransactionDetails(context.Background(), "Purchase $5.69 at APPLE.COM/BILL TORONTO ON")
-	if e != nil || d.Merchant != "APPLE.COM/BILL" {
-		t.Fatal(d, e)
-	}
-	output = `{"payee":"Apple"}`
-	p, e := MatchPayee(context.Background(), "PAY* Apple", []string{"Apple"})
-	if e != nil || p != "Apple" {
-		t.Fatal(p, e)
-	}
-	output = `{"amount":0,"merchant":"Apple"}`
-	if _, e = ExtractTransactionDetails(context.Background(), "bad"); e == nil {
-		t.Fatal("invalid amount accepted")
-	}
-	output = "bad"
-	if _, e = ExtractTransactionDetails(context.Background(), "bad"); e == nil {
-		t.Fatal("invalid JSON accepted")
 	}
 }
 func TestConfigurationErrors(t *testing.T) {
@@ -218,7 +201,7 @@ func TestAdminIntegration(t *testing.T) {
 func TestPendingAndPostedImportIdentity(t *testing.T) {
 	for _, status := range []string{"pending", "posted"} {
 		for _, rule := range []*types.TransactionOverride{nil, {Payee: "payee-id", Category: "category-id", Memo: "purchase {{.Date}}"}} {
-			payload, err := eqTransactionPayload("account", "2026-10-10", -12340, "merchant", "stable-operation", status, rule)
+			payload, err := eqTransactionPayload("account", "2026-10-10", -12340, types.PayeeChoice{Name: "merchant"}, "stable-operation", status, rule)
 			if err != nil {
 				t.Fatal(err)
 			}

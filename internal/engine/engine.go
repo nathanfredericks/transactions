@@ -96,8 +96,22 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 		return e.outcome("paused", 0), err
 	}
 	if e.Job.Source == "notification" && e.Job.Purpose == "retrieve" {
-		err = e.notificationImport(ctx)
+		var wait int
+		wait, err = e.notificationImport(ctx)
 		if err != nil {
+			return out, err
+		}
+		if wait > 0 {
+			e.Job.Status = "waiting"
+			err = e.saveJob(ctx)
+			return e.outcome("deferred", wait), err
+		}
+		return e.recovered(ctx, "Transaction imports", health)
+	}
+	// Amount-only purchase alerts are written directly; they never sign in to
+	// the bank or call a model. Scheduled cleared imports supply the details.
+	if e.Job.Source == "alert" && e.Job.Purpose == "retrieve" {
+		if err = e.alertImport(ctx); err != nil {
 			return out, err
 		}
 		return e.recovered(ctx, "Transaction imports", health)
@@ -437,7 +451,8 @@ func (e *Engine) renew(ctx context.Context, adapter bank.Adapter, session bank.S
 }
 
 func (e *Engine) healthKey() string {
-	if e.Job.Source == "notification" {
+	// Alert-driven writes must not hold a bank's scheduled imports for review.
+	if e.Job.Source == "notification" || e.Job.Source == "alert" {
 		return "HEALTH#notifications"
 	}
 	return "HEALTH"

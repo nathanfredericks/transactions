@@ -1,12 +1,10 @@
 package types
 
-type MerchantAmount struct {
-	Amount   float64 `json:"amount"`
-	Merchant string  `json:"merchant"`
-}
-
-type PayeeMatch struct {
-	Payee string `json:"payee"`
+// PayeeChoice is the payee a transaction is written with. An ID selects an
+// existing YNAB payee; a Name without an ID creates a new payee.
+type PayeeChoice struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
 }
 
 type EmailConfig struct {
@@ -64,4 +62,9 @@ type YNABTransaction struct {
 	PayeeName         *string `json:"payee_name"`
 	CategoryID        *string `json:"category_id"`
 	Memo              *string `json:"memo"`
+	FlagColor         *string `json:"flag_color,omitempty"`
+	// ImportPayeeName and ImportPayeeNameOriginal keep the bank descriptor YNAB
+	// received for an imported transaction, independent of the payee chosen.
+	ImportPayeeName         *string `json:"import_payee_name,omitempty"`
+	ImportPayeeNameOriginal *string `json:"import_payee_name_original,omitempty"`
 }

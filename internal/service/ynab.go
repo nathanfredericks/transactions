@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/nathanfredericks/transactions/internal/config"
 	overridepkg "github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/types"
 )
@@ -75,14 +74,15 @@ func newYNABClient(ctx context.Context) (*ynabClient, error) {
 		return nil, fmt.Errorf("getting secrets: %w", err)
 	}
 
-	settings, err := config.Load(ctx)
+	settings, err := loadSettings(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return &ynabClient{
 		budgetID:    settings.BudgetID,
 		accessToken: secrets.YNABAccessToken,
-		httpClient:  &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		// Reuse the process transport so tests can substitute it.
+		httpClient: &http.Client{Transport: http.DefaultClient.Transport, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}, nil
 }
 
@@ -173,33 +173,6 @@ func createTransaction(ctx context.Context, budgetID string, payload ynabPayload
 		}
 	}
 	return nil, fmt.Errorf("ynab api returned no created transaction")
-}
-
-func GetPayees(ctx context.Context) ([]string, error) {
-
-	client, err := newYNABClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	response := struct {
-		Data struct {
-			Payees []*ynabPayee `json:"payees"`
-		} `json:"data"`
-	}{}
-
-	path := fmt.Sprintf("/budgets/%s/payees", client.budgetID)
-	if err := client.do(ctx, http.MethodGet, path, nil, &response); err != nil {
-		return nil, fmt.Errorf("fetching payees: %w", err)
-	}
-
-	var names []string
-	for _, p := range response.Data.Payees {
-		if p.TransferAccountID == nil && !p.Deleted {
-			names = append(names, p.Name)
-		}
-	}
-	return names, nil
 }
 
 func CheckForRecentTransaction(ctx context.Context, accountID string, amount float64, daysBack int) (bool, error) {

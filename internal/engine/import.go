@@ -9,6 +9,7 @@ import (
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/types"
+	"log/slog"
 
 	"strings"
 	"time"
@@ -30,6 +31,16 @@ type Write struct {
 	Amount        int64  `json:"amount"`
 	Date          string `json:"date"`
 	ImportID      string `json:"importId,omitempty"`
+	// Alert writes keep what the alert stated and what was written, so a later
+	// bank credit can recognize an echoed refund and prove it was not edited.
+	Description string `json:"description,omitempty"`
+	AlertDate   string `json:"alertDate,omitempty"`
+	Stale       bool   `json:"stale,omitempty"`
+	PayeeID     string `json:"payeeId,omitempty"`
+	PayeeName   string `json:"payeeName,omitempty"`
+	CategoryID  string `json:"categoryId,omitempty"`
+	Memo        string `json:"memo,omitempty"`
+	Decision    string `json:"decision,omitempty"`
 }
 
 func writeFailure(cause error, operation string) error {
@@ -75,6 +86,7 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error 
 	if err != nil {
 		return err
 	}
+	var payees *service.PayeeContext
 	for _, r := range s.Records {
 		target := mapping[r.AccountID]
 		if target.ID == "" {
@@ -114,21 +126,48 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error 
 			}
 			continue
 		}
+		decision := e.choosePayee(ctx, &payees, r.Description)
+		slog.Info("posted transaction preview", "bank", e.Job.Bank, "date", r.Date, "amount", r.Amount, "payeeSource", decision.Source, "existingPayee", decision.Choice.ID != "", "dryRun", e.Job.DryRun)
 		if e.Job.DryRun {
 			continue
 		}
-		if err = e.put(ctx, operation, Write{Status: "started", AccountID: target.ID, Amount: r.Amount, Date: r.Date, ImportID: id}, e.Job.ID); err != nil {
+		if err = e.put(ctx, operation, Write{Status: "started", AccountID: target.ID, Amount: r.Amount, Date: r.Date, ImportID: id, Description: r.Description, Decision: decision.Source}, e.Job.ID); err != nil {
 			return err
 		}
-		tx, err := service.CreateEQTransaction(ctx, target.ID, r.Date, r.Amount, r.Description, id, "posted", nil)
+		tx, err := createTransaction(ctx, target.ID, r.Date, r.Amount, decision.Choice, id, "posted", nil)
 		if err != nil {
 			return writeFailure(err, "transaction-write")
 		}
-		if err = e.put(ctx, operation, Write{Status: "complete", TransactionID: tx.ID, ImportID: id}, e.Job.ID); err != nil {
+		if err = e.put(ctx, operation, Write{Status: "complete", TransactionID: tx.ID, ImportID: id, Description: r.Description, Decision: decision.Source}, e.Job.ID); err != nil {
 			return err
+		}
+		if r.Amount > 0 {
+			if err = e.clearEchoes(ctx, target.ID, r, tx.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// choosePayee resolves a descriptor to a payee. Enrichment never blocks a valid
+// import: when evidence cannot be loaded or the model fails, the descriptor is
+// kept and the unapproved transaction is left for review in YNAB.
+func (e *Engine) choosePayee(ctx context.Context, payees **service.PayeeContext, descriptor string) service.PayeeDecision {
+	if *payees == nil {
+		pc, err := loadPayeeContext(ctx)
+		if err != nil {
+			slog.Warn("payee evidence unavailable", "job", e.Job.ID, "error", err)
+			return service.FallbackPayee(descriptor)
+		}
+		*payees = pc
+	}
+	decision, err := resolvePayee(ctx, descriptor, *payees)
+	if err != nil {
+		slog.Warn("payee choice failed", "job", e.Job.ID, "error", err)
+		return service.FallbackPayee(descriptor)
+	}
+	return decision
 }
 func (e *Engine) balances(ctx context.Context, s bank.Snapshot) error {
 	mapping, err := e.mapping(ctx, s)
@@ -174,80 +213,320 @@ func (e *Engine) balances(ctx context.Context, s bank.Snapshot) error {
 	}
 	return nil
 }
-func (e *Engine) notificationImport(ctx context.Context) error {
+
+// Seams for tests; production uses the service implementations.
+var (
+	extractAlert       = service.ExtractAlert
+	loadPayeeContext   = service.LoadPayeeContext
+	resolvePayee       = service.ResolvePayee
+	createTransaction  = service.CreateEQTransaction
+	createAmountOnly   = service.CreateAmountOnlyTransaction
+	accountTransaction = service.GetAccountTransactions
+	deleteTransaction  = service.DeleteTransaction
+	flagTransaction    = service.FlagTransaction
+	findRules          = func(ctx context.Context, amount float64, descriptor string, at time.Time) (*types.TransactionOverride, error) {
+		rules, err := override.GetTransactionOverrides(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return override.FindOverride(ctx, rules, amount, descriptor, at)
+	}
+	submitJob = func(ctx context.Context, e *Engine, j Job) error { _, err := e.Submit(ctx, j); return err }
+)
+
+// echoWaits are the delays, in seconds, a late alert waits for its bank credit
+// to reach YNAB before it is treated as a genuine purchase.
+var echoWaits = []int{60, 300, 900}
+
+// notificationImport writes the purchase a card alert describes. It returns a
+// positive wait when the alert must be re-checked later.
+func (e *Engine) notificationImport(ctx context.Context) (int, error) {
 	var previous Write
 	key := "WRITE#notification#" + e.Job.ID
 	if _, err := e.get(ctx, key, &previous); err != nil {
-		return err
+		return 0, err
 	}
-	if previous.Status == "complete" {
-		return nil
-	}
-	if previous.Status == "started" {
+	switch previous.Status {
+	case "complete", "echo":
+		return 0, nil
+	case "started":
 		// Recover the recorded write before invoking AI again. A new interpretation
 		// must never change an operation whose financial outcome is uncertain.
 		if e.Job.DryRun {
-			return nil
+			return 0, nil
 		}
-		transactions, err := service.GetAccountTransactions(ctx, previous.AccountID)
+		transactions, err := accountTransaction(ctx, previous.AccountID)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		for _, tx := range transactions {
 			if !tx.Deleted && tx.ImportID != nil && *tx.ImportID == previous.ImportID {
-				return e.completeNotification(ctx, key, previous.ImportID, tx, "the recorded payee")
+				return 0, e.completeNotification(ctx, key, previous, tx)
 			}
 		}
-		return bank.Fail(bank.Uncertain, "notification-import")
+		return 0, bank.Fail(bank.Uncertain, "notification-import")
 	}
-	details, err := service.ExtractTransactionDetails(ctx, e.Job.Text)
+	alert, err := extractAlert(ctx, e.Job.Text)
 	if err != nil {
-		return bank.Fail(bank.Temporary, "notification-extract")
-	}
-	rules, err := override.GetTransactionOverrides(ctx)
-	if err != nil {
-		return err
-	}
-	rule, err := override.FindOverride(ctx, rules, details.Amount, details.Merchant, e.Job.OccurredAt)
-	if err != nil {
-		return err
-	}
-	payee := details.Merchant
-	if rule == nil {
-		payees, err := service.GetPayees(ctx)
-		if err != nil {
-			return err
-		}
-		payee, err = service.MatchPayee(ctx, payee, payees)
-		if err != nil {
-			return bank.Fail(bank.Temporary, "notification-payee-match")
-		}
+		slog.Warn("notification extraction failed", "job", e.Job.ID, "error", err)
+		return 0, bank.Fail(bank.Temporary, "notification-extract")
 	}
 	zone, _ := time.LoadLocation(e.Settings.Timezone)
-	date := e.Job.OccurredAt.In(zone).Format("2006-01-02")
-	amount, err := bank.Milliunits(fmt.Sprintf("%.3f", -details.Amount))
+	received := e.Job.OccurredAt.In(zone).Format("2006-01-02")
+	date := received
+	if alert.Date != "" {
+		date = alert.Date
+	}
+	// A bank can resend an alert when a refund or credit posts. Those echoes
+	// arrive after the date they state; a genuine purchase alert is immediate.
+	stale := alert.Date != "" && alert.Date < received
+	if stale {
+		credit, err := e.findEchoCredit(ctx, alert, received)
+		if err != nil {
+			return 0, err
+		}
+		if credit != nil {
+			slog.Info("alert matched a posted credit", "job", e.Job.ID, "credit", credit.ID, "source", alert.Source)
+			if e.Job.DryRun {
+				return 0, nil
+			}
+			return 0, e.Store.PutMany(ctx, e.Lease, map[string]any{
+				"ECHO#" + credit.ID: map[string]any{"jobId": e.Job.ID, "action": "skipped-alert"},
+				key:                 Write{Status: "echo", TransactionID: credit.ID, AccountID: e.Job.AccountID, Amount: alert.Amount, Date: date, Description: alert.Descriptor, AlertDate: alert.Date, Stale: true},
+			})
+		}
+		if e.Job.MissingAttempt < len(echoWaits) {
+			if e.Job.MissingAttempt == 0 && !e.Job.DryRun {
+				if err := e.requestRetrieval(ctx); err != nil {
+					return 0, err
+				}
+			}
+			wait := echoWaits[e.Job.MissingAttempt]
+			e.Job.MissingAttempt++
+			return wait, nil
+		}
+		slog.Info("late alert has no matching credit; importing it as a purchase", "job", e.Job.ID)
+	}
+	amount := -alert.Amount
+	at, err := time.ParseInLocation("2006-01-02", date, zone)
+	if err != nil {
+		return 0, err
+	}
+	rule, err := findRules(ctx, float64(alert.Amount)/1000, alert.Descriptor, at)
+	if err != nil {
+		return 0, err
+	}
+	decision := service.PayeeDecision{Source: "rule"}
+	if rule == nil {
+		var payees *service.PayeeContext
+		decision = e.choosePayee(ctx, &payees, alert.Descriptor)
+	}
+	slog.Info("notification preview", "job", e.Job.ID, "date", date, "amount", amount, "parser", alert.Source, "payeeSource", decision.Source, "existingPayee", decision.Choice.ID != "", "stale", stale, "dryRun", e.Job.DryRun)
+	importID := "ALERT:" + bank.Hash(e.Job.ID)[:30]
+	if e.Job.DryRun {
+		return 0, nil
+	}
+	intent := Write{Status: "started", AccountID: e.Job.AccountID, Amount: amount, Date: date, ImportID: importID, Description: alert.Descriptor, AlertDate: alert.Date, Stale: stale, Decision: decision.Source}
+	if err = e.put(ctx, key, intent, e.Job.ID); err != nil {
+		return 0, err
+	}
+	tx, err := createTransaction(ctx, e.Job.AccountID, date, amount, decision.Choice, importID, "pending", rule)
+	if err != nil {
+		return 0, writeFailure(err, "notification-import")
+	}
+	return 0, e.completeNotification(ctx, key, intent, tx)
+}
+
+// completeNotification records the created transaction exactly as YNAB returned
+// it, so a later check can tell whether the user has edited it.
+func (e *Engine) completeNotification(ctx context.Context, key string, intent Write, tx *types.YNABTransaction) error {
+	done := intent
+	done.Status, done.TransactionID = "complete", tx.ID
+	done.PayeeID, done.PayeeName, done.CategoryID, done.Memo = deref(tx.PayeeID), deref(tx.PayeeName), deref(tx.CategoryID), deref(tx.Memo)
+	payee := done.PayeeName
+	if payee == "" {
+		payee = intent.Description
+	}
+	notice := Notification{ID: "purchase#" + e.Job.ID, JobID: e.Job.ID, Title: "Transaction Approved", Message: fmt.Sprintf("A transaction of $%.2f at %s was approved on your %s.", -float64(tx.Amount)/1000, payee, tx.AccountName), Status: "pending", At: time.Now()}
+	return e.Store.PutMany(ctx, e.Lease, map[string]any{key: done, "NOTICE#" + notice.ID: notice})
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// findEchoCredit looks in YNAB for the bank credit a late alert repeats: an
+// inflow of the same amount, from the same descriptor, posted between the date
+// the alert states and the day it arrived, not already claimed by another alert.
+func (e *Engine) findEchoCredit(ctx context.Context, alert service.Alert, received string) (*types.YNABTransaction, error) {
+	rows, err := accountTransaction(ctx, e.Job.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	var best *types.YNABTransaction
+	for _, tx := range rows {
+		if tx.Deleted || tx.Amount != alert.Amount || tx.Date < alert.Date || tx.Date > addDays(received, 1) {
+			continue
+		}
+		descriptor := ""
+		for _, s := range []*string{tx.ImportPayeeNameOriginal, tx.ImportPayeeName} {
+			if s != nil && *s != "" {
+				descriptor = *s
+				break
+			}
+		}
+		if !service.SimilarDescriptors(descriptor, alert.Descriptor) {
+			continue
+		}
+		var claim map[string]any
+		claimed, err := e.get(ctx, "ECHO#"+tx.ID, &claim)
+		if err != nil {
+			return nil, err
+		}
+		if claimed {
+			continue
+		}
+		if best == nil || tx.Date < best.Date {
+			best = tx
+		}
+	}
+	return best, nil
+}
+
+// requestRetrieval starts an immediate import from the alert's bank, so a
+// credit that has posted but not yet reached YNAB can settle a late alert.
+func (e *Engine) requestRetrieval(ctx context.Context) error {
+	registration, ok := banks.Find(e.Job.Bank)
+	if !ok || !e.Settings.Banks[e.Job.Bank].Enabled {
+		return nil
+	}
+	return submitJob(ctx, e, Job{Version: 1, ID: "echo-" + bank.Hash(e.Job.ID)[:32], Bank: registration.ID, Source: "scheduled", Purpose: "retrieve"})
+}
+
+// clearEchoes runs when a bank credit is imported. An alert this importer wrote
+// that the credit explains is removed if it is the only match and the user has
+// not touched it; otherwise each match is flagged for review in YNAB.
+func (e *Engine) clearEchoes(ctx context.Context, account string, credit Record, creditID string) error {
+	var claim map[string]any
+	if claimed, err := e.get(ctx, "ECHO#"+creditID, &claim); err != nil || claimed {
+		return err
+	}
+	raw, err := e.Store.List(ctx, "BANK#"+e.Job.Bank, "WRITE#notification#")
 	if err != nil {
 		return err
 	}
-	importID := "ALERT:" + bank.Hash(e.Job.ID)[:30]
+	type match struct {
+		key string
+		w   Write
+	}
+	var matches []match
+	for _, item := range raw {
+		var w Write
+		if json.Unmarshal(item, &w) != nil || w.Status != "complete" || !w.Stale || w.AccountID != account || w.Amount != -credit.Amount {
+			continue
+		}
+		if w.AlertDate > credit.Date || w.AlertDate < addDays(credit.Date, -5) || !service.SimilarDescriptors(w.Description, credit.Description) {
+			continue
+		}
+		matches = append(matches, match{w: w})
+	}
+	if len(matches) == 0 {
+		return nil
+	}
+	rows, err := accountTransaction(ctx, account)
+	if err != nil {
+		return err
+	}
+	byID := map[string]*types.YNABTransaction{}
+	for _, tx := range rows {
+		byID[tx.ID] = tx
+	}
+	if len(matches) == 1 {
+		w := matches[0].w
+		if tx := byID[w.TransactionID]; tx != nil && !tx.Deleted && untouched(tx, w) {
+			if err := deleteTransaction(ctx, tx.ID); err != nil {
+				return err
+			}
+			slog.Info("removed alert repeated by a bank credit", "credit", creditID, "transaction", tx.ID)
+			return e.put(ctx, "ECHO#"+creditID, map[string]any{"jobId": e.Job.ID, "action": "removed", "transactionId": tx.ID}, e.Job.ID)
+		}
+	}
+	var flagged []string
+	for _, m := range matches {
+		if tx := byID[m.w.TransactionID]; tx != nil && !tx.Deleted {
+			if err := flagTransaction(ctx, tx.ID, "red"); err != nil {
+				return err
+			}
+			flagged = append(flagged, tx.ID)
+		}
+	}
+	slog.Info("flagged alerts a bank credit may repeat", "credit", creditID, "count", len(flagged))
+	return e.put(ctx, "ECHO#"+creditID, map[string]any{"jobId": e.Job.ID, "action": "flagged", "transactionIds": flagged}, e.Job.ID)
+}
+
+// untouched reports whether a transaction is still exactly as the importer wrote it.
+func untouched(tx *types.YNABTransaction, w Write) bool {
+	return !tx.Approved && tx.Cleared == "uncleared" && tx.Amount == w.Amount && tx.Date == w.Date &&
+		deref(tx.PayeeID) == w.PayeeID && deref(tx.CategoryID) == w.CategoryID && deref(tx.Memo) == w.Memo && deref(tx.FlagColor) == ""
+}
+
+func addDays(date string, days int) string {
+	d, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return date
+	}
+	return d.AddDate(0, 0, days).Format("2006-01-02")
+}
+
+// alertImport writes an amount-only purchase for an alert that names no merchant.
+// It never signs in to the bank or calls a model; a later cleared import supplies
+// the details. The write has no YNAB import identity, so an interrupted create is
+// held for review and never re-sent or inferred from amount and date.
+func (e *Engine) alertImport(ctx context.Context) error {
+	account := e.Settings.Banks[e.Job.Bank].AlertAccountID
+	if account == "" {
+		return bank.Fail(bank.Invalid, "alert-account")
+	}
+	if e.Job.AlertAmount <= 0 || e.Job.AlertDate == "" {
+		return bank.Fail(bank.Invalid, "alert-amount")
+	}
+	// An alert the earlier bank-retrieval path already linked must not be written again.
+	var legacy map[string]any
+	if linked, err := e.get(ctx, "alert#"+bank.Hash(e.Job.MessageID), &legacy); err != nil || linked {
+		return err
+	}
+	key := "WRITE#alert#" + e.Job.ID
+	var previous Write
+	if _, err := e.get(ctx, key, &previous); err != nil {
+		return err
+	}
+	switch previous.Status {
+	case "complete":
+		return nil
+	case "started":
+		return bank.Fail(bank.Uncertain, "alert-import")
+	}
+	slog.Info("amount-only alert preview", "job", e.Job.ID, "date", e.Job.AlertDate, "amount", -e.Job.AlertAmount, "dryRun", e.Job.DryRun)
 	if e.Job.DryRun {
 		return nil
 	}
-	if err = e.put(ctx, key, Write{Status: "started", AccountID: e.Job.AccountID, Amount: amount, Date: date, ImportID: importID}, e.Job.ID); err != nil {
+	amount := -e.Job.AlertAmount
+	if err := e.put(ctx, key, Write{Status: "started", AccountID: account, Amount: amount, Date: e.Job.AlertDate}, e.Job.ID); err != nil {
 		return err
 	}
-	tx, err := service.CreateEQTransaction(ctx, e.Job.AccountID, date, amount, payee, importID, "pending", rule)
+	tx, err := createAmountOnly(ctx, account, e.Job.AlertDate, amount)
 	if err != nil {
-		return writeFailure(err, "notification-import")
+		return writeFailure(err, "alert-import")
 	}
-	return e.completeNotification(ctx, key, importID, tx, payee)
-}
-func (e *Engine) completeNotification(ctx context.Context, key, importID string, tx *types.YNABTransaction, payee string) error {
-	if tx.PayeeName != nil {
-		payee = *tx.PayeeName
+	name := tx.AccountName
+	if name == "" {
+		name = purchaseAccount(e.Job.Bank)
 	}
-	notice := Notification{ID: "purchase#" + e.Job.ID, JobID: e.Job.ID, Title: "Transaction Approved", Message: fmt.Sprintf("A transaction of $%.2f at %s was approved on your %s.", -float64(tx.Amount)/1000, payee, tx.AccountName), Status: "pending", At: time.Now()}
-	return e.Store.PutMany(ctx, e.Lease, map[string]any{key: Write{Status: "complete", TransactionID: tx.ID, ImportID: importID}, "NOTICE#" + notice.ID: notice})
+	notice := Notification{ID: "purchase#" + e.Job.ID, JobID: e.Job.ID, Title: "Transaction Approved", Message: fmt.Sprintf("A transaction of $%.2f was approved on your %s.", float64(e.Job.AlertAmount)/1000, name), Status: "pending", At: time.Now()}
+	return e.Store.PutMany(ctx, e.Lease, map[string]any{key: Write{Status: "complete", TransactionID: tx.ID, AccountID: account, Amount: amount, Date: e.Job.AlertDate}, "NOTICE#" + notice.ID: notice})
 }
 
 func (e *Engine) ledger(ctx context.Context) ([]*Entry, error) {

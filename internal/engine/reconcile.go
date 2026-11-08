@@ -33,9 +33,6 @@ var getAccountTransactions = service.GetAccountTransactions
 var getOverrides = override.GetTransactionOverrides
 var getParameters = config.GetParameters
 var findOverride = override.FindOverride
-var getPayees = service.GetPayees
-var matchPayee = service.MatchPayee
-var createEQTransaction = service.CreateEQTransaction
 var updateEQTransaction = service.UpdateEQTransaction
 var hash = bank.Hash
 
@@ -98,9 +95,9 @@ func exactMatch(a, b Record) bool {
 func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline Baseline) (bool, error) {
 	job := s.Job
 	result := struct{ Records []Record }{snapshot.Records}
-	// Routine EQ retrievals import cleared rows only. Purchase-email jobs retain
-	// the authorization path so their pending purchase can be imported promptly.
-	if job.Bank == "eq-bank" && job.Source != "alert" {
+	// EQ retrievals import cleared rows only. Purchase emails are written as
+	// amount-only entries that YNAB matches to the cleared import.
+	if job.Bank == "eq-bank" {
 		result.Records = make([]Record, 0, len(snapshot.Records))
 		for _, record := range snapshot.Records {
 			if record.Status == "posted" {
@@ -171,7 +168,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 	if err != nil {
 		return false, err
 	}
-	var payees []string
+	var payees *service.PayeeContext
 	for _, r := range result.Records {
 		recordKey := r.AccountID + "#" + identity(r)
 		if mapping[r.AccountID] == "" {
@@ -355,26 +352,18 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 				if e != nil {
 					return false, e
 				}
-				payee := r.Description
+				decision := service.PayeeDecision{Source: "rule"}
 				if rule == nil {
-					if payees == nil {
-						payees, e = getPayees(ctx)
-						if e != nil {
-							return false, e
-						}
-					}
-					payee, e = matchPayee(ctx, r.Description, payees)
-					if e != nil {
-						return false, e
-					}
+					decision = s.choosePayee(ctx, &payees, r.Description)
 				}
-				slog.Info("EQ transaction preview", "account", mapping[r.AccountID], "date", r.Date, "amount", r.Amount, "payee", payee, "status", r.Status, "importId", entry.ImportID, "dryRun", job.DryRun)
+				payee := decision.Choice
+				slog.Info("EQ transaction preview", "account", mapping[r.AccountID], "date", r.Date, "amount", r.Amount, "payeeSource", decision.Source, "existingPayee", payee.ID != "", "status", r.Status, "importId", entry.ImportID, "dryRun", job.DryRun)
 				if !job.DryRun {
 					intent := Write{Status: "started", AccountID: mapping[r.AccountID], Amount: r.Amount, Date: r.Date, ImportID: entry.ImportID}
 					if err := s.put(ctx, "WRITE#"+entry.Key, intent, job.ID); err != nil {
 						return false, err
 					}
-					tx, e := createEQTransaction(ctx, mapping[r.AccountID], r.Date, r.Amount, payee, entry.ImportID, r.Status, rule)
+					tx, e := createTransaction(ctx, mapping[r.AccountID], r.Date, r.Amount, payee, entry.ImportID, r.Status, rule)
 					if e != nil {
 						return false, writeFailure(e, "transaction-write")
 					}
@@ -450,47 +439,6 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 		}
 	}
 	missing := false
-	if job.Source == "alert" {
-		var candidates []*Entry
-		for _, r := range result.Records {
-			e := resolved[r.AccountID+"#"+identity(r)]
-			if e == nil {
-				continue
-			}
-			// An earlier alert already identifies this purchase. Keep equal amounts
-			// on distinct purchases eligible for their own original message IDs.
-			if e.AlertMessageID != "" && e.AlertMessageID != job.MessageID {
-				continue
-			}
-			amount, date := r.Amount, r.Date
-			if e.AuthorizationAmount != nil {
-				amount = *e.AuthorizationAmount
-				date = e.AuthorizationDate
-			}
-			if amount == -job.AlertAmount && near(date, job.AlertDate, 1) {
-				candidates = append(candidates, e)
-			}
-		}
-		if len(candidates) != 1 {
-			missing = true
-		} else if !job.DryRun {
-			entry := candidates[0]
-			payee := entry.Payee
-			if payee == "" {
-				payee = entry.Record.Description
-			}
-			if err = s.notifyOnce(ctx, "purchase#"+entry.Key, fmt.Sprintf("A transaction of $%.2f at %s was approved on your %s.", float64(job.AlertAmount)/1000, payee, purchaseAccount(job.Bank)), "Transaction Approved"); err != nil {
-				return false, err
-			}
-			entry.AlertMessageID = job.MessageID
-			if err = s.put(ctx, entry.Key, entry, job.ID); err != nil {
-				return false, err
-			}
-			if err = s.put(ctx, "alert#"+hash(job.MessageID), map[string]any{"ynabId": entry.YNABID, "jobId": job.ID}, job.ID); err != nil {
-				return false, err
-			}
-		}
-	}
 	if review > 0 {
 		return false, bank.Fail(bank.Invalid, "ambiguous-posting")
 	}

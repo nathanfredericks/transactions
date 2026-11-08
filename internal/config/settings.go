@@ -20,6 +20,9 @@ type BankSettings struct {
 	EmailSender      string   `json:"emailSender"`
 	EmailSubject     string   `json:"emailSubject"`
 	EmailCodeLength  int      `json:"emailCodeLength"`
+	// AlertAccountID is the YNAB account that receives amount-only purchase
+	// alerts, for banks whose alerts do not identify the account themselves.
+	AlertAccountID string `json:"alertAccountId,omitempty"`
 }
 type Settings struct {
 	Version           int                     `json:"version"`
