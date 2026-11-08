@@ -46,12 +46,12 @@ func GetAccountTransactions(ctx context.Context, account string) ([]*types.YNABT
 	err = client.do(ctx, http.MethodGet, fmt.Sprintf("/budgets/%s/accounts/%s/transactions?last_knowledge_of_server=0", client.budgetID, account), nil, &response)
 	return response.Data.Transactions, err
 }
-func CreateEQTransaction(ctx context.Context, account, date string, amount int64, payee types.PayeeChoice, importID, status string, rule *types.TransactionOverride) (*types.YNABTransaction, error) {
+func CreateEQTransaction(ctx context.Context, account, date string, amount int64, enrichment types.Enrichment, importID, status string, rule *types.TransactionOverride) (*types.YNABTransaction, error) {
 	client, err := newYNABClient(ctx)
 	if err != nil {
 		return nil, err
 	}
-	payload, err := eqTransactionPayload(account, date, amount, payee, importID, status, rule)
+	payload, err := eqTransactionPayload(account, date, amount, enrichment, importID, status, rule)
 	if err != nil {
 		return nil, err
 	}
@@ -75,12 +75,13 @@ func CreateEQTransaction(ctx context.Context, account, date string, amount int64
 	}
 	return nil, err
 }
-func eqTransactionPayload(account, date string, amount int64, payee types.PayeeChoice, importID, status string, rule *types.TransactionOverride) (ynabPayloadTransaction, error) {
+func eqTransactionPayload(account, date string, amount int64, enrichment types.Enrichment, importID, status string, rule *types.TransactionOverride) (ynabPayloadTransaction, error) {
 	cleared := "uncleared"
 	if status == "posted" {
 		cleared = "cleared"
 	}
 	payload := ynabPayloadTransaction{AccountID: account, Date: date, Amount: amount, Cleared: cleared}
+	payee := enrichment.Payee
 	// An existing payee is written by ID so YNAB cannot re-resolve it by name.
 	if payee.ID != "" {
 		payload.PayeeID = &payee.ID
@@ -88,13 +89,21 @@ func eqTransactionPayload(account, date string, amount int64, payee types.PayeeC
 		name := payee.Name
 		payload.PayeeName = &name
 	}
+	if enrichment.CategoryID != "" {
+		category := enrichment.CategoryID
+		payload.CategoryID = &category
+	}
+	if enrichment.Memo != "" {
+		memo := enrichment.Memo
+		payload.Memo = &memo
+	}
 	// Pending authorizations must remain user-entered in YNAB so a later
 	// cleared import can match them. Keep operation identities in our ledger.
 	if status == "posted" && importID != "" {
 		payload.ImportID = &importID
 	}
 	if rule != nil {
-		payload.PayeeName = nil
+		payload.PayeeName, payload.CategoryID, payload.Memo = nil, nil, nil
 		payload.PayeeID = &rule.Payee
 		if rule.Category != "" {
 			payload.CategoryID = &rule.Category

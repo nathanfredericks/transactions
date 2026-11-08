@@ -71,7 +71,7 @@ func TestOverridePayloadAndTimezone(t *testing.T) {
 	if got.Amount != -5690 || got.Date != "2026-10-27" || *got.PayeeID != "apple" || *got.CategoryID != "monthly" || *got.Memo != "subscription 2026-10-27" || got.PayeeName != nil {
 		t.Fatalf("%+v", got)
 	}
-	if _, e = CreateEQTransaction(context.Background(), "account", "2026-10-27", -5690, types.PayeeChoice{Name: "ignored"}, "stable", "posted", rule); e != nil {
+	if _, e = CreateEQTransaction(context.Background(), "account", "2026-10-27", -5690, types.Enrichment{Payee: types.PayeeChoice{Name: "ignored"}}, "stable", "posted", rule); e != nil {
 		t.Fatal(e)
 	}
 	if got.Cleared != "cleared" || *got.ImportID != "stable" || *got.Memo != "subscription 2026-10-27" {
@@ -201,7 +201,7 @@ func TestAdminIntegration(t *testing.T) {
 func TestPendingAndPostedImportIdentity(t *testing.T) {
 	for _, status := range []string{"pending", "posted"} {
 		for _, rule := range []*types.TransactionOverride{nil, {Payee: "payee-id", Category: "category-id", Memo: "purchase {{.Date}}"}} {
-			payload, err := eqTransactionPayload("account", "2026-10-10", -12340, types.PayeeChoice{Name: "merchant"}, "stable-operation", status, rule)
+			payload, err := eqTransactionPayload("account", "2026-10-10", -12340, types.Enrichment{Payee: types.PayeeChoice{Name: "merchant"}}, "stable-operation", status, rule)
 			if err != nil {
 				t.Fatal(err)
 			}

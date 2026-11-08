@@ -26,12 +26,14 @@ type BankSettings struct {
 	AlertAccountID string `json:"alertAccountId,omitempty"`
 }
 type Settings struct {
-	Version           int                     `json:"version"`
-	BudgetID          string                  `json:"budgetId"`
-	AdjustmentPayeeID string                  `json:"adjustmentPayeeId"`
-	Timezone          string                  `json:"timezone"`
-	OpenAIEndpoint    string                  `json:"openaiEndpoint"`
-	OpenAIModel       string                  `json:"openaiModel"`
+	Version           int    `json:"version"`
+	BudgetID          string `json:"budgetId"`
+	AdjustmentPayeeID string `json:"adjustmentPayeeId"`
+	Timezone          string `json:"timezone"`
+	OpenAIEndpoint    string `json:"openaiEndpoint"`
+	OpenAIModel       string `json:"openaiModel"`
+	// OpenAIEffort is the model's reasoning effort ("" for its default).
+	OpenAIEffort      string                  `json:"openaiEffort,omitempty"`
 	PaymentProcessors []string                `json:"paymentProcessors"`
 	AdminURL          string                  `json:"adminUrl"`
 	ImportsEnabled    bool                    `json:"importsEnabled"`

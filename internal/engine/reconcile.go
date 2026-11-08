@@ -168,7 +168,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 	if err != nil {
 		return false, err
 	}
-	var payees *service.PayeeContext
+	var cache *learning
 	for _, r := range result.Records {
 		recordKey := r.AccountID + "#" + identity(r)
 		if mapping[r.AccountID] == "" {
@@ -352,21 +352,23 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 				if e != nil {
 					return false, e
 				}
-				decision := service.PayeeDecision{Source: "rule"}
-				if rule == nil {
-					decision = s.choosePayee(ctx, &payees, r.Description)
+				var decision Decision
+				if rule != nil {
+					decision = s.ruled(r.Description, r.Amount, r.Date, mapping[r.AccountID], rule)
+				} else {
+					decision = s.enrich(ctx, &cache, r.Description, r.Amount, r.Date, mapping[r.AccountID])
 				}
-				payee := decision.Choice
-				slog.Info("EQ transaction preview", "account", mapping[r.AccountID], "date", r.Date, "amount", r.Amount, "payeeSource", decision.Source, "existingPayee", payee.ID != "", "status", r.Status, "importId", entry.ImportID, "dryRun", job.DryRun)
+				slog.Info("EQ transaction preview", "account", mapping[r.AccountID], "date", r.Date, "amount", r.Amount, "payeeSource", decision.Source(), "categorySource", decision.Suggestion.CategorySource, "existingPayee", decision.Enrichment.Payee.ID != "", "status", r.Status, "importId", entry.ImportID, "dryRun", job.DryRun)
 				if !job.DryRun {
-					intent := Write{Status: "started", AccountID: mapping[r.AccountID], Amount: r.Amount, Date: r.Date, ImportID: entry.ImportID}
+					intent := Write{Status: "started", AccountID: mapping[r.AccountID], Amount: r.Amount, Date: r.Date, ImportID: entry.ImportID, Decision: decision.Source(), Suggestion: &decision.Suggestion}
 					if err := s.put(ctx, "WRITE#"+entry.Key, intent, job.ID); err != nil {
 						return false, err
 					}
-					tx, e := createTransaction(ctx, mapping[r.AccountID], r.Date, r.Amount, payee, entry.ImportID, r.Status, rule)
+					tx, e := createTransaction(ctx, mapping[r.AccountID], r.Date, r.Amount, decision.Enrichment, entry.ImportID, r.Status, rule)
 					if e != nil {
 						return false, writeFailure(e, "transaction-write")
 					}
+					s.recordSuggestion(ctx, decision, tx, entry.ImportID)
 					entry.YNABID = tx.ID
 					intent.Status, intent.TransactionID = "complete", tx.ID
 					if err := s.put(ctx, "WRITE#"+entry.Key, intent, job.ID); err != nil {

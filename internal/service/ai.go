@@ -3,64 +3,57 @@ package service
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
-	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
-	"github.com/openai/openai-go/v3/responses"
-
 	"github.com/nathanfredericks/transactions/internal/config"
+	"github.com/nathanfredericks/transactions/internal/learn"
+	"github.com/nathanfredericks/transactions/internal/llm"
 )
 
 var getParameters = config.GetParameters
 var getSecrets = config.GetSecrets
 var loadSettings = config.Load
 
-func callResponsesAPI(ctx context.Context, instructions string, userMessage string, schemaName string, schema map[string]any) (string, error) {
-	params, err := getParameters(ctx)
+// modelConfig is the configured endpoint, model and reasoning effort.
+func modelConfig(ctx context.Context) (llm.Config, error) {
+	settings, err := loadSettings(ctx)
 	if err != nil {
-		return "", fmt.Errorf("getting parameters: %w", err)
+		return llm.Config{}, fmt.Errorf("getting settings: %w", err)
 	}
 	secrets, err := getSecrets(ctx)
 	if err != nil {
-		return "", fmt.Errorf("getting secrets: %w", err)
+		return llm.Config{}, fmt.Errorf("getting secrets: %w", err)
 	}
+	return llm.Config{Endpoint: settings.OpenAIEndpoint, Key: secrets.OpenAIAPIKey, Model: settings.OpenAIModel, Effort: settings.OpenAIEffort, Timeout: 45 * time.Second}, nil
+}
 
-	// Keep the configured transport while giving AI its own request deadline.
-	httpClient := *http.DefaultClient
-	httpClient.Timeout = 30 * time.Second
-	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	client := openai.NewClient(
-		option.WithBaseURL(params.OpenAIEndpoint),
-		option.WithAPIKey(secrets.OpenAIAPIKey),
-		// Pushover requires a bounded process-wide default client. AI has its
-		// own deadline and leaves operation retries to the shared workflow.
-		option.WithHTTPClient(&httpClient),
-		option.WithMaxRetries(0),
-	)
-
-	resp, err := client.Responses.New(ctx, responses.ResponseNewParams{
-		Model:        params.OpenAIModel,
-		Instructions: openai.String(instructions),
-		Input: responses.ResponseNewParamsInputUnion{
-			OfString: openai.String(userMessage),
-		},
-		Text: responses.ResponseTextConfigParam{
-			Format: responses.ResponseFormatTextConfigParamOfJSONSchema(
-				schemaName,
-				schema,
-			),
-		},
-	})
+func callResponsesAPI(ctx context.Context, instructions string, userMessage string, schemaName string, schema map[string]any) (string, error) {
+	cfg, err := modelConfig(ctx)
 	if err != nil {
-		return "", fmt.Errorf("calling Responses API: %w", err)
+		return "", err
 	}
-
-	text := resp.OutputText()
-	if text == "" {
-		return "", fmt.Errorf("empty response from API")
+	res, err := llm.Call(ctx, cfg, instructions, userMessage, schemaName, schema)
+	if err != nil {
+		return "", err
 	}
+	return res.Text, nil
+}
 
-	return text, nil
+var callModel = callResponsesAPI
+
+// ChooseWithModel asks the configured model to choose a payee (or name a new
+// one) and a category, using the same prompt the replay harness evaluated. It
+// returns the answer and the model that gave it.
+func ChooseWithModel(ctx context.Context, in learn.ModelInput) (learn.ModelOutput, string, error) {
+	cfg, err := modelConfig(ctx)
+	if err != nil {
+		return learn.ModelOutput{}, "", err
+	}
+	instructions, message, schema := learn.Prompt(in)
+	raw, err := callModel(ctx, instructions, message, "transaction_choice", schema)
+	if err != nil {
+		return learn.ModelOutput{}, cfg.Model, fmt.Errorf("calling model: %w", err)
+	}
+	out, err := learn.ParseOutput(raw, in)
+	return out, cfg.Model, err
 }

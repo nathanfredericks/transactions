@@ -80,6 +80,8 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 	switch request.Action {
 	case "maintain":
 		return app.Maintain(ctx)
+	case "sync-ynab":
+		return app.SyncYNAB(ctx)
 	case "submit":
 		if request.Job == nil {
 			return nil, fmt.Errorf("job required")

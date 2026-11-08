@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
+	"github.com/nathanfredericks/transactions/internal/learn"
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/types"
@@ -41,6 +42,8 @@ type Write struct {
 	CategoryID  string `json:"categoryId,omitempty"`
 	Memo        string `json:"memo,omitempty"`
 	Decision    string `json:"decision,omitempty"`
+	// Suggestion records what the importer proposed and why.
+	Suggestion *learn.Suggestion `json:"suggestion,omitempty"`
 }
 
 func writeFailure(cause error, operation string) error {
@@ -86,7 +89,7 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error 
 	if err != nil {
 		return err
 	}
-	var payees *service.PayeeContext
+	var cache *learning
 	for _, r := range s.Records {
 		target := mapping[r.AccountID]
 		if target.ID == "" {
@@ -126,21 +129,22 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error 
 			}
 			continue
 		}
-		decision := e.choosePayee(ctx, &payees, r.Description)
-		slog.Info("posted transaction preview", "bank", e.Job.Bank, "date", r.Date, "amount", r.Amount, "payeeSource", decision.Source, "existingPayee", decision.Choice.ID != "", "dryRun", e.Job.DryRun)
+		decision := e.enrich(ctx, &cache, r.Description, r.Amount, r.Date, target.ID)
+		slog.Info("posted transaction preview", "bank", e.Job.Bank, "date", r.Date, "amount", r.Amount, "payeeSource", decision.Source(), "categorySource", decision.Suggestion.CategorySource, "existingPayee", decision.Enrichment.Payee.ID != "", "dryRun", e.Job.DryRun)
 		if e.Job.DryRun {
 			continue
 		}
-		if err = e.put(ctx, operation, Write{Status: "started", AccountID: target.ID, Amount: r.Amount, Date: r.Date, ImportID: id, Description: r.Description, Decision: decision.Source}, e.Job.ID); err != nil {
+		if err = e.put(ctx, operation, Write{Status: "started", AccountID: target.ID, Amount: r.Amount, Date: r.Date, ImportID: id, Description: r.Description, Decision: decision.Source(), Suggestion: &decision.Suggestion}, e.Job.ID); err != nil {
 			return err
 		}
-		tx, err := createTransaction(ctx, target.ID, r.Date, r.Amount, decision.Choice, id, "posted", nil)
+		tx, err := createTransaction(ctx, target.ID, r.Date, r.Amount, decision.Enrichment, id, "posted", nil)
 		if err != nil {
 			return writeFailure(err, "transaction-write")
 		}
-		if err = e.put(ctx, operation, Write{Status: "complete", TransactionID: tx.ID, ImportID: id, Description: r.Description, Decision: decision.Source}, e.Job.ID); err != nil {
+		if err = e.put(ctx, operation, Write{Status: "complete", TransactionID: tx.ID, ImportID: id, Description: r.Description, Decision: decision.Source(), Suggestion: &decision.Suggestion}, e.Job.ID); err != nil {
 			return err
 		}
+		e.recordSuggestion(ctx, decision, tx, id)
 		if r.Amount > 0 {
 			if err = e.clearEchoes(ctx, target.ID, r, tx.ID); err != nil {
 				return err
@@ -150,25 +154,6 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error 
 	return nil
 }
 
-// choosePayee resolves a descriptor to a payee. Enrichment never blocks a valid
-// import: when evidence cannot be loaded or the model fails, the descriptor is
-// kept and the unapproved transaction is left for review in YNAB.
-func (e *Engine) choosePayee(ctx context.Context, payees **service.PayeeContext, descriptor string) service.PayeeDecision {
-	if *payees == nil {
-		pc, err := loadPayeeContext(ctx)
-		if err != nil {
-			slog.Warn("payee evidence unavailable", "job", e.Job.ID, "error", err)
-			return service.FallbackPayee(descriptor)
-		}
-		*payees = pc
-	}
-	decision, err := resolvePayee(ctx, descriptor, *payees)
-	if err != nil {
-		slog.Warn("payee choice failed", "job", e.Job.ID, "error", err)
-		return service.FallbackPayee(descriptor)
-	}
-	return decision
-}
 func (e *Engine) balances(ctx context.Context, s bank.Snapshot) error {
 	mapping, err := e.mapping(ctx, s)
 	if err != nil {
@@ -217,8 +202,6 @@ func (e *Engine) balances(ctx context.Context, s bank.Snapshot) error {
 // Seams for tests; production uses the service implementations.
 var (
 	extractAlert       = service.ExtractAlert
-	loadPayeeContext   = service.LoadPayeeContext
-	resolvePayee       = service.ResolvePayee
 	createTransaction  = service.CreateEQTransaction
 	createAmountOnly   = service.CreateAmountOnlyTransaction
 	accountTransaction = service.GetAccountTransactions
@@ -316,24 +299,27 @@ func (e *Engine) notificationImport(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	decision := service.PayeeDecision{Source: "rule"}
-	if rule == nil {
-		var payees *service.PayeeContext
-		decision = e.choosePayee(ctx, &payees, alert.Descriptor)
+	var decision Decision
+	if rule != nil {
+		decision = e.ruled(alert.Descriptor, amount, date, e.Job.AccountID, rule)
+	} else {
+		var cache *learning
+		decision = e.enrich(ctx, &cache, alert.Descriptor, amount, date, e.Job.AccountID)
 	}
-	slog.Info("notification preview", "job", e.Job.ID, "date", date, "amount", amount, "parser", alert.Source, "payeeSource", decision.Source, "existingPayee", decision.Choice.ID != "", "stale", stale, "dryRun", e.Job.DryRun)
+	slog.Info("notification preview", "job", e.Job.ID, "date", date, "amount", amount, "parser", alert.Source, "payeeSource", decision.Source(), "categorySource", decision.Suggestion.CategorySource, "existingPayee", decision.Enrichment.Payee.ID != "", "stale", stale, "dryRun", e.Job.DryRun)
 	importID := "ALERT:" + bank.Hash(e.Job.ID)[:30]
 	if e.Job.DryRun {
 		return 0, nil
 	}
-	intent := Write{Status: "started", AccountID: e.Job.AccountID, Amount: amount, Date: date, ImportID: importID, Description: alert.Descriptor, AlertDate: alert.Date, Stale: stale, Decision: decision.Source}
+	intent := Write{Status: "started", AccountID: e.Job.AccountID, Amount: amount, Date: date, ImportID: importID, Description: alert.Descriptor, AlertDate: alert.Date, Stale: stale, Decision: decision.Source(), Suggestion: &decision.Suggestion}
 	if err = e.put(ctx, key, intent, e.Job.ID); err != nil {
 		return 0, err
 	}
-	tx, err := createTransaction(ctx, e.Job.AccountID, date, amount, decision.Choice, importID, "pending", rule)
+	tx, err := createTransaction(ctx, e.Job.AccountID, date, amount, decision.Enrichment, importID, "pending", rule)
 	if err != nil {
 		return 0, writeFailure(err, "notification-import")
 	}
+	e.recordSuggestion(ctx, decision, tx, "")
 	return 0, e.completeNotification(ctx, key, intent, tx)
 }
 
@@ -378,7 +364,7 @@ func (e *Engine) findEchoCredit(ctx context.Context, alert service.Alert, receiv
 				break
 			}
 		}
-		if !service.SimilarDescriptors(descriptor, alert.Descriptor) {
+		if !learn.Similar(descriptor, alert.Descriptor) {
 			continue
 		}
 		var claim map[string]any
@@ -428,7 +414,7 @@ func (e *Engine) clearEchoes(ctx context.Context, account string, credit Record,
 		if json.Unmarshal(item, &w) != nil || w.Status != "complete" || !w.Stale || w.AccountID != account || w.Amount != -credit.Amount {
 			continue
 		}
-		if w.AlertDate > credit.Date || w.AlertDate < addDays(credit.Date, -5) || !service.SimilarDescriptors(w.Description, credit.Description) {
+		if w.AlertDate > credit.Date || w.AlertDate < addDays(credit.Date, -5) || !learn.Similar(w.Description, credit.Description) {
 			continue
 		}
 		matches = append(matches, match{w: w})

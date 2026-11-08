@@ -7,6 +7,14 @@ type PayeeChoice struct {
 	Name string `json:"name"`
 }
 
+// Enrichment is everything an import fills beyond the bank's own fields. An
+// empty CategoryID leaves YNAB to apply the payee's default category.
+type Enrichment struct {
+	Payee      PayeeChoice `json:"payee"`
+	CategoryID string      `json:"categoryId,omitempty"`
+	Memo       string      `json:"memo,omitempty"`
+}
+
 type EmailConfig struct {
 	Bank          string   `json:"bank"`
 	YNABAccountID string   `json:"ynabAccountId"`
@@ -78,6 +86,19 @@ type YNABTransaction struct {
 	FlagColor         *string `json:"flag_color,omitempty"`
 	// ImportPayeeName and ImportPayeeNameOriginal keep the bank descriptor YNAB
 	// received for an imported transaction, independent of the payee chosen.
-	ImportPayeeName         *string `json:"import_payee_name,omitempty"`
-	ImportPayeeNameOriginal *string `json:"import_payee_name_original,omitempty"`
+	ImportPayeeName         *string              `json:"import_payee_name,omitempty"`
+	ImportPayeeNameOriginal *string              `json:"import_payee_name_original,omitempty"`
+	MatchedTransactionID    *string              `json:"matched_transaction_id,omitempty"`
+	Subtransactions         []YNABSubtransaction `json:"subtransactions,omitempty"`
+}
+
+// YNABSubtransaction is one line of a split transaction.
+type YNABSubtransaction struct {
+	ID                string  `json:"id,omitempty"`
+	Amount            int64   `json:"amount"`
+	Memo              *string `json:"memo"`
+	PayeeID           *string `json:"payee_id"`
+	CategoryID        *string `json:"category_id"`
+	TransferAccountID *string `json:"transfer_account_id"`
+	Deleted           bool    `json:"deleted"`
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/config"
+	"github.com/nathanfredericks/transactions/internal/learn"
 	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/state"
 	"github.com/nathanfredericks/transactions/internal/types"
@@ -58,28 +59,49 @@ func testEngine(t *testing.T, bankName string, job Job) *Engine {
 
 // fakeYNAB stands in for every YNAB and model call the import paths make.
 type fakeYNAB struct {
-	rows    []*types.YNABTransaction
-	created []types.PayeeChoice
-	dates   []string
-	deleted []string
-	flagged []string
-	submits []Job
-	payee   func(string) (service.PayeeDecision, error)
+	rows     []*types.YNABTransaction
+	created  []types.PayeeChoice
+	enriched []types.Enrichment
+	dates    []string
+	deleted  []string
+	flagged  []string
+	submits  []Job
+	model    func(learn.ModelInput) (learn.ModelOutput, error)
+	mirror   *learn.Mirror
+}
+
+// testMirror holds one approved purchase from payee-1, so lookalike descriptors
+// offer it to the model as a candidate.
+func testMirror() *learn.Mirror {
+	m := learn.NewMirror()
+	m.ApplyPayees([]*learn.Payee{{ID: "payee-1", Name: "Chosen"}})
+	m.ApplyCategories([]*learn.Category{{ID: "cat-1", Name: "Eating Out", GroupName: "Frequent"}}, "2000-01-01")
+	desc, payee, cat := "SH VENDING MACHINES 22", "payee-1", "cat-1"
+	m.ApplyTransactions([]*types.YNABTransaction{{ID: "old-1", Date: "2026-01-01", Amount: -2000, Approved: true, PayeeID: &payee, CategoryID: &cat, ImportPayeeNameOriginal: &desc}})
+	return m
 }
 
 func stubYNAB(t *testing.T) *fakeYNAB {
 	t.Helper()
-	f := &fakeYNAB{payee: func(string) (service.PayeeDecision, error) {
-		return service.PayeeDecision{Choice: types.PayeeChoice{ID: "payee-1", Name: "Chosen"}, Source: "model"}, nil
+	f := &fakeYNAB{mirror: testMirror(), model: func(in learn.ModelInput) (learn.ModelOutput, error) {
+		for _, c := range in.Candidates {
+			if c.ID == "payee-1" {
+				return learn.ModelOutput{PayeeID: "payee-1", CategoryID: "cat-1"}, nil
+			}
+		}
+		return learn.ModelOutput{PayeeID: "none", NewPayeeName: "New Place", CategoryID: "cat-1"}, nil
 	}}
-	old := []any{extractAlert, loadPayeeContext, resolvePayee, createTransaction, accountTransaction, deleteTransaction, flagTransaction, findRules, submitJob}
+	old := []any{extractAlert, loadLearning, chooseWithModel, createTransaction, accountTransaction, deleteTransaction, flagTransaction, findRules, submitJob}
 	extractAlert = service.ExtractAlert
-	loadPayeeContext = func(context.Context) (*service.PayeeContext, error) { return &service.PayeeContext{}, nil }
-	resolvePayee = func(_ context.Context, descriptor string, _ *service.PayeeContext) (service.PayeeDecision, error) {
-		return f.payee(descriptor)
+	loadLearning = func(context.Context, *Engine) (*learning, error) { return buildLearning(f.mirror, nil), nil }
+	chooseWithModel = func(_ context.Context, in learn.ModelInput) (learn.ModelOutput, string, error) {
+		out, err := f.model(in)
+		return out, "test-model", err
 	}
-	createTransaction = func(_ context.Context, account, date string, amount int64, payee types.PayeeChoice, _, status string, _ *types.TransactionOverride) (*types.YNABTransaction, error) {
+	createTransaction = func(_ context.Context, account, date string, amount int64, enrichment types.Enrichment, _, status string, _ *types.TransactionOverride) (*types.YNABTransaction, error) {
+		payee := enrichment.Payee
 		f.created = append(f.created, payee)
+		f.enriched = append(f.enriched, enrichment)
 		f.dates = append(f.dates, date)
 		tx := &types.YNABTransaction{ID: uuid.NewString(), AccountID: account, Date: date, Amount: amount, Cleared: "uncleared", AccountName: "Card"}
 		if payee.ID != "" {
@@ -96,9 +118,9 @@ func stubYNAB(t *testing.T) *fakeYNAB {
 	submitJob = func(_ context.Context, _ *Engine, j Job) error { f.submits = append(f.submits, j); return nil }
 	t.Cleanup(func() {
 		extractAlert = old[0].(func(context.Context, string) (service.Alert, error))
-		loadPayeeContext = old[1].(func(context.Context) (*service.PayeeContext, error))
-		resolvePayee = old[2].(func(context.Context, string, *service.PayeeContext) (service.PayeeDecision, error))
-		createTransaction = old[3].(func(context.Context, string, string, int64, types.PayeeChoice, string, string, *types.TransactionOverride) (*types.YNABTransaction, error))
+		loadLearning = old[1].(func(context.Context, *Engine) (*learning, error))
+		chooseWithModel = old[2].(func(context.Context, learn.ModelInput) (learn.ModelOutput, string, error))
+		createTransaction = old[3].(func(context.Context, string, string, int64, types.Enrichment, string, string, *types.TransactionOverride) (*types.YNABTransaction, error))
 		accountTransaction = old[4].(func(context.Context, string) ([]*types.YNABTransaction, error))
 		deleteTransaction = old[5].(func(context.Context, string) error)
 		flagTransaction = old[6].(func(context.Context, string, string) error)
@@ -143,6 +165,14 @@ func TestNotificationWritesChosenPayeeOnStatedDate(t *testing.T) {
 	var w Write
 	if _, err := e.get(context.Background(), "WRITE#notification#job-1", &w); err != nil || w.Status != "complete" || !w.Stale || w.PayeeID != "payee-1" || w.Description != "SH Vending" {
 		t.Fatalf("write = %+v %v", w, err)
+	}
+	// A payee with history takes its category from history, not the model.
+	if f.enriched[0].CategoryID != "cat-1" || w.Suggestion == nil || w.Suggestion.PayeeSource != "model" || w.Suggestion.CategorySource != "history" || w.Suggestion.Model != "test-model" {
+		t.Fatalf("enrichment %+v suggestion %+v", f.enriched[0], w.Suggestion)
+	}
+	var rec learn.Suggestion
+	if found, err := e.Store.Get(context.Background(), learningPK, "TX#"+f.rows[0].ID, &rec); err != nil || !found || rec.Descriptor != "SH Vending" || rec.TransactionID != f.rows[0].ID {
+		t.Fatalf("suggestion record %+v %v %v", rec, found, err)
 	}
 	var n Notification
 	if found, _ := e.get(context.Background(), "NOTICE#purchase#job-1", &n); !found {
@@ -193,8 +223,8 @@ func TestLateAlertRepeatingAPostedCreditIsSkipped(t *testing.T) {
 
 func TestNotificationKeepsDescriptorWhenPayeeChoiceFails(t *testing.T) {
 	f := stubYNAB(t)
-	f.payee = func(string) (service.PayeeDecision, error) {
-		return service.PayeeDecision{}, errors.New("model unavailable")
+	f.model = func(learn.ModelInput) (learn.ModelOutput, error) {
+		return learn.ModelOutput{}, errors.New("model unavailable")
 	}
 	e := testEngine(t, "rogers-bank", rogersJob("job-6", "$9.99 on Nov 04, 2026 on your credit card ending in 0000. Details: NEW PLACE 12."+footer, "2026-11-04T15:00:00Z"))
 	if _, err := e.notificationImport(context.Background()); err != nil {
@@ -202,6 +232,32 @@ func TestNotificationKeepsDescriptorWhenPayeeChoiceFails(t *testing.T) {
 	}
 	if len(f.created) != 1 || f.created[0] != (types.PayeeChoice{Name: "NEW PLACE 12"}) {
 		t.Fatalf("created %v", f.created)
+	}
+}
+
+func TestNewMerchantTakesTheModelsNameAndCategory(t *testing.T) {
+	f := stubYNAB(t)
+	e := testEngine(t, "rogers-bank", rogersJob("job-8", "$12.00 on Nov 04, 2026 on your credit card ending in 0000. Details: QQQ ZZZ KIOSK."+footer, "2026-11-04T15:00:00Z"))
+	if _, err := e.notificationImport(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.enriched) != 1 || f.enriched[0] != (types.Enrichment{Payee: types.PayeeChoice{Name: "New Place"}, CategoryID: "cat-1"}) {
+		t.Fatalf("enriched %+v", f.enriched)
+	}
+}
+
+func TestRememberedDescriptorSkipsTheModel(t *testing.T) {
+	f := stubYNAB(t)
+	f.model = func(learn.ModelInput) (learn.ModelOutput, error) {
+		t.Fatal("the model must not be asked when history decides")
+		return learn.ModelOutput{}, nil
+	}
+	e := testEngine(t, "rogers-bank", rogersJob("job-9", "$2.00 on Nov 04, 2026 on your credit card ending in 0000. Details: SH VENDING MACHINES 31."+footer, "2026-11-04T15:00:00Z"))
+	if _, err := e.notificationImport(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.enriched) != 1 || f.enriched[0].Payee.ID != "payee-1" || f.enriched[0].CategoryID != "cat-1" {
+		t.Fatalf("enriched %+v", f.enriched)
 	}
 }
 

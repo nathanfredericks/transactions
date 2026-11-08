@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"math/rand"
 	"strings"
 	"testing"
 
@@ -86,156 +84,21 @@ func TestExtractAlertParsesKnownLayoutsWithoutModel(t *testing.T) {
 	}
 }
 
-func TestNormalizeDescriptor(t *testing.T) {
-	for in, want := range map[string]string{
-		"MCDONALD'S #4389":     "MCDONALDS",
-		"McDonalds 4389":       "MCDONALDS",
-		"WAL-MART # 3738":      "WAL MART",
-		"  amzn   Mktp CA ":    "AMZN MKTP CA",
-		"GRAMMARLY CO*Q2PXCDW": "GRAMMARLY CO",
-	} {
-		if got := NormalizeDescriptor(in); got != want {
-			t.Errorf("NormalizeDescriptor(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func str(s string) *string { return &s }
 
-func history(examples ...[2]string) []*types.YNABTransaction {
-	var out []*types.YNABTransaction
-	for i, e := range examples {
-		out = append(out, &types.YNABTransaction{ID: fmt.Sprint(i), Approved: true, Date: "2026-10-01", PayeeID: str(e[1]), ImportPayeeName: str(e[0])})
-	}
-	return out
-}
-
-func TestResolvePayeeUsesAgreedMemoryWithoutModel(t *testing.T) {
-	stubModel(t, func(string, string, map[string]any) (string, error) {
-		t.Fatal("model called despite agreed memory")
-		return "", nil
-	})
-	pc := buildPayeeContext([]*ynabPayee{{ID: "p1", Name: "Clean Name"}}, history([2]string{"RAW DESC #12", "p1"}, [2]string{"RAW DESC #99", "p1"}))
-	d, err := ResolvePayee(context.Background(), "raw desc #55", pc)
-	if err != nil || d.Choice != (types.PayeeChoice{ID: "p1", Name: "Clean Name"}) || d.Source != "memory" {
-		t.Fatal(d, err)
-	}
-}
-
-// A payee that only repeats the raw descriptor must not win by text match: the
-// model sees both candidates and chooses by ID.
-func TestResolvePayeeDoesNotPreferRawDescriptorPayee(t *testing.T) {
-	payees := []*ynabPayee{{ID: "raw", Name: "SHOP CONVENIENCE ST"}, {ID: "clean", Name: "Shop's"}}
-	pc := buildPayeeContext(payees, history([2]string{"SHOP CONVENIENCE ST", "raw"}, [2]string{"SHOPS STORE 2", "clean"}, [2]string{"SHOPS STORE 3", "clean"}))
-	var offered []string
-	stubModel(t, func(instructions, input string, schema map[string]any) (string, error) {
-		offered = schema["properties"].(map[string]any)["payee_id"].(map[string]any)["enum"].([]string)
-		if input != "SHOP CONVENIENCE ST" || !strings.Contains(instructions, "clean | Shop's") {
-			t.Errorf("model input %q, instructions %s", input, instructions)
-		}
-		return `{"payee_id":"clean","new_payee_name":""}`, nil
-	})
-	d, err := ResolvePayee(context.Background(), "SHOP CONVENIENCE ST", pc)
-	if err != nil || d.Choice.ID != "clean" || d.Source != "model" {
-		t.Fatal(d, err)
-	}
-	if fmt.Sprint(offered) != "[none raw clean]" && fmt.Sprint(offered) != "[none clean raw]" {
-		t.Errorf("candidates offered: %v", offered)
-	}
-}
-
-func TestResolvePayeeRejectsChoicesOutsideCandidates(t *testing.T) {
-	pc := buildPayeeContext([]*ynabPayee{{ID: "p1", Name: "Alpha Store"}}, nil)
-	for _, tc := range []struct {
-		reply  string
-		ok     bool
-		choice types.PayeeChoice
-	}{
-		{`{"payee_id":"p1","new_payee_name":""}`, true, types.PayeeChoice{ID: "p1", Name: "Alpha Store"}},
-		{`{"payee_id":"none","new_payee_name":"  Beta   Cafe "}`, true, types.PayeeChoice{Name: "Beta Cafe"}},
-		{`{"payee_id":"invented","new_payee_name":""}`, false, types.PayeeChoice{}},
-		{`{"payee_id":"none","new_payee_name":""}`, false, types.PayeeChoice{}},
-	} {
-		stubModel(t, func(string, string, map[string]any) (string, error) {
-			// Simulate a provider that ignores the enum constraint.
-			var v map[string]any
-			_ = json.Unmarshal([]byte(tc.reply), &v)
-			return tc.reply, nil
-		})
-		d, err := ResolvePayee(context.Background(), "ALPHA STORE 12", pc)
-		if (err == nil) != tc.ok || d.Choice != tc.choice {
-			t.Errorf("reply %s: %+v, %v", tc.reply, d, err)
-		}
-	}
-}
-
-// Renaming every payee and descriptor consistently must not change any
-// memory or retrieval decision: nothing may depend on particular names.
-func TestPayeeEvidenceIsNameIndependent(t *testing.T) {
-	payees := []*ynabPayee{{ID: "a", Name: "Corner Grocer"}, {ID: "b", Name: "Fuel Stop"}, {ID: "c", Name: "Book Nook"}}
-	examples := [][2]string{{"CORNER GROCER #12", "a"}, {"CORNER GROCER #19", "a"}, {"FUEL STOP 551", "b"}, {"BOOK NOOK ONLINE", "c"}}
-	queries := []string{"CORNER GROCER #44", "FUEL STOP 902", "BOOK NOOK STORE", "UNSEEN PLACE"}
-
-	rng := rand.New(rand.NewSource(1))
-	words := map[string]string{}
-	rename := func(s string) string {
-		var out []string
-		for _, w := range strings.Fields(s) {
-			if NormalizeDescriptor(w) == "" {
-				out = append(out, w)
-				continue
-			}
-			key := strings.ToUpper(w)
-			if words[key] == "" {
-				b := make([]byte, len(key))
-				for i := range b {
-					b[i] = byte('A' + rng.Intn(26))
-				}
-				words[key] = string(b)
-			}
-			out = append(out, words[key])
-		}
-		return strings.Join(out, " ")
-	}
-	run := func(names func(string) string) []string {
-		var ps []*ynabPayee
-		for _, p := range payees {
-			ps = append(ps, &ynabPayee{ID: p.ID, Name: names(p.Name)})
-		}
-		var ex [][2]string
-		for _, e := range examples {
-			ex = append(ex, [2]string{names(e[0]), e[1]})
-		}
-		pc := buildPayeeContext(ps, history(ex...))
-		byID := map[string]Payee{}
-		for _, p := range pc.Payees {
-			byID[p.ID] = p
-		}
-		var out []string
-		for _, q := range queries {
-			p, ok := rememberedPayee(names(q), pc, byID)
-			top := ""
-			if c := retrieveCandidates(names(q), pc, 1); len(c) > 0 {
-				top = c[0].payee.ID
-			}
-			out = append(out, fmt.Sprint(ok, p.ID, top))
-		}
-		return out
-	}
-	original, renamed := run(func(s string) string { return s }), run(rename)
-	if fmt.Sprint(original) != fmt.Sprint(renamed) {
-		t.Fatalf("decisions changed under renaming:\n%v\n%v", original, renamed)
-	}
-}
-
 func TestPayloadWritesExistingPayeeByID(t *testing.T) {
-	p, err := eqTransactionPayload("account", "2026-11-01", -1000, types.PayeeChoice{ID: "p1", Name: "Alpha"}, "", "pending", nil)
-	if err != nil || p.PayeeID == nil || *p.PayeeID != "p1" || p.PayeeName != nil {
+	p, err := eqTransactionPayload("account", "2026-11-01", -1000, types.Enrichment{Payee: types.PayeeChoice{ID: "p1", Name: "Alpha"}, CategoryID: "c1", Memo: "Plan"}, "", "pending", nil)
+	if err != nil || p.PayeeID == nil || *p.PayeeID != "p1" || p.PayeeName != nil || p.CategoryID == nil || *p.CategoryID != "c1" || p.Memo == nil || *p.Memo != "Plan" {
 		t.Fatalf("%+v %v", p, err)
 	}
-	p, _ = eqTransactionPayload("account", "2026-11-01", -1000, types.PayeeChoice{Name: "New Place"}, "", "pending", nil)
-	if p.PayeeID != nil || p.PayeeName == nil || *p.PayeeName != "New Place" {
-		t.Fatalf("%+v", p)
+	p, _ = eqTransactionPayload("account", "2026-11-01", -1000, types.Enrichment{Payee: types.PayeeChoice{Name: "New Place"}}, "", "pending", nil)
+	if p.PayeeID != nil || p.PayeeName == nil || *p.PayeeName != "New Place" || p.CategoryID != nil || p.Memo != nil {
+		t.Fatalf("an empty category and memo are left for YNAB: %+v", p)
+	}
+	// A rule still overrides every learned field.
+	p, _ = eqTransactionPayload("account", "2026-11-01", -1000, types.Enrichment{Payee: types.PayeeChoice{ID: "p1"}, CategoryID: "c1", Memo: "Plan"}, "", "pending", &types.TransactionOverride{Payee: "p2", Category: "c2"})
+	if *p.PayeeID != "p2" || *p.CategoryID != "c2" || p.Memo != nil {
+		t.Fatalf("rule: %+v", p)
 	}
 }
 
@@ -250,14 +113,5 @@ func TestAmountOnlyPayloadHasNoIdentityOrEnrichment(t *testing.T) {
 	}
 	if got["approved"] != false || got["cleared"] != "uncleared" || got["amount"] != float64(-12340) {
 		t.Errorf("unexpected payload %s", b)
-	}
-}
-
-func TestSimilarDescriptors(t *testing.T) {
-	if !SimilarDescriptors("AMZN Mktp CA", "AMZN MKTP CA") || !SimilarDescriptors("STORE #12", "STORE #99") {
-		t.Error("same merchant not similar")
-	}
-	if SimilarDescriptors("ALPHA STORE", "OMEGA CAFE") || SimilarDescriptors("", "X") {
-		t.Error("different merchants similar")
 	}
 }
