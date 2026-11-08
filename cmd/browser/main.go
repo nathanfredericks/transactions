@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	"github.com/aws/smithy-go"
 	"github.com/go-rod/rod"
@@ -80,18 +79,11 @@ func run(ctx context.Context) error {
 }
 func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, l state.Lease) (session bank.Session, err error) {
 	settings := app.Settings.Banks[r.ID]
-	cfg, err := config.GetAWSConfig(ctx)
-	if err != nil {
-		return session, err
-	}
-	secret, err := secretsmanager.NewFromConfig(cfg).GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: &settings.SecretARN})
+	stored, err := config.BankCredentials(ctx, r.ID)
 	if err != nil {
 		return session, bank.Fail(bank.Invalid, "credentials-config")
 	}
-	var credentials bank.CredentialsData
-	if secret.SecretString == nil || json.Unmarshal([]byte(*secret.SecretString), &credentials) != nil || credentials.Username == "" || credentials.Password == "" || credentials.MailToken == "" {
-		return session, bank.Fail(bank.Invalid, "credentials-config")
-	}
+	credentials := bank.CredentialsData{Username: stored.Username, Password: stored.Password, MailToken: stored.MailToken}
 	var previous *bank.Session
 	var pointer engine.SessionPointer
 	if found, e := app.Store.Get(ctx, "BANK#"+r.ID, "SESSION", &pointer); e != nil {

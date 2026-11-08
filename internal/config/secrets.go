@@ -57,3 +57,18 @@ func parseSecretPayload(secretString *string, secretBinary []byte) ([]byte, erro
 	}
 	return nil, fmt.Errorf("secret has no usable payload")
 }
+
+// BankCredentials returns one bank's login from the Transactions secret.
+// A missing bank or any empty field is an error, so callers can keep
+// treating it as a configuration failure.
+func BankCredentials(ctx context.Context, bankID string) (types.BankCredentials, error) {
+	s, err := GetSecrets(ctx)
+	if err != nil {
+		return types.BankCredentials{}, err
+	}
+	c, ok := s.Banks[bankID]
+	if !ok || c.Username == "" || c.Password == "" || c.MailToken == "" {
+		return types.BankCredentials{}, fmt.Errorf("bank %q credentials incomplete", bankID)
+	}
+	return c, nil
+}

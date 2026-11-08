@@ -21,12 +21,25 @@ type WebhookConfig struct {
 	Last4         []string `json:"last4"`
 }
 
+// Secrets is the JSON stored in the single Transactions secret. The Lambdas
+// use the first five keys; the browser task uses the browser and bank keys.
 type Secrets struct {
-	WebhookToken    string `json:"WEBHOOK_TOKEN"`
-	YNABAccessToken string `json:"YNAB_ACCESS_TOKEN"`
-	OpenAIAPIKey    string `json:"OPENAI_API_KEY"`
-	PushoverToken   string `json:"PUSHOVER_TOKEN"`
-	PushoverUser    string `json:"PUSHOVER_USER"`
+	WebhookToken           string                     `json:"WEBHOOK_TOKEN"`
+	YNABAccessToken        string                     `json:"YNAB_ACCESS_TOKEN"`
+	OpenAIAPIKey           string                     `json:"OPENAI_API_KEY"`
+	PushoverToken          string                     `json:"PUSHOVER_TOKEN"`
+	PushoverUser           string                     `json:"PUSHOVER_USER"`
+	CloakBrowserLicenseKey string                     `json:"CLOAKBROWSER_LICENSE_KEY"`
+	BrowserBrokerToken     string                     `json:"BROWSER_BROKER_TOKEN"`
+	Banks                  map[string]BankCredentials `json:"BANKS"`
+}
+
+// BankCredentials matches bank.CredentialsData's JSON so one bank's entry
+// keeps the shape its former per-bank secret had.
+type BankCredentials struct {
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+	MailToken string `json:"mailToken"`
 }
 
 type Parameters struct {

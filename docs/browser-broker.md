@@ -13,9 +13,9 @@ initialization remain with that launcher. No Docker socket is mounted.
 The control API is HTTPS at https://browser-broker.fredericks.app through the
 separate Cloudflare tunnel. Tunnel ingress reaches only port 8080. All control
 routes require `Authorization: Bearer ...`, are rate limited, and return no
-browser URLs, cookies, license keys or credentials. The bearer lives in Secrets
-Manager `transactions-engine/browser-broker` and the protected server file
-`/srv/compose/secrets/hermes-browser-broker.env`.
+browser URLs, cookies, license keys or credentials. The bearer lives in the
+`BROWSER_BROKER_TOKEN` key of the Secrets Manager secret `Transactions` and the
+protected server file `/srv/compose/secrets/hermes-browser-broker.env`.
 
 ## Lifecycle
 
@@ -65,7 +65,7 @@ Production uses the immutable broker image built from committed Transactions
 source; the infrastructure repository pins its digest. Deploy the supervisor
 and verify real lifecycle behavior before enabling `BROWSER_BROKER_URL` and
 secret injection in bank tasks. Local `scripts/verify-bank.py` loads the bearer
-privately from Secrets Manager.
+privately from the `Transactions` secret.
 
 Use authenticated status and the application job's capacity metadata to inspect
 contention. Do not print environment files or raw Docker configuration. To roll

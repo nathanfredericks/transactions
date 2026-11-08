@@ -12,7 +12,8 @@ import (
 )
 
 type BankSettings struct {
-	SecretARN        string   `json:"secretArn"`
+	// SecretARN is ignored: bank logins now live in the Transactions secret.
+	SecretARN        string   `json:"secretArn,omitempty"`
 	ExpectedAccounts []string `json:"expectedAccounts"`
 	ExcludedAccounts []string `json:"excludedAccounts"`
 	StartDate        string   `json:"startDate"`
@@ -73,7 +74,7 @@ func Load(ctx context.Context) (*Settings, error) {
 		if !b.Enabled {
 			continue
 		}
-		if b.SecretARN == "" || len(b.ExpectedAccounts) == 0 {
+		if len(b.ExpectedAccounts) == 0 {
 			return nil, fmt.Errorf("bank configuration incomplete")
 		}
 		seen := map[string]bool{}

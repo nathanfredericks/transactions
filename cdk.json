@@ -3,7 +3,6 @@
   "context": {
     "activate": "true",
     "repository": "https://github.com/nathanfredericks/transactions",
-    "githubTokenSecretArn": "transactions-engine/github",
     "adminBranch": "main",
     "adminDomain": "fredericks.app",
     "adminSubdomain": "transactions-admin",
@@ -11,6 +10,7 @@
     "adminBaseUrl": "https://transactions-admin.fredericks.app",
     "adminAuth0Domain": "auth.fredericks.app",
     "adminAllowedEmails": "nathan@fredericks.dev",
-    "browserBrokerSecretArn": "arn:aws:secretsmanager:ca-central-1:187489282488:secret:transactions-engine/browser-broker-TSNozW"
+    "secretArn": "arn:aws:secretsmanager:ca-central-1:187489282488:secret:Transactions-1WJlTp",
+    "adminAuth0ClientId": "bWjZGouH6e1NZ1HGFa6abxuEShBjx1pA"
   }
 }

@@ -35,9 +35,102 @@ def upload(path, prefix):
     return key
 
 
+# Old per-purpose secrets folded into the single Transactions secret, and the
+# deployment-only admin secrets now kept in 1Password item Transactions.
+RETIRED_SECRETS = ['ApplicationSecret', 'Credentialseqbank', 'Credentialsnbdb', 'Credentialsrogersbank',
+                   'CloakBrowserLicense', 'RepositoryConnection', 'AdminAuth0', 'AdminPassword']
+# NoEcho parameter -> (1Password field in item Transactions, old secret id, JSON key in old secret)
+ADMIN_PARAMETERS = {
+    'GitHubToken': ('github_token', 'transactions-engine/github', 'token'),
+    'Auth0ClientSecret': ('auth0_client_secret', 'transactions-engine/admin-auth0', 'clientSecret'),
+    'Auth0SessionSecret': ('auth0_session_secret', 'transactions-engine/admin-auth0', 'sessionSecret'),
+}
+BROWSER_SECRETS = ['CLOAKBROWSER_LICENSE_KEY', 'BROWSER_BROKER_TOKEN']
+
+
+def admin_parameter_values(source, vault):
+    values = {}
+    for name, (field, secret_id, key) in ADMIN_PARAMETERS.items():
+        if source == 'old-secrets':
+            value = json.loads(aws('secretsmanager', 'get-secret-value', '--secret-id', secret_id)['SecretString'])[key]
+        else:
+            value = subprocess.run(['op', 'read', f'op://{vault}/Transactions/{field}'],
+                                   capture_output=True, text=True, check=True).stdout.strip()
+        if not value:
+            raise SystemExit(f'{name} is empty')
+        values[name] = value
+    return values
+
+
+def migrate_secrets(template, secret_arn, auth0_client_id):
+    """Point the deployed template at the Transactions secret and drop the old ones.
+
+    Every removed secret is Retain/RetainExceptOnCreate, so CloudFormation leaves
+    it in place; it is deleted separately after verification.
+    """
+    resources = template['Resources']
+    missing = [name for name in RETIRED_SECRETS if name not in resources]
+    if missing:
+        raise SystemExit(f'Expected secrets are not in the deployed template: {missing}')
+    for name in RETIRED_SECRETS:
+        if resources[name].get('DeletionPolicy') not in ('Retain', 'RetainExceptOnCreate'):
+            raise SystemExit(f'{name} is not retained; refusing to remove it')
+        resources.pop(name)
+    for name in ['gateway', 'processor']:
+        resources[name]['Properties']['Environment']['Variables']['AWS_SECRET_ARN'] = secret_arn
+
+    def secret_statements(role):
+        return resources[role]['Properties']['Policies'][0]['PolicyDocument']['Statement']
+
+    def point_secret_statements(role):
+        statements = secret_statements(role)
+        kept = [s for s in statements if s.get('Action') not in ('secretsmanager:GetSecretValue', ['secretsmanager:GetSecretValue'])]
+        if len(statements) - len(kept) < 1:
+            raise SystemExit(f'{role} has no secret statement to replace')
+        kept.append({'Sid': 'TransactionsSecret', 'Effect': 'Allow', 'Action': 'secretsmanager:GetSecretValue', 'Resource': secret_arn})
+        resources[role]['Properties']['Policies'][0]['PolicyDocument']['Statement'] = kept
+
+    for role in ['ProcessorRole', 'GatewayRole', 'BrowserRole', 'TaskExecutionRole']:
+        point_secret_statements(role)
+    container = resources['BrowserTask']['Properties']['ContainerDefinitions'][0]
+    container['Secrets'] = [{'Name': n, 'ValueFrom': f'{secret_arn}:{n}::'} for n in BROWSER_SECRETS]
+    environment = [e for e in container['Environment'] if e['Name'] != 'AWS_SECRET_ARN']
+    container['Environment'] = environment + [{'Name': 'AWS_SECRET_ARN', 'Value': secret_arn}]
+
+    admin = resources['Admin']['Properties']
+    if admin['BasicAuthConfig'].get('EnableBasicAuth') is not False:
+        raise SystemExit('Admin basic authentication is still enabled; finish the Auth0 cutover first')
+    admin['BasicAuthConfig'] = {'EnableBasicAuth': False}
+    admin['AccessToken'] = {'Ref': 'GitHubToken'}
+    replacements = {'AUTH0_CLIENT_ID': auth0_client_id,
+                    'AUTH0_CLIENT_SECRET': {'Ref': 'Auth0ClientSecret'},
+                    'AUTH0_SECRET': {'Ref': 'Auth0SessionSecret'}}
+    for variable in admin['EnvironmentVariables']:
+        if variable['Name'] in replacements:
+            variable['Value'] = replacements.pop(variable['Name'])
+    if replacements:
+        raise SystemExit(f'Admin is missing environment variables {sorted(replacements)}')
+
+    outputs = template.setdefault('Outputs', {})
+    outputs.pop('OutputApplicationSecret', None)
+    outputs['OutputSecret'] = {'Value': secret_arn}
+    parameters = template.setdefault('Parameters', {})
+    for name in ADMIN_PARAMETERS:
+        parameters[name] = {'Type': 'String', 'NoEcho': True, 'MinLength': 1}
+    leftover = [n for n in RETIRED_SECRETS if n in json.dumps(template)] + (['resolve:secretsmanager'] if 'resolve:secretsmanager' in json.dumps(template) else [])
+    if leftover:
+        raise SystemExit(f'References remain after migration: {leftover}')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('phase', choices=['release', 'cutover'])
+    parser.add_argument('phase', choices=['release', 'cutover', 'secrets'])
+    parser.add_argument('--admin-values-from', choices=['1password', 'old-secrets'], default='1password',
+                        help='secrets phase only: where to read the GitHub token and Auth0 secrets')
+    parser.add_argument('--vault', default=os.environ.get('OP_VAULT', 'Personal'))
+    parser.add_argument('--refresh-admin', action='store_true',
+                        help='release only: read the admin parameters from 1Password instead of keeping the stack values (rotation)')
+    parser.add_argument('--prepare-only', action='store_true', help='create and print the change set without executing it')
     args = parser.parse_args()
     if run('git', 'branch', '--show-current') != 'main':
         raise SystemExit('Deployment requires the main branch')
@@ -62,7 +155,7 @@ def main():
     output = ROOT / 'dist' / 'main-release'
     output.mkdir(parents=True, exist_ok=True)
 
-    if args.phase == 'release':
+    if args.phase in ('release', 'secrets'):
         bootstrap = output / 'bootstrap'
         subprocess.run(['go', 'build', '-trimpath', '-ldflags=-s -w', '-o', str(bootstrap), './cmd/lambda'],
                        cwd=ROOT, env={**os.environ, 'GOOS': 'linux', 'GOARCH': 'arm64', 'CGO_ENABLED': '0'}, check=True)
@@ -103,12 +196,14 @@ def main():
         processor_statements = resources['ProcessorRole']['Properties']['Policies'][0]['PolicyDocument']['Statement']
         if not any(s.get('Sid') == 'CapacityNotificationWorkflow' for s in processor_statements):
             processor_statements.append({'Sid':'CapacityNotificationWorkflow','Effect':'Allow','Action':'states:StartExecution','Resource':f'arn:aws:states:{REGION}:{ACCOUNT}:stateMachine:transactions-engine'})
-        broker_secret = aws('secretsmanager', 'describe-secret', '--secret-id', 'transactions-engine/browser-broker')['ARN']
-        container['Secrets'] = [v for v in container.get('Secrets', []) if v['Name'] != 'BROWSER_BROKER_TOKEN']
-        container['Secrets'].append({'Name': 'BROWSER_BROKER_TOKEN', 'ValueFrom': broker_secret})
-        statements = resources['TaskExecutionRole']['Properties']['Policies'][0]['PolicyDocument']['Statement']
-        if not any(s.get('Sid') == 'BrowserBrokerSecret' for s in statements):
-            statements.append({'Sid':'BrowserBrokerSecret','Effect':'Allow','Action':'secretsmanager:GetSecretValue','Resource':broker_secret})
+        # The secrets phase is a release that also moves the stack onto the single
+        # Transactions secret; the new browser image needs both at once.
+        if args.phase == 'secrets':
+            secret_arn = aws('secretsmanager', 'describe-secret', '--secret-id', 'Transactions')['ARN']
+            client_id = json.loads((ROOT / 'cdk.json').read_text())['context']['adminAuth0ClientId']
+            migrate_secrets(template, secret_arn, client_id)
+        elif 'ApplicationSecret' in resources:
+            raise SystemExit('Run the secrets phase before further releases')
 
         # Stage the main branch while the old branch continues serving the domain.
         if 'AdminBranchMain' not in resources:
@@ -131,7 +226,10 @@ def main():
 
     changed = sorted(name for name in original['Resources'].keys() | resources.keys()
                      if original['Resources'].get(name) != resources.get(name))
-    allowed = {'gateway', 'processor', 'BrowserTask', 'AdminBranchMain', 'OperatorEmail', 'TaskExecutionRole', 'ProcessorRole'} if args.phase == 'release' else {'AdminDomain', 'AdminBranch'}
+    release_allowed = {'gateway', 'processor', 'BrowserTask', 'AdminBranchMain', 'OperatorEmail', 'TaskExecutionRole', 'ProcessorRole'}
+    allowed = {'release': release_allowed,
+               'secrets': release_allowed | {'GatewayRole', 'BrowserRole', 'Admin', *RETIRED_SECRETS},
+               'cutover': {'AdminDomain', 'AdminBranch'}}[args.phase]
     if not set(changed) <= allowed:
         raise SystemExit(f'Unexpected resource changes: {changed}')
     path = output / f'{args.phase}-template.json'
@@ -139,12 +237,30 @@ def main():
     template_key = upload(path, prefix)
     url = f'https://{BUCKET}.s3.{REGION}.amazonaws.com/{template_key}'
     metadata = {'revision': revision, 'branch': 'main', 'phase': args.phase, 'changedResources': changed, 'templateUrl': url}
-    if args.phase == 'release':
+    if args.phase in ('release', 'secrets'):
         metadata.update(lambdaCodeHash=base64.b64encode(hashlib.sha256(archive.read_bytes()).digest()).decode(), imageDigest=digest)
     (output / f'{args.phase}.json').write_text(json.dumps(metadata, indent=2))
     name = f'main-{args.phase}-{revision[:12]}'
-    aws('cloudformation', 'create-change-set', '--stack-name', STACK, '--change-set-name', name,
-        '--change-set-type', 'UPDATE', '--template-url', url, '--capabilities', 'CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM')
+    # NoEcho admin parameters: new values only in the secrets phase, otherwise
+    # the values already on the stack. They travel in a private file, never argv.
+    stack_parameters = {p['ParameterKey'] for p in aws('cloudformation', 'describe-stacks', '--stack-name', STACK)['Stacks'][0].get('Parameters', [])}
+    new_values = admin_parameter_values(args.admin_values_from, args.vault) if args.phase == 'secrets' or args.refresh_admin else {}
+    parameters = []
+    for key, spec in template.get('Parameters', {}).items():
+        if key in new_values:
+            parameters.append({'ParameterKey': key, 'ParameterValue': new_values[key]})
+        elif key in stack_parameters:
+            parameters.append({'ParameterKey': key, 'UsePreviousValue': True})
+        elif 'Default' not in spec:
+            raise SystemExit(f'No value for parameter {key}')
+    request = {'StackName': STACK, 'ChangeSetName': name, 'ChangeSetType': 'UPDATE', 'TemplateURL': url,
+               'Capabilities': ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM'], 'Parameters': parameters}
+    with tempfile.TemporaryDirectory(prefix='transactions-change-set-') as directory:
+        request_path = Path(directory) / 'change-set.json'
+        fd = os.open(request_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            json.dump(request, f)
+        aws('cloudformation', 'create-change-set', '--cli-input-json', f'file://{request_path}')
     subprocess.run(['aws', '--region', REGION, 'cloudformation', 'wait', 'change-set-create-complete',
                     '--stack-name', STACK, '--change-set-name', name], check=True)
     changes = aws('cloudformation', 'describe-change-set', '--stack-name', STACK, '--change-set-name', name)
@@ -152,6 +268,12 @@ def main():
     # CloudFormation also lists indirect references to modified resources.
     if any(c['ResourceChange'].get('Replacement') == 'True' and c['ResourceChange']['LogicalResourceId'] not in {'BrowserTask'} for c in changes['Changes']):
         raise SystemExit('Unexpected resource replacement; inspect the prepared change set')
+    for change in changes['Changes']:
+        c = change['ResourceChange']
+        print(c['Action'], c['LogicalResourceId'], c['ResourceType'], 'replacement=' + c.get('Replacement', '-'), flush=True)
+    if args.prepare_only:
+        print(f'Prepared {name}; execute it after review.', flush=True)
+        return
     aws('cloudformation', 'execute-change-set', '--stack-name', STACK, '--change-set-name', name)
     print('Deployment started; verify UPDATE_COMPLETE and the main package hashes.', flush=True)
 

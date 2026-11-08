@@ -46,8 +46,8 @@ if credentials.get('SessionToken'):
     values['AWS_SESSION_TOKEN'] = credentials['SessionToken']
 if args.bank in ['nbdb', 'rogers-bank']:
     values['BROWSER_BROKER_URL'] = 'https://browser-broker.fredericks.app'
-    values['BROWSER_BROKER_TOKEN'] = aws('secretsmanager', 'get-secret-value',
-        '--secret-id', 'transactions-engine/browser-broker')['SecretString']
+    values['BROWSER_BROKER_TOKEN'] = json.loads(aws('secretsmanager', 'get-secret-value',
+        '--secret-id', 'Transactions')['SecretString'])['BROWSER_BROKER_TOKEN']
 if args.bank == 'nbdb':
 	# Explicit diagnostic override; the image selects its production platform.
     if os.environ.get('NBDB_BROWSER_PLATFORM'):
