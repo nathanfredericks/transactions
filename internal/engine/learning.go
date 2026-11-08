@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -89,7 +90,13 @@ func (e *Engine) attachSuggestions(ctx context.Context, m *learn.Mirror, ids []s
 func (e *Engine) SyncYNAB(ctx context.Context) (any, error) {
 	m, etag, err := e.loadMirror(ctx)
 	if err != nil {
-		return nil, err
+		var missing interface{ ErrorCode() string }
+		if !errors.As(err, &missing) || missing.ErrorCode() != "AccessDenied" {
+			return nil, err
+		}
+		// A missing object reads as access denied without list access. Start
+		// empty; the conditional write still refuses to replace an existing one.
+		m, etag = learn.NewMirror(), ""
 	}
 	first := len(m.Transactions) == 0
 	changed, err := syncMirror(ctx, m, e.today())
@@ -165,7 +172,10 @@ var (
 	loadLearning = func(ctx context.Context, e *Engine) (*learning, error) {
 		m, _, err := e.loadMirror(ctx)
 		if err != nil {
-			return nil, err
+			// Without list access S3 reports a missing object as access denied.
+			// Either way, build the evidence from YNAB directly.
+			slog.Warn("stored mirror unavailable; reading YNAB directly", "error", err)
+			m = learn.NewMirror()
 		}
 		// Apply a fresh delta in memory so this import sees every approval made
 		// since the last scheduled sync. It is not saved.

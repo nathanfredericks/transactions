@@ -196,6 +196,25 @@ def main():
         processor_statements = resources['ProcessorRole']['Properties']['Policies'][0]['PolicyDocument']['Statement']
         if not any(s.get('Sid') == 'CapacityNotificationWorkflow' for s in processor_statements):
             processor_statements.append({'Sid':'CapacityNotificationWorkflow','Effect':'Allow','Action':'states:StartExecution','Resource':f'arn:aws:states:{REGION}:{ACCOUNT}:stateMachine:transactions-engine'})
+        # The YNAB mirror: suggestion lookups for both functions, mirror storage
+        # for the gateway, a 15-minute sync and expiry of old mirror versions.
+        for role in ('GatewayRole', 'ProcessorRole'):
+            for statement in resources[role]['Properties']['Policies'][0]['PolicyDocument']['Statement']:
+                actions = statement['Action'] if isinstance(statement['Action'], list) else [statement['Action']]
+                if 'dynamodb:GetItem' in actions and 'dynamodb:BatchGetItem' not in actions:
+                    statement['Action'] = actions + ['dynamodb:BatchGetItem']
+        state_bucket = resources['PrivateState']['Properties']['BucketName']
+        gateway_statements = resources['GatewayRole']['Properties']['Policies'][0]['PolicyDocument']['Statement']
+        if not any(s.get('Sid') == 'YNABMirror' for s in gateway_statements):
+            gateway_statements.append({'Sid': 'YNABMirror', 'Effect': 'Allow', 'Action': ['s3:GetObject', 's3:PutObject'], 'Resource': f'arn:aws:s3:::{state_bucket}/ynab/*'})
+        rules = resources['PrivateState']['Properties']['LifecycleConfiguration']['Rules']
+        if not any(r.get('Id') == 'ynab-mirror' for r in rules):
+            rules.append({'Id': 'ynab-mirror', 'Prefix': 'ynab/', 'Status': 'Enabled', 'NoncurrentVersionExpiration': {'NoncurrentDays': 1}})
+        if 'ScheduleSyncYNAB' not in resources:
+            sync = json.loads(json.dumps(resources['Schedulerogersbank']))
+            sync['Properties']['ScheduleExpression'] = 'rate(15 minutes)'
+            sync['Properties']['Target']['Input'] = json.dumps({'action': 'sync-ynab'})
+            resources['ScheduleSyncYNAB'] = sync
         # The secrets phase is a release that also moves the stack onto the single
         # Transactions secret; the new browser image needs both at once.
         if args.phase == 'secrets':
@@ -226,7 +245,7 @@ def main():
 
     changed = sorted(name for name in original['Resources'].keys() | resources.keys()
                      if original['Resources'].get(name) != resources.get(name))
-    release_allowed = {'gateway', 'processor', 'BrowserTask', 'AdminBranchMain', 'OperatorEmail', 'TaskExecutionRole', 'ProcessorRole'}
+    release_allowed = {'gateway', 'processor', 'BrowserTask', 'AdminBranchMain', 'OperatorEmail', 'TaskExecutionRole', 'ProcessorRole', 'GatewayRole', 'PrivateState', 'ScheduleSyncYNAB'}
     allowed = {'release': release_allowed,
                'secrets': release_allowed | {'GatewayRole', 'BrowserRole', 'Admin', *RETIRED_SECRETS},
                'cutover': {'AdminDomain', 'AdminBranch'}}[args.phase]
