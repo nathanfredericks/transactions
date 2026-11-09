@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
@@ -19,10 +20,7 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 	if err = e.loadJob(ctx, request.JobID, request.Bank); err != nil {
 		return out, err
 	}
-	if request.Execution == "" || (e.Job.Execution != "" && e.Job.Execution != request.Execution) {
-		return out, bank.Fail(bank.Invalid, "stale-execution")
-	}
-	if e.Job.Status == "complete" || e.Job.Status == "review-required" || e.Job.Status == "failed" {
+	if e.Job.finished() {
 		return e.outcome(e.Job.Status, 0), nil
 	}
 	if e.Job.Status == "browser" {
@@ -51,13 +49,9 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 	if err = e.loadJob(ctx, request.JobID, request.Bank); err != nil {
 		return out, err
 	}
-	if e.Job.Execution != "" && e.Job.Execution != request.Execution {
-		return out, bank.Fail(bank.Invalid, "stale-execution")
-	}
-	if e.Job.Status == "complete" || e.Job.Status == "review-required" || e.Job.Status == "failed" {
+	if e.Job.finished() {
 		return e.outcome(e.Job.Status, 0), nil
 	}
-	e.Job.Execution = request.Execution
 	e.Job.Lease = e.Lease
 	if err = e.saveJob(ctx); err != nil {
 		return out, err
@@ -71,11 +65,13 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 	if _, err = e.get(ctx, e.healthKey(), &health); err != nil {
 		return out, err
 	}
-	if health.Blocked {
-		e.Job.Status = "review-required"
+	// A bank whose credentials were rejected waits for bank.resume. A bank
+	// backing off skips scheduled runs quietly; the next one after RetryAt tries.
+	if health.Blocked || (health.RetryAt.After(time.Now()) && e.Job.Source == "scheduled") {
+		e.Job.Status = "paused"
 		e.Job.Error = health.Kind
 		err = e.saveJob(ctx)
-		return e.outcome("review-required", 0), err
+		return e.outcome("paused", 0), err
 	}
 	if health.RetryAt.After(time.Now()) {
 		return e.outcome("deferred", int(math.Ceil(time.Until(health.RetryAt).Seconds()))), nil
@@ -122,7 +118,10 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 			return out, re
 		}
 		if !found {
-			return out, bank.Fail(bank.Temporary, "browser-result-missing")
+			// The browser task failed to start, timed out or lost its callback.
+			// That is infrastructure, not a rejected login: end this job.
+			e.Job.Attempt = 2
+			return out, bank.Fail(bank.Temporary, "browser-task-incomplete")
 		}
 		if result.Generation != e.Lease.Generation {
 			return out, bank.Fail(bank.Invalid, "stale-browser")
@@ -137,7 +136,6 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 			e.Job.Attempt = 2
 			return out, result.Error
 		}
-		e.Job.CapacitySince = time.Time{}
 		e.Job.CapacityWaits = 0
 		e.Job.Status = "running"
 	}
@@ -214,13 +212,6 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 	if err = ValidateSnapshot(snapshot, settings.ExpectedAccounts); err != nil {
 		return out, err
 	}
-	e.Job.SnapshotKey, err = e.Store.Upload(ctx, "snapshots/"+e.Job.Bank, snapshot)
-	if err != nil {
-		return out, err
-	}
-	if err = e.saveJob(ctx); err != nil {
-		return out, err
-	}
 	switch registration.Strategy {
 	case "posted":
 		err = e.posted(ctx, snapshot)
@@ -236,47 +227,17 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 }
 
 func (e *Engine) recovered(ctx context.Context, name string, health Health) (Outcome, error) {
-	var err error
-	if e.Job.CapacityNotified && !e.Job.DryRun {
-		var incident Notification
-		if _, err = e.get(ctx, "NOTICE#capacity#"+e.Job.ID, &incident); err != nil {
-			return Outcome{}, err
-		}
-		if incident.Status == "sent" {
-			if err = e.notifyOnce(ctx, "capacity-recovery#"+e.Job.ID, name+" obtained browser capacity and completed successfully.", name+" browser recovered"); err != nil {
-				return Outcome{}, err
-			}
-		} else if incident.ID != "" {
-			incident.Status = "superseded"
-			if err = e.put(ctx, "NOTICE#"+incident.ID, incident, e.Job.ID); err != nil {
-				return Outcome{}, err
-			}
-		}
-	}
-	if health.Notified && !e.Job.DryRun {
-		var incident Notification
-		if _, err = e.get(ctx, "NOTICE#incident#"+health.Episode, &incident); err != nil {
-			return Outcome{}, err
-		}
-		if incident.Status == "sent" {
-			if err = e.notifyOnce(ctx, "recovery#"+health.Episode, name+" is working again.", name+" recovered"); err != nil {
-				return Outcome{}, err
-			}
-		} else if incident.ID != "" {
-			incident.Status = "superseded"
-			if err = e.put(ctx, "NOTICE#"+incident.ID, incident, e.Job.ID); err != nil {
-				return Outcome{}, err
-			}
-		}
-	}
 	healthy := Health{}
-	if e.Job.DryRun && health.Notified {
-		// A dry run is quiet, but must not consume the recovery notice owed
-		// to an operator who already received this incident.
-		healthy.Notified, healthy.Episode = true, health.Episode
+	if e.Job.DryRun {
+		// A dry run is quiet and leaves the recovery notice to a real run.
+		healthy.Failing = health.Failing
+	} else if health.Failing {
+		e.send(ctx, name+" recovered", name+" is working again.", false)
 	}
-	if err = e.put(ctx, e.healthKey(), healthy, e.Job.ID); err != nil {
-		return Outcome{}, err
+	if health != healthy {
+		if err := e.put(ctx, e.healthKey(), healthy, e.Job.ID); err != nil {
+			return Outcome{}, err
+		}
 	}
 	return e.complete(ctx)
 }
@@ -287,90 +248,61 @@ func (e *Engine) complete(ctx context.Context) (Outcome, error) {
 	return e.outcome("complete", 0), e.saveJob(ctx)
 }
 
+// failure retries a temporary failure once within the job, then records the
+// failed job against the bank's health. The operator is told when the bank
+// starts failing or fails differently. Rejected credentials block the bank
+// until bank.resume; a challenge retries a day later and is reported each time.
 func (e *Engine) failure(ctx context.Context, cause error) (Outcome, error) {
 	f := bank.Classify(cause)
+	e.Job.Error = f.Kind
+	e.Job.Operation = f.Operation
+	e.Job.Attempt++
+	retryable := f.Kind == bank.Temporary || f.Kind == bank.Throttled || f.Kind == bank.Maintenance
+	if retryable && e.Job.Attempt <= 2 {
+		wait := 60
+		if !f.RetryAt.IsZero() {
+			wait = max(wait, int(math.Ceil(time.Until(f.RetryAt).Seconds())))
+		}
+		e.Job.Status = "waiting"
+		return e.outcome("deferred", wait), e.saveJob(ctx)
+	}
 	var health Health
 	if _, err := e.get(ctx, e.healthKey(), &health); err != nil {
 		return e.outcome("failed", 0), err
 	}
-	health.Failures++
-	health.Kind = f.Kind
-	if health.Episode == "" {
-		health.Episode = e.Job.ID
-	}
-	e.Job.Error = f.Kind
-	e.Job.Operation = f.Operation
-	e.Job.Attempt++
-	if f.Kind == bank.Credentials || f.Kind == bank.Challenge {
-		health.Blocked = true
-	}
-	retryable := f.Kind == bank.Temporary || f.Kind == bank.Throttled || f.Kind == bank.Maintenance
-	wait := 30 * int(math.Pow(2, float64(min(health.Failures-1, 7))))
-	if !f.RetryAt.IsZero() {
-		wait = max(wait, int(math.Ceil(time.Until(f.RetryAt).Seconds())))
-	}
-	// Retry-After is authoritative, including delays beyond the usual backoff cap.
-	health.RetryAt = time.Now().Add(time.Duration(wait) * time.Second)
 	e.Job.Status = "failed"
 	outcome := "failed"
-	if retryable && e.Job.Attempt <= 2 {
-		e.Job.Status = "waiting"
-		outcome = "deferred"
+	notify := !health.Failing || health.Kind != f.Kind || f.Kind == bank.Challenge
+	switch f.Kind {
+	case bank.Credentials:
+		health.Blocked = true
+	case bank.Challenge:
+		health.RetryAt = time.Now().Add(24 * time.Hour)
+	case bank.Maintenance:
+		// Scheduled runs report maintenance only when it outlasts two of them.
+		if e.Job.Source == "scheduled" {
+			health.Maintenance++
+			notify = !health.Failing && health.Maintenance >= 2
+			e.Job.Status, outcome = "complete", "complete"
+		}
+	case bank.Capacity, bank.Authentication, bank.Throttled, bank.Temporary, bank.Invalid:
 	}
-	if f.Kind == bank.Invalid || health.Blocked {
-		e.Job.Status = "review-required"
-		outcome = "review-required"
+	// A bank's own Retry-After or maintenance window is authoritative.
+	if f.RetryAt.After(health.RetryAt) {
+		health.RetryAt = f.RetryAt
 	}
-	shouldNotify := outcome != "deferred" && !health.Notified && !e.Job.DryRun
-	if f.Kind == bank.Maintenance && e.Job.Source == "scheduled" {
-		health.MaintenanceCount++
-		shouldNotify = health.MaintenanceCount >= 2 && !health.Notified && !e.Job.DryRun
-		outcome = "complete"
-		e.Job.Status = "complete"
-	}
-	if shouldNotify {
+	health.Kind = f.Kind
+	if notify && !e.Job.DryRun {
 		registration, _ := banks.Find(e.Job.Bank)
-		name := registration.Name
-		if name == "" {
-			name = e.Job.Bank
-		}
+		name := cmp.Or(registration.Name, e.Job.Bank)
 		title, message := failureNotice(name, f)
-		if err := e.notifyOnce(ctx, "incident#"+health.Episode, message, title); err != nil {
-			return e.outcome("failed", 0), err
-		}
-		health.Notified = true
+		e.send(ctx, title, message, false)
+		health.Failing = true
 	}
 	if err := e.put(ctx, e.healthKey(), health, e.Job.ID); err != nil {
 		return e.outcome("failed", 0), err
 	}
-	if err := e.saveJob(ctx); err != nil {
-		return e.outcome("failed", 0), err
-	}
-	return e.outcome(outcome, wait), nil
-}
-
-func (e *Engine) RecoverBrowser(ctx context.Context, r Request) (Outcome, error) {
-	if err := e.loadJob(ctx, r.JobID, r.Bank); err != nil {
-		return Outcome{}, err
-	}
-	if r.Execution == "" || e.Job.Execution != r.Execution || e.Job.Status != "browser" {
-		return Outcome{}, bank.Fail(bank.Invalid, "stale-execution")
-	}
-	e.Lease = e.Job.Lease
-	var result BrowserResult
-	found, err := e.get(ctx, "BROWSER#"+e.Lease.Generation, &result)
-	if err != nil {
-		return Outcome{}, err
-	}
-	if found && result.Generation == e.Lease.Generation {
-		return e.Run(ctx, r)
-	}
-	if err = e.Store.Assert(ctx, e.Lease); err != nil {
-		return Outcome{}, err
-	}
-	defer e.Store.Release(ctx, e.Lease)
-	e.Job.Attempt = 2 // A launch/timeout failure is infrastructure failure, not rejected credentials.
-	return e.failure(ctx, bank.Fail(bank.Temporary, "browser-task-incomplete"))
+	return e.outcome(outcome, 0), e.saveJob(ctx)
 }
 
 // renew exchanges the session's tokens. A renewal whose outcome is unknown
@@ -401,29 +333,17 @@ func (e *Engine) healthKey() string {
 	return "HEALTH"
 }
 
-// Capacity waits have their own backoff and notification, preserving financial
-// health and the authentication attempt budget.
+// deferCapacity waits for the shared browser seat: 120 s at a time, five times,
+// then the job fails as temporary and the next schedule tries again.
 func (e *Engine) deferCapacity(ctx context.Context) (Outcome, error) {
-	if e.Job.CapacitySince.IsZero() {
-		e.Job.CapacitySince = time.Now()
+	if e.Job.CapacityWaits >= 5 {
+		e.Job.Attempt = 2
+		return e.failure(ctx, bank.Fail(bank.Temporary, "browser-capacity"))
 	}
 	e.Job.CapacityWaits++
-	if time.Since(e.Job.CapacitySince) >= 15*time.Minute && !e.Job.CapacityNotified && !e.Job.DryRun {
-		if err := e.notifyOnce(ctx, "capacity#"+e.Job.ID, "Browser capacity has been unavailable for 15 minutes. The bank job is waiting for Hermes to release its browser.", "Bank browser waiting"); err != nil {
-			return Outcome{}, err
-		}
-		if _, err := e.startOperation(ctx, Request{Bank: e.Job.Bank, JobID: e.Job.ID}, "notify"); err != nil {
-			return Outcome{}, err
-		}
-		e.Job.CapacityNotified = true
-	}
 	e.Job.BrowserAttempted = false
 	e.Job.Status = "waiting"
 	e.Job.Error = ""
 	e.Job.Operation = ""
-	wait := min(300, 30*(1<<min(e.Job.CapacityWaits-1, 4)))
-	if err := e.saveJob(ctx); err != nil {
-		return Outcome{}, err
-	}
-	return e.outcome("deferred", wait), nil
+	return e.outcome("deferred", 120), e.saveJob(ctx)
 }

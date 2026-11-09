@@ -289,8 +289,11 @@ func (e *Engine) completeNotification(ctx context.Context, key string, intent Wr
 	if payee == "" {
 		payee = intent.Description
 	}
-	notice := Notification{ID: "purchase#" + e.Job.ID, JobID: e.Job.ID, Title: "Transaction Approved", Message: fmt.Sprintf("A transaction of $%.2f at %s was approved on your %s.", -float64(tx.Amount)/1000, payee, tx.AccountName), Status: "pending", At: time.Now()}
-	return e.Store.PutMany(ctx, e.Lease, map[string]any{key: done, "NOTICE#" + notice.ID: notice})
+	if err := e.put(ctx, key, done, e.Job.ID); err != nil {
+		return err
+	}
+	e.send(ctx, "Transaction Approved", fmt.Sprintf("A transaction of $%.2f at %s was approved on your %s.", -float64(tx.Amount)/1000, payee, tx.AccountName), true)
+	return nil
 }
 
 func deref(s *string) string {
@@ -442,6 +445,6 @@ func (e *Engine) alertImport(ctx context.Context) error {
 	if name == "" {
 		name = purchaseAccount(e.Job.Bank)
 	}
-	notice := Notification{ID: "purchase#" + e.Job.ID, JobID: e.Job.ID, Title: "Transaction Approved", Message: fmt.Sprintf("A transaction of $%.2f was approved on your %s.", float64(e.Job.AlertAmount)/1000, name), Status: "pending", At: time.Now()}
-	return e.put(ctx, "NOTICE#"+notice.ID, notice, e.Job.ID)
+	e.send(ctx, "Transaction Approved", fmt.Sprintf("A transaction of $%.2f was approved on your %s.", float64(e.Job.AlertAmount)/1000, name), true)
+	return nil
 }

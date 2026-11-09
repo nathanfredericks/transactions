@@ -62,10 +62,6 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 			return app.VerifySession(ctx, request.Bank, options.Renew)
 		case "run":
 			return app.Run(ctx, request)
-		case "recover-browser":
-			return app.RecoverBrowser(ctx, request)
-		case "notify":
-			return app.Deliver(ctx, request)
 		default:
 			return nil, errors.New("invalid processor action")
 		}

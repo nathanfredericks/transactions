@@ -2,95 +2,36 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/nathanfredericks/transactions/internal/notify"
 )
 
-type Notification struct {
-	ID       string    `json:"id"`
-	JobID    string    `json:"jobId"`
-	Title    string    `json:"title"`
-	Message  string    `json:"message"`
-	Status   string    `json:"status"`
-	Attempts int       `json:"attempts"`
-	At       time.Time `json:"at"`
-}
-
-func (e *Engine) notifyOnce(ctx context.Context, id, message, title string) error {
+// send pushes a notification, trying three times. A lost push is logged and
+// never fails the job: the transaction is already in YNAB's approval list.
+func (e *Engine) send(ctx context.Context, title, message string, purchase bool) {
 	if e.Job.DryRun {
-		return nil
+		return
 	}
-	var previous Notification
-	found, err := e.get(ctx, "NOTICE#"+id, &previous)
-	if err != nil || found {
-		return err
+	options := notify.NotificationOptions{Title: title}
+	if purchase {
+		options.Priority = 1
+		options.Sound = "cashregister"
+		options.URL = "ynab://"
+		options.URLTitle = "Open YNAB"
 	}
-	return e.put(ctx, "NOTICE#"+id, Notification{ID: id, JobID: e.Job.ID, Title: title, Message: message, Status: "pending", At: time.Now()}, e.Job.ID)
-}
-
-func (e *Engine) Deliver(ctx context.Context, r Request) (Outcome, error) {
-	e.Job = Job{ID: r.JobID, Bank: r.Bank}
-	l, ok, err := e.Store.Acquire(ctx, r.Bank, "notify#"+r.JobID)
-	if err != nil {
-		return Outcome{}, err
-	}
-	if !ok {
-		return e.outcome("deferred", 5), nil
-	}
-	e.Lease = l
-	defer e.Store.Release(ctx, l)
-	rows, err := e.Store.List(ctx, "BANK#"+r.Bank, "NOTICE#")
-	if err != nil {
-		return Outcome{}, err
-	}
-	pending := false
-	for _, raw := range rows {
-		var n Notification
-		if json.Unmarshal(raw, &n) != nil {
-			return Outcome{}, bankStateError()
+	var err error
+	for attempt := range 3 {
+		if err = notify.SendNotification(ctx, message, options); err == nil {
+			return
 		}
-		if n.JobID != r.JobID || n.Status == "sent" || n.Status == "superseded" {
-			continue
-		}
-		if n.Attempts >= 4 {
-			if n.Status != "failed" {
-				n.Status = "failed"
-				if err = e.Store.Put(ctx, l, "NOTICE#"+n.ID, n); err != nil {
-					return Outcome{}, err
-				}
-			}
-			continue
-		}
-		options := notify.NotificationOptions{Title: n.Title}
-		if n.Title == "Transaction Approved" {
-			options.Priority = 1
-			options.Sound = "cashregister"
-			options.URL = "ynab://"
-			options.URLTitle = "Open YNAB"
-		}
-		n.Attempts++
-		if err = e.Store.Put(ctx, l, "NOTICE#"+n.ID, n); err != nil {
-			return Outcome{}, err
-		}
-		sendErr := notify.SendNotification(ctx, n.Message, options)
-		if sendErr == nil {
-			n.Status = "sent"
-		} else {
-			n.Status = "pending"
-			if n.Attempts >= 4 {
-				n.Status = "failed"
-			} else {
-				pending = true
-			}
-		}
-		if err = e.Store.Put(ctx, l, "NOTICE#"+n.ID, n); err != nil {
-			return Outcome{}, err
+		select {
+		case <-ctx.Done():
+			slog.Warn("notification not sent", "job", e.Job.ID, "error", ctx.Err())
+			return
+		case <-time.After(time.Duration(attempt+1) * time.Second):
 		}
 	}
-	if pending {
-		return e.outcome("deferred", 60), nil
-	}
-	return e.outcome("complete", 0), nil
+	slog.Warn("notification not sent", "job", e.Job.ID, "error", err)
 }

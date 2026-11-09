@@ -20,7 +20,6 @@ import (
 type Job struct {
 	Version          int         `json:"version"`
 	ID               string      `json:"jobId"`
-	Execution        string      `json:"execution,omitempty"`
 	Bank             string      `json:"bank"`
 	Purpose          string      `json:"purpose"`
 	Source           string      `json:"source"`
@@ -36,23 +35,19 @@ type Job struct {
 	Attempt          int         `json:"attempt"`
 	MissingAttempt   int         `json:"missingAttempt"`
 	BrowserDeadline  time.Time   `json:"browserDeadline"`
-	CapacitySince    time.Time   `json:"capacitySince"`
 	CapacityWaits    int         `json:"capacityWaits,omitempty"`
-	CapacityNotified bool        `json:"capacityNotified,omitempty"`
 	BrowserAttempted bool        `json:"browserAttempted"`
 	Lease            state.Lease `json:"lease"`
-	SnapshotKey      string      `json:"snapshotKey,omitempty"`
 	Operation        string      `json:"operation,omitempty"`
 	Error            bank.Kind   `json:"error,omitempty"`
 	CompletedAt      time.Time   `json:"completedAt"`
 }
 type Request struct {
-	Action    string          `json:"action"`
-	JobID     string          `json:"jobId"`
-	Bank      string          `json:"bank"`
-	Job       *Job            `json:"job,omitempty"`
-	Execution string          `json:"execution"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
+	Action  string          `json:"action"`
+	JobID   string          `json:"jobId"`
+	Bank    string          `json:"bank"`
+	Job     *Job            `json:"job,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 type Outcome struct {
 	Outcome     string      `json:"outcome"`
@@ -71,14 +66,16 @@ type BrowserResult struct {
 	Error      *bank.Failure `json:"error,omitempty"`
 	SessionKey string        `json:"sessionKey,omitempty"`
 }
+
+// Health is a bank's standing across jobs. Blocked waits for bank.resume.
+// Failing means the operator has been told the bank is failing, so a later
+// success reports its recovery. RetryAt holds off scheduled runs.
 type Health struct {
-	Blocked          bool      `json:"blocked"`
-	Kind             bank.Kind `json:"kind"`
-	Failures         int       `json:"failures"`
-	RetryAt          time.Time `json:"retryAt"`
-	Episode          string    `json:"episode"`
-	Notified         bool      `json:"notified"`
-	MaintenanceCount int       `json:"maintenanceCount"`
+	Blocked     bool      `json:"blocked"`
+	Failing     bool      `json:"failing"`
+	RetryAt     time.Time `json:"retryAt"`
+	Kind        bank.Kind `json:"kind,omitempty"`
+	Maintenance int       `json:"maintenance,omitempty"`
 }
 type Engine struct {
 	Store    *state.Store
@@ -180,6 +177,12 @@ func ValidateSnapshot(s bank.Snapshot, expected []string) error {
 		}
 	}
 	return nil
+}
+
+// finished reports a job that no run should resume. review-required is the
+// status earlier releases gave failed jobs.
+func (j Job) finished() bool {
+	return j.Status == "complete" || j.Status == "failed" || j.Status == "paused" || j.Status == "review-required"
 }
 
 func (e *Engine) loadJob(ctx context.Context, id, bankID string) error {
