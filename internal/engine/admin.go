@@ -21,29 +21,6 @@ import (
 
 func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 	switch r.Action {
-	case "lookups":
-		return service.Lookups(ctx)
-	case "jobs.list":
-		var jobs []json.RawMessage
-		ids := map[string]bool{}
-		for _, registration := range banks.All {
-			ids[registration.ID] = true
-		}
-		for _, entry := range e.Settings.Email {
-			id := entry.Bank
-			if id == "" {
-				id = "notification-" + entry.YNABAccountID
-			}
-			ids[id] = true
-		}
-		for id := range ids {
-			rows, err := e.Store.List(ctx, "BANK#"+id, "JOB#")
-			if err != nil {
-				return nil, err
-			}
-			jobs = append(jobs, rows...)
-		}
-		return jobs, nil
 	case "job.get":
 		if err := e.loadJob(ctx, r.JobID, r.Bank); err != nil {
 			return nil, err
