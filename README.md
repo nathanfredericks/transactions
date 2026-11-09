@@ -1,6 +1,6 @@
 # Transactions
 
-One Go application imports bank transactions and balances into YNAB. Bank protocols live in adapters; a shared engine owns authentication state, leases, reconciliation, writes and notification delivery.
+One Go application imports bank transactions and balances into YNAB. Bank protocols live in adapters; a shared engine owns authentication state, leases, imports and notifications.
 
 ```mermaid
 flowchart TD
@@ -8,7 +8,7 @@ flowchart TD
   S3 --> Gateway[Gateway Lambda]
   Schedule[EventBridge schedules] --> Gateway
   Operator[Operator command] --> Gateway
-  Gateway --> State[(DynamoDB: jobs, leases, incidents, ledger)]
+  Gateway --> State[(DynamoDB: jobs, leases, bank health)]
   Gateway --> Workflow[One Step Functions workflow]
   Workflow --> Engine[Processor Lambda: shared engine]
   Engine --> Lease[Acquire bank lease and generation]
@@ -16,22 +16,19 @@ flowchart TD
   Session --> Adapter[Bank adapter: renew and fetch]
   Adapter -->|Authentication required| Browser[One Fargate task: Rod + bank-selected Chromium]
   Browser -->|Validate accounts, save session, clean up, callback| Workflow
-  Adapter -->|Validated normalized snapshot| Strategy[Posted / reconciliation / balances]
-  Strategy -->|Approved baseline + imports enabled| YNAB[Shared YNAB client]
-  Strategy -->|Dry run| Preview[Saved snapshot and preview]
+  Adapter -->|Validated normalized snapshot| Strategy[Posted / balances]
+  Strategy -->|Imports enabled| YNAB[Shared YNAB client]
+  Strategy -->|Dry run| Preview[Logged preview]
   Engine --> State
-  Engine --> Private[(Private S3: sessions and snapshots)]
-  YNAB --> Intent[Persist financial result and notification intent]
-  Intent --> Delivery[Separate notification delivery step]
-  Delivery --> Pushover[Pushover]
-  Delivery -->|Failure| Retry[Bounded notification-only retry]
+  Engine --> Private[(Private S3: sessions)]
+  YNAB --> Pushover[Pushover, sent inline]
 ```
 
 ## Repository
 
 - `internal/bank`: adapter contract, typed failures, narrow HTTP/browser/MFA helpers.
 - `internal/banks`: EQ, Rogers and NBDB adapters; registry owns schedules, browser selection and import strategy.
-- `internal/engine`: one orchestration, retry, baseline, import and notification implementation.
+- `internal/engine`: one orchestration, retry, import and notification implementation.
 - `internal/state`: one DynamoDB fencing and S3 persistence implementation.
 - `internal/service`, `internal/email`, `internal/notify`: reused YNAB, AI, MIME and Pushover code.
 - `cmd/lambda`: gateway and processor roles from the same Go binary.
@@ -41,27 +38,27 @@ flowchart TD
 
 ## Operational rules
 
-Authentication expiry permits renewal and one browser attempt per job. Credentials and unsupported challenges pause authentication until an operator resumes it. Maintenance, throttling and temporary read failures defer through the workflow. Arbitrary 403s and malformed bank responses are review failures, not a reason to log in repeatedly.
+Authentication expiry permits renewal and one browser attempt per job. Rejected credentials block the bank until `bank.resume`. A challenge holds off scheduled runs for a day and is reported each time it fails. Maintenance, throttling and temporary failures are retried once within the job, then by the next schedule. A malformed bank response fails the job without a login. You are told when a bank starts failing or fails differently, and when it recovers.
 
-A bank lease fences every state change with a generation. Session objects are immutable; publishing their pointer requires the current lease. Browser results are saved before callbacks and recovered if the callback is lost. Browser work has an absolute deadline shorter than the callback timeout. EQ missing-activity waits release the lease for 1, 5 and 15 minutes.
+A bank lease fences every state change with a generation. Session objects are immutable; publishing their pointer requires the current lease. Browser results are saved before callbacks; if the browser task fails or loses its callback, the workflow returns to the processor, which ends the job. A busy browser seat is waited for 120 seconds at a time, five times. Browser work has an absolute deadline shorter than the callback timeout. Late alerts wait 1, 5 and 15 minutes for their bank credit.
 
 EQ four-hour imports process cleared transactions only. Purchase-alert jobs retain the pending authorization import path.
 
 EQ authentication runs on demand during four-hour imports and purchase-alert lookups. These jobs reuse usable sessions and renew or launch browser authentication when needed; sessions may expire between jobs, so purchase alerts can take longer to resolve. There is no background EQ upkeep schedule. Explicit manual session verification remains available and has no import path. Rogers/NBDB authenticate when their scheduled retrieval needs it. Bank-enforced session limits still apply.
 
-YNAB writes have no generic retry wrapper. Transaction creation uses stable import IDs; updates check the identified transaction after uncertain completion. An uncertain NBDB adjustment leaves an account hold that later jobs cannot bypass. Notifications have separate status and bounded delivery attempts; retrying delivery cannot import anything.
+YNAB writes have no generic retry wrapper. Posted imports skip any import ID YNAB already holds, deleted transactions included, and a duplicate import ID counts as done. A YNAB 4xx other than 429 fails the job; other errors are retried. Alert writes carry no import ID so YNAB can match them to the cleared import. NBDB balance adjustments write the remaining difference each run. Notifications are sent inline after the write, three tries, and a lost one is only logged.
 
 ## Configuration and deployment
 
 The one configuration document is `/transactions-engine/settings`. All runtime credentials live in one Secrets Manager secret, `Transactions`, created outside the stack and passed to CDK as the `secretArn` context. Its JSON holds the application keys (`YNAB_ACCESS_TOKEN`, `OPENAI_API_KEY`, `PUSHOVER_TOKEN`, `PUSHOVER_USER`), `CLOAKBROWSER_LICENSE_KEY`, `BROWSER_BROKER_TOKEN` and `BANKS` (one `{username, password, mailToken}` per bank ID). The Lambdas and the browser task can both read it. Do not put tokens in CDK context, workflow payloads, Git or logs. S3 objects are private and encrypted.
 
-The committed CDK context records this production deployment with schedules active. For a fresh installation or a deliberate schedule pause, synthesize/deploy with `-c activate=false`; the initial settings placeholder always has imports disabled. Complete configuration and baseline review before enabling imports.
+The committed CDK context records this production deployment with schedules active. For a fresh installation or a deliberate schedule pause, synthesize/deploy with `-c activate=false`; the initial settings placeholder always has imports disabled. Check a dry run before enabling imports.
 
 `cdk/cdk.go` is the whole stack, including the three bank schedules. There are no CloudWatch alarms; the application reports failures through Pushover.
 
 Use the [local verification loop](docs/local-verification.md) to fix authentication and exercise real API calls without redeploying.
 
-See [cutover and verification](docs/cutover.md) and [adding a bank](docs/adding-a-bank.md). Do not enable production imports until the real-account verification and reviewed baseline gates have passed.
+See [operations](docs/cutover.md) and [adding a bank](docs/adding-a-bank.md). Do not enable a new bank's imports until a real dry run looks right.
 
 ## Build and inspect
 

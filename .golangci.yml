@@ -78,7 +78,7 @@ linters:
       # rule in that phase.
 
 
-      # P3 and P5 rewrite the engine: the write path, Health, the per-job
+      # P5 restructures the engine: Run decomposed, the per-job
       # struct, state.WithLease (which releases the lease once, checked).
       - path: ^internal/engine/
         linters: [errcheck, gocognit, nestif]
@@ -109,10 +109,6 @@ linters:
         linters: [contextcheck, forcetypeassert, gocognit, gosec, noctx]
       - path: ^cmd/browser-broker/
         linters: [gocritic]
-
-      # P3 deletes the review and baseline actions these findings sit in.
-      - path: ^internal/engine/admin\.go$
-        linters: [gocritic, musttag]
 
       # The offline replay harness and the learner belong to the learning
       # work (D12); no phase restructures them.
