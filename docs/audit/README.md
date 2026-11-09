@@ -37,8 +37,8 @@ The machinery built to prevent rare failures has never caught one. It has caused
 
 | # | Action | Why |
 |---|---|---|
-| O1 | Set the `alarmEmail` context (for example Pushover's email-to-push address), deploy, and confirm the subscription | Alarms currently reach nobody |
-| O2 | Set EQ `startDate` on or before 2026-10-12, then resume EQ authentication with `bank.resume` | EQ has been dark for 27 days; the catch-up must cover the gap |
+| O1 | ~~Subscribe the alarms~~ Nathan chose to keep them silent (2026-11-08); P2 deletes the unused alarms, `OperatorAlerts` and `DeliveryFailures` | Alarms reach nobody by choice |
+| O2 | Done 2026-11-08: `startDate` was already 2026-10-02; `bank.resume` ran for eq-bank | EQ had been dark for 27 days |
 | O3 | Stop using the AWS account root user locally; use an IAM user or SSO role | `audit-data` ran as root |
 
 ## Decisions for Nathan
@@ -90,7 +90,7 @@ Every phase is one branch and one PR, with the gates below and a check-in with N
 - `cdk/cdk.go` becomes the source of truth.
   - Fold in the drift, for example `DEPLOYMENT_BRANCH` (unused, so delete it) and the duplicate `CapacityNotificationWorkflow`.
   - Delete the finished migrations.
-  - Remove Amplify, Auth0 and `OutputAdminURL`, the webhook resources, the duplicate env block and the index-based IAM override (use a plain grant).
+  - Remove Amplify, Auth0 and `OutputAdminURL`, the webhook resources, the subscriber-less alarms with `OperatorAlerts` and `DeliveryFailures` (O1), the duplicate env block and the index-based IAM override (use a plain grant).
 - `cdk` no longer imports `internal/banks`; the three schedules move into `cdk.go`. Centralize the account ID.
 - Images stop stacking: each release builds from a pinned base by digest.
 - `deploy-main.py` shrinks to a clean-`main` check, the image build, `cdk diff`, and `cdk deploy` after Nathan approves.
