@@ -1,24 +1,18 @@
 package engine
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/nathanfredericks/transactions/internal/learn"
 	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/types"
 )
-
-// mirrorKey is the S3 object holding the YNAB mirror.
-const mirrorKey = "ynab/mirror.json.gz"
 
 // learningPK holds the importer's suggestion records by YNAB transaction ID.
 const learningPK = "LEARN"
@@ -29,95 +23,6 @@ func (e *Engine) today() string {
 		zone = time.UTC
 	}
 	return time.Now().In(zone).Format("2006-01-02")
-}
-
-func (e *Engine) loadMirror(ctx context.Context) (*learn.Mirror, string, error) {
-	body, etag, found, err := e.Store.GetObject(ctx, mirrorKey)
-	if err != nil || !found {
-		return learn.NewMirror(), "", err
-	}
-	r, err := gzip.NewReader(bytes.NewReader(body))
-	if err != nil {
-		return nil, "", fmt.Errorf("reading mirror: %w", err)
-	}
-	m := learn.NewMirror()
-	if err := json.NewDecoder(io.LimitReader(r, 256*1024*1024)).Decode(m); err != nil {
-		return nil, "", fmt.Errorf("decoding mirror: %w", err)
-	}
-	m.Fill()
-	return m, etag, nil
-}
-
-func (e *Engine) saveMirror(ctx context.Context, m *learn.Mirror, etag string) error {
-	var buf bytes.Buffer
-	w := gzip.NewWriter(&buf)
-	if err := json.NewEncoder(w).Encode(m); err != nil {
-		return err
-	}
-	if err := w.Close(); err != nil {
-		return err
-	}
-	return e.Store.PutObjectIf(ctx, mirrorKey, buf.Bytes(), "application/gzip", etag)
-}
-
-// attachSuggestions joins the importer's suggestion records to changed
-// transactions that do not have one yet.
-func (e *Engine) attachSuggestions(ctx context.Context, m *learn.Mirror, ids []string) error {
-	var keys []string
-	for _, id := range ids {
-		if m.Suggestions[id] == nil {
-			keys = append(keys, "TX#"+id)
-		}
-	}
-	if len(keys) == 0 {
-		return nil
-	}
-	rows, err := e.Store.GetMany(ctx, learningPK, keys)
-	if err != nil {
-		return err
-	}
-	for k, raw := range rows {
-		var s learn.Suggestion
-		if json.Unmarshal(raw, &s) == nil {
-			m.Suggestions[k[len("TX#"):]] = &s
-		}
-	}
-	return nil
-}
-
-// SyncYNAB keeps the stored mirror current. It runs on a schedule, so each
-// import only needs a small delta on top of it.
-func (e *Engine) SyncYNAB(ctx context.Context) (any, error) {
-	m, etag, err := e.loadMirror(ctx)
-	if err != nil {
-		var missing interface{ ErrorCode() string }
-		if !errors.As(err, &missing) || missing.ErrorCode() != "AccessDenied" {
-			return nil, err
-		}
-		// A missing object reads as access denied without list access. Start
-		// empty; the conditional write still refuses to replace an existing one.
-		m, etag = learn.NewMirror(), ""
-	}
-	first := len(m.Transactions) == 0
-	changed, err := syncMirror(ctx, m, e.today())
-	if err != nil {
-		return nil, err
-	}
-	if err := e.attachSuggestions(ctx, m, changed); err != nil {
-		return nil, err
-	}
-	m.Prune(time.Now().AddDate(-service.MirrorYears, 0, -60).Format("2006-01-02"))
-	m.SyncedAt = time.Now().UTC()
-	if len(changed) == 0 && !first {
-		// Nothing new: keep the stored object rather than writing a new version.
-		return map[string]any{"changed": 0}, nil
-	}
-	if err := e.saveMirror(ctx, m, etag); err != nil {
-		return nil, fmt.Errorf("saving mirror: %w", err)
-	}
-	approved, confirmed := outcomes(m, changed)
-	slog.Info("ynab-sync", "changed", len(changed), "transactions", len(m.Transactions), "approvedWithSuggestion", approved, "confirmedFields", confirmed)
-	return map[string]any{"changed": len(changed), "transactions": len(m.Transactions)}, nil
 }
 
 // outcomes counts, among changed transactions the user has approved, those the
@@ -143,8 +48,8 @@ func outcomes(m *learn.Mirror, ids []string) (approved int, confirmed map[string
 	return approved, confirmed
 }
 
-// learning is one job's view of the budget: the stored mirror brought up to
-// date in memory, and the predictor built from it.
+// learning is one job's view of the budget, read live from YNAB, and the
+// predictor built from it.
 type learning struct {
 	mirror *learn.Mirror
 	model  *learn.Model
@@ -167,26 +72,43 @@ func buildLearning(m *learn.Mirror, excluded []string) *learning {
 	return &learning{mirror: m, model: model}
 }
 
-// Seams for tests; production loads the mirror and calls the configured model.
+// live is the budget as last read from YNAB by this process. Nothing is stored:
+// a cold start reads the history in full, and a warm one asks YNAB only for
+// what changed since its last read. A Lambda runs one invocation at a time, so
+// the lock only guards against misuse.
+var live struct {
+	sync.Mutex
+	budget string
+	mirror *learn.Mirror
+}
+
+// Seams for tests; production reads YNAB live and calls the configured model.
 var (
 	loadLearning = func(ctx context.Context, e *Engine) (*learning, error) {
-		m, _, err := e.loadMirror(ctx)
-		if err != nil {
-			// Without list access S3 reports a missing object as access denied.
-			// Either way, build the evidence from YNAB directly.
-			slog.Warn("stored mirror unavailable; reading YNAB directly", "error", err)
-			m = learn.NewMirror()
+		live.Lock()
+		defer live.Unlock()
+		if live.mirror == nil || live.budget != e.Settings.BudgetID {
+			live.mirror, live.budget = learn.NewMirror(), e.Settings.BudgetID
 		}
-		// Apply a fresh delta in memory so this import sees every approval made
-		// since the last scheduled sync. It is not saved.
-		changed, err := syncMirror(ctx, m, e.today())
+		changed, err := syncMirror(ctx, live.mirror, e.today())
 		if err != nil {
+			live.mirror = nil
 			return nil, err
 		}
-		if err := e.attachSuggestions(ctx, m, changed); err != nil {
+		// The importer's own records keep the bank descriptor YNAB may not.
+		rows, err := e.Store.List(ctx, learningPK, "TX#")
+		if err != nil {
 			slog.Warn("suggestion records unavailable", "error", err)
 		}
-		return buildLearning(m, e.excludedPayees()), nil
+		for _, raw := range rows {
+			var s learn.Suggestion
+			if json.Unmarshal(raw, &s) == nil && s.TransactionID != "" {
+				live.mirror.Suggestions[s.TransactionID] = &s
+			}
+		}
+		approved, confirmed := outcomes(live.mirror, changed)
+		slog.Info("ynab-learning", "job", e.Job.ID, "changed", len(changed), "transactions", len(live.mirror.Transactions), "approvedWithSuggestion", approved, "confirmedFields", confirmed)
+		return buildLearning(live.mirror, e.excludedPayees()), nil
 	}
 	chooseWithModel = service.ChooseWithModel
 	syncMirror      = service.SyncMirror

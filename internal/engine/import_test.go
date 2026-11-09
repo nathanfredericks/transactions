@@ -64,7 +64,6 @@ type fakeYNAB struct {
 	enriched []types.Enrichment
 	dates    []string
 	deleted  []string
-	flagged  []string
 	submits  []Job
 	model    func(learn.ModelInput) (learn.ModelOutput, error)
 	mirror   *learn.Mirror
@@ -91,7 +90,7 @@ func stubYNAB(t *testing.T) *fakeYNAB {
 		}
 		return learn.ModelOutput{PayeeID: "none", NewPayeeName: "New Place", CategoryID: "cat-1"}, nil
 	}}
-	old := []any{extractAlert, loadLearning, chooseWithModel, createTransaction, accountTransaction, deleteTransaction, flagTransaction, findRules, submitJob}
+	old := []any{extractAlert, loadLearning, chooseWithModel, createTransaction, accountTransaction, deleteTransaction, findRules, submitJob}
 	extractAlert = service.ExtractAlert
 	loadLearning = func(context.Context, *Engine) (*learning, error) { return buildLearning(f.mirror, nil), nil }
 	chooseWithModel = func(_ context.Context, in learn.ModelInput) (learn.ModelOutput, string, error) {
@@ -113,7 +112,6 @@ func stubYNAB(t *testing.T) *fakeYNAB {
 	}
 	accountTransaction = func(context.Context, string) ([]*types.YNABTransaction, error) { return f.rows, nil }
 	deleteTransaction = func(_ context.Context, id string) error { f.deleted = append(f.deleted, id); return nil }
-	flagTransaction = func(_ context.Context, id, _ string) error { f.flagged = append(f.flagged, id); return nil }
 	findRules = func(context.Context, float64, string, time.Time) (*types.TransactionOverride, error) { return nil, nil }
 	submitJob = func(_ context.Context, _ *Engine, j Job) error { f.submits = append(f.submits, j); return nil }
 	t.Cleanup(func() {
@@ -123,9 +121,8 @@ func stubYNAB(t *testing.T) *fakeYNAB {
 		createTransaction = old[3].(func(context.Context, string, string, int64, types.Enrichment, string, string, *types.TransactionOverride) (*types.YNABTransaction, error))
 		accountTransaction = old[4].(func(context.Context, string) ([]*types.YNABTransaction, error))
 		deleteTransaction = old[5].(func(context.Context, string) error)
-		flagTransaction = old[6].(func(context.Context, string, string) error)
-		findRules = old[7].(func(context.Context, float64, string, time.Time) (*types.TransactionOverride, error))
-		submitJob = old[8].(func(context.Context, *Engine, Job) error)
+		findRules = old[6].(func(context.Context, float64, string, time.Time) (*types.TransactionOverride, error))
+		submitJob = old[7].(func(context.Context, *Engine, Job) error)
 	})
 	return f
 }
@@ -296,33 +293,33 @@ func TestPostedCreditRemovesOnlyAnUntouchedEcho(t *testing.T) {
 	if err := e.clearEchoes(ctx, "acct-rogers", r, "credit-1"); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.deleted) != 1 || f.deleted[0] != "t1" || len(f.flagged) != 0 {
-		t.Fatalf("deleted %v flagged %v", f.deleted, f.flagged)
+	if len(f.deleted) != 1 || f.deleted[0] != "t1" {
+		t.Fatalf("deleted %v", f.deleted)
 	}
 	// The same credit is handled once.
 	if err := e.clearEchoes(ctx, "acct-rogers", r, "credit-1"); err != nil || len(f.deleted) != 1 {
 		t.Fatalf("second pass: %v %v", f.deleted, err)
 	}
 
-	// An entry the user approved is flagged, not removed.
+	// An entry the user approved is left as it is.
 	f = stubYNAB(t)
 	e = testEngine(t, "rogers-bank", Job{ID: "posted-2"})
 	edited := pending("t2")
 	edited.Approved = true
 	f.rows = []*types.YNABTransaction{edited}
 	seedAlertWrite(t, e, "a2", echo("t2"))
-	if err := e.clearEchoes(ctx, "acct-rogers", r, "credit-2"); err != nil || len(f.deleted) != 0 || len(f.flagged) != 1 {
-		t.Fatalf("edited: deleted %v flagged %v err %v", f.deleted, f.flagged, err)
+	if err := e.clearEchoes(ctx, "acct-rogers", r, "credit-2"); err != nil || len(f.deleted) != 0 {
+		t.Fatalf("edited: deleted %v err %v", f.deleted, err)
 	}
 
-	// Two possible echoes are both flagged and neither is removed.
+	// With two possible echoes, neither is removed.
 	f = stubYNAB(t)
 	e = testEngine(t, "rogers-bank", Job{ID: "posted-3"})
 	f.rows = []*types.YNABTransaction{pending("t3"), pending("t4")}
 	seedAlertWrite(t, e, "a3", echo("t3"))
 	seedAlertWrite(t, e, "a4", echo("t4"))
-	if err := e.clearEchoes(ctx, "acct-rogers", r, "credit-3"); err != nil || len(f.deleted) != 0 || len(f.flagged) != 2 {
-		t.Fatalf("ambiguous: deleted %v flagged %v err %v", f.deleted, f.flagged, err)
+	if err := e.clearEchoes(ctx, "acct-rogers", r, "credit-3"); err != nil || len(f.deleted) != 0 {
+		t.Fatalf("ambiguous: deleted %v err %v", f.deleted, err)
 	}
 
 	// An immediate (non-late) alert is a genuine purchase and is never touched.
@@ -332,8 +329,8 @@ func TestPostedCreditRemovesOnlyAnUntouchedEcho(t *testing.T) {
 	genuine := echo("t5")
 	genuine.Stale = false
 	seedAlertWrite(t, e, "a5", genuine)
-	if err := e.clearEchoes(ctx, "acct-rogers", r, "credit-4"); err != nil || len(f.deleted)+len(f.flagged) != 0 {
-		t.Fatalf("genuine: deleted %v flagged %v err %v", f.deleted, f.flagged, err)
+	if err := e.clearEchoes(ctx, "acct-rogers", r, "credit-4"); err != nil || len(f.deleted) != 0 {
+		t.Fatalf("genuine: deleted %v err %v", f.deleted, err)
 	}
 }
 

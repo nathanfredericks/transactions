@@ -144,18 +144,6 @@ func DeleteTransaction(ctx context.Context, id string) error {
 	return client.do(ctx, http.MethodDelete, fmt.Sprintf("/budgets/%s/transactions/%s", client.budgetID, id), nil, nil)
 }
 
-// FlagTransaction marks a transaction for the user's attention without changing
-// any of its other fields.
-func FlagTransaction(ctx context.Context, id, color string) error {
-	client, err := newYNABClient(ctx)
-	if err != nil {
-		return err
-	}
-	// The bulk endpoint changes only the fields sent.
-	request := map[string]any{"transactions": []map[string]any{{"id": id, "flag_color": color}}}
-	return client.do(ctx, http.MethodPatch, fmt.Sprintf("/budgets/%s/transactions", client.budgetID), request, nil)
-}
-
 func UpdateEQTransaction(ctx context.Context, tx *types.YNABTransaction, date string, amount int64, status string) (*types.YNABTransaction, error) {
 	client, err := newYNABClient(ctx)
 	if err != nil {

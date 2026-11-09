@@ -206,7 +206,6 @@ var (
 	createAmountOnly   = service.CreateAmountOnlyTransaction
 	accountTransaction = service.GetAccountTransactions
 	deleteTransaction  = service.DeleteTransaction
-	flagTransaction    = service.FlagTransaction
 	findRules          = func(ctx context.Context, amount float64, descriptor string, at time.Time) (*types.TransactionOverride, error) {
 		rules, err := override.GetTransactionOverrides(ctx)
 		if err != nil {
@@ -394,7 +393,7 @@ func (e *Engine) requestRetrieval(ctx context.Context) error {
 
 // clearEchoes runs when a bank credit is imported. An alert this importer wrote
 // that the credit explains is removed if it is the only match and the user has
-// not touched it; otherwise each match is flagged for review in YNAB.
+// not touched it; otherwise the matches are left as they are.
 func (e *Engine) clearEchoes(ctx context.Context, account string, credit Record, creditID string) error {
 	var claim map[string]any
 	if claimed, err := e.get(ctx, "ECHO#"+creditID, &claim); err != nil || claimed {
@@ -440,17 +439,12 @@ func (e *Engine) clearEchoes(ctx context.Context, account string, credit Record,
 			return e.put(ctx, "ECHO#"+creditID, map[string]any{"jobId": e.Job.ID, "action": "removed", "transactionId": tx.ID}, e.Job.ID)
 		}
 	}
-	var flagged []string
+	var left []string
 	for _, m := range matches {
-		if tx := byID[m.w.TransactionID]; tx != nil && !tx.Deleted {
-			if err := flagTransaction(ctx, tx.ID, "red"); err != nil {
-				return err
-			}
-			flagged = append(flagged, tx.ID)
-		}
+		left = append(left, m.w.TransactionID)
 	}
-	slog.Info("flagged alerts a bank credit may repeat", "credit", creditID, "count", len(flagged))
-	return e.put(ctx, "ECHO#"+creditID, map[string]any{"jobId": e.Job.ID, "action": "flagged", "transactionIds": flagged}, e.Job.ID)
+	slog.Info("left alerts a bank credit may repeat", "credit", creditID, "count", len(left))
+	return e.put(ctx, "ECHO#"+creditID, map[string]any{"jobId": e.Job.ID, "action": "left", "transactionIds": left}, e.Job.ID)
 }
 
 // untouched reports whether a transaction is still exactly as the importer wrote it.

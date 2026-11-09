@@ -80,11 +80,11 @@ type Suggestion struct {
 	At             time.Time `json:"at"`
 }
 
-// Mirror is a local copy of the budget, kept current with YNAB delta requests.
+// Mirror is the budget as read from YNAB. A delta request updates it with only
+// what changed since its last read.
 type Mirror struct {
 	Version      int                               `json:"version"`
 	Knowledge    map[string]int64                  `json:"knowledge"`
-	SyncedAt     time.Time                         `json:"syncedAt"`
 	Transactions map[string]*types.YNABTransaction `json:"transactions"`
 	Payees       map[string]*Payee                 `json:"payees"`
 	Categories   map[string]*Category              `json:"categories"`
@@ -122,17 +122,6 @@ func (m *Mirror) Fill() {
 	}
 	if m.CategorySeen == nil {
 		m.CategorySeen = map[string]string{}
-	}
-}
-
-// Prune drops settled transactions dated before cutoff, with their suggestions.
-// Unapproved transactions are kept whatever their date.
-func (m *Mirror) Prune(cutoff string) {
-	for id, t := range m.Transactions {
-		if t.Date < cutoff && (t.Approved || t.Deleted) {
-			delete(m.Transactions, id)
-			delete(m.Suggestions, id)
-		}
 	}
 }
 

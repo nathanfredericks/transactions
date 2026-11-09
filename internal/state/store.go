@@ -199,68 +199,6 @@ func (s *Store) PutPlain(ctx context.Context, pk, sk string, value any) error {
 	return err
 }
 
-// GetMany reads items by sort key under one partition, up to 100 per request.
-func (s *Store) GetMany(ctx context.Context, pk string, sks []string) (map[string]json.RawMessage, error) {
-	out := map[string]json.RawMessage{}
-	for start := 0; start < len(sks); start += 100 {
-		end := min(start+100, len(sks))
-		var keys []map[string]d.AttributeValue
-		for _, sk := range sks[start:end] {
-			keys = append(keys, key(pk, sk))
-		}
-		request := map[string]d.KeysAndAttributes{s.Table: {Keys: keys, ConsistentRead: aws.Bool(true)}}
-		for attempt := 0; len(request) > 0; attempt++ {
-			if attempt > 5 {
-				return nil, fmt.Errorf("unprocessed keys remain")
-			}
-			r, err := s.DB.BatchGetItem(ctx, &dynamodb.BatchGetItemInput{RequestItems: request})
-			if err != nil {
-				return nil, err
-			}
-			for _, item := range r.Responses[s.Table] {
-				skv, _ := item["sk"].(*d.AttributeValueMemberS)
-				v, _ := item["data"].(*d.AttributeValueMemberS)
-				if skv != nil && v != nil {
-					out[skv.Value] = json.RawMessage(v.Value)
-				}
-			}
-			request = r.UnprocessedKeys
-			if len(request) > 0 {
-				time.Sleep(time.Duration(50<<attempt) * time.Millisecond)
-			}
-		}
-	}
-	return out, nil
-}
-
-// GetObject reads an S3 object and its ETag. found is false when it is absent.
-func (s *Store) GetObject(ctx context.Context, k string) (body []byte, etag string, found bool, err error) {
-	r, err := s.S3.GetObject(ctx, &s3.GetObjectInput{Bucket: &s.Bucket, Key: &k})
-	var missing *s3types.NoSuchKey
-	if errors.As(err, &missing) {
-		return nil, "", false, nil
-	}
-	if err != nil {
-		return nil, "", false, err
-	}
-	defer r.Body.Close()
-	body, err = io.ReadAll(io.LimitReader(r.Body, 64*1024*1024))
-	return body, aws.ToString(r.ETag), true, err
-}
-
-// PutObjectIf writes an S3 object only if it still has etag, or, with etag "",
-// only if it does not exist yet. A concurrent writer makes it fail.
-func (s *Store) PutObjectIf(ctx context.Context, k string, body []byte, contentType, etag string) error {
-	in := &s3.PutObjectInput{Bucket: &s.Bucket, Key: &k, Body: bytes.NewReader(body), ContentType: aws.String(contentType), ServerSideEncryption: s3types.ServerSideEncryptionAes256}
-	if etag == "" {
-		in.IfNoneMatch = aws.String("*")
-	} else {
-		in.IfMatch = aws.String(etag)
-	}
-	_, err := s.S3.PutObject(ctx, in)
-	return err
-}
-
 func (s *Store) Upload(ctx context.Context, prefix string, value any) (string, error) {
 	b, e := json.Marshal(value)
 	if e != nil {
