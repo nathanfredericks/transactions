@@ -370,8 +370,18 @@ func (b *Browser) Close() error {
 	return err
 }
 
+// stateFor finds the wrapper state from the page's context or, when a caller
+// replaced that context (p.Context, p.Timeout), from the page's browser.
+func stateFor(p *rod.Page) (*runtimeState, bool) {
+	if state, ok := p.GetContext().Value(runtimeKey{}).(*runtimeState); ok {
+		return state, true
+	}
+	state, ok := p.Browser().GetContext().Value(runtimeKey{}).(*runtimeState)
+	return state, ok
+}
+
 func SetupPage(p *rod.Page) (*human.Page, error) {
-	state, ok := p.GetContext().Value(runtimeKey{}).(*runtimeState)
+	state, ok := stateFor(p)
 	if !ok {
 		return nil, nil
 	}
@@ -393,12 +403,23 @@ type pageEntry struct {
 }
 
 func ForPage(p *rod.Page) (*human.Page, bool) {
-	state, ok := p.GetContext().Value(runtimeKey{}).(*runtimeState)
+	result, err := Humanizer(p)
+	return result, err == nil && result != nil
+}
+
+// Humanizer returns the page's humanizer, or nil for a browser launched
+// without one. A humanized browser whose page cannot be set up is an error,
+// never a silent fallback to plain input.
+func Humanizer(p *rod.Page) (*human.Page, error) {
+	state, ok := stateFor(p)
 	if !ok || !state.options.Humanize {
-		return nil, false
+		return nil, nil
 	}
 	result, err := SetupPage(p)
-	return result, err == nil && result != nil
+	if err == nil && result == nil {
+		err = errors.New("humanizer unavailable")
+	}
+	return result, err
 }
 
 func (s *runtimeState) setup(p *rod.Page) (*human.Page, error) {

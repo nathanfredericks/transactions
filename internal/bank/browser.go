@@ -244,7 +244,11 @@ func BrowserSession(b *rod.Browser, id string, headers map[string]string, auth a
 func Input(p *rod.Page, selector, value string) error { return enterText(p, selector, value, false) }
 func Type(p *rod.Page, selector, value string) error  { return enterText(p, selector, value, true) }
 func enterText(p *rod.Page, selector, value string, typed bool) error {
-	if human, ok := cloak.ForPage(p); ok {
+	human, err := cloak.Humanizer(p)
+	if err != nil {
+		return Fail(Temporary, "humanizer")
+	}
+	if human != nil {
 		// Original fill() and pressSequentially() compose different focus/clear paths.
 		var err error
 		if typed {
@@ -295,7 +299,11 @@ func enterText(p *rod.Page, selector, value string, typed bool) error {
 const visibleButtonJS = `(selector,label)=>Array.from(document.querySelectorAll(selector)).find(el=>el.getClientRects().length && getComputedStyle(el).visibility!=="hidden" && getComputedStyle(el).pointerEvents!=="none" && !el.disabled && el.getAttribute("aria-disabled")!=="true" && new RegExp(label).test((el.getAttribute("aria-label")||el.innerText||el.textContent).trim()))||null`
 
 func Click(p *rod.Page, selector, label string) error {
-	if human, ok := cloak.ForPage(p); ok {
+	human, err := cloak.Humanizer(p)
+	if err != nil {
+		return Fail(Temporary, "humanizer")
+	}
+	if human != nil {
 		if err := human.Click(selector, label); err != nil {
 			return Fail(Temporary, "button-events")
 		}
@@ -328,7 +336,11 @@ func LogControls(p *rod.Page) {
 
 // ClickIfPresent handles known informational screens without delaying normal API access.
 func ClickIfPresent(p *rod.Page, selector, label string, timeout time.Duration) (bool, error) {
-	if human, ok := cloak.ForPage(p); ok {
+	human, err := cloak.Humanizer(p)
+	if err != nil {
+		return false, Fail(Temporary, "humanizer")
+	}
+	if human != nil {
 		ctx, cancel := context.WithTimeout(p.GetContext(), timeout)
 		_, err := human.Context(ctx).ElementLabel(selector, label)
 		cancel()
@@ -368,7 +380,11 @@ func NewPage(ctx context.Context, b *rod.Browser) (*rod.Page, error) {
 
 // ClickElement ensures handle-level operations follow the same behavior layer.
 func ClickElement(p *rod.Page, el *rod.Element) error {
-	if human, ok := cloak.ForPage(p); ok {
+	human, err := cloak.Humanizer(p)
+	if err != nil {
+		return Fail(Temporary, "humanizer")
+	}
+	if human != nil {
 		return human.Wrap(el).Click()
 	}
 	return el.Click(proto.InputMouseButtonLeft, 1)
