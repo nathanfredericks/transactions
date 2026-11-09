@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -94,10 +95,7 @@ func main() {
 	lambdaFn := func(name string, r awscdk.CfnResource) awscdk.CfnResource {
 		logs := res(name+"Logs", "AWS::Logs::LogGroup", M{"LogGroupName": "/transactions-engine/" + name, "RetentionInDays": 14})
 		retain(logs)
-		vars := M{}
-		for k, v := range env {
-			vars[k] = v
-		}
+		vars := maps.Clone(env)
 		vars["ROLE"] = name
 		f := res(name, "AWS::Lambda::Function", M{"FunctionName": "transactions-engine-" + name, "Runtime": "provided.al2023", "Architectures": []string{"arm64"}, "Handler": "bootstrap", "MemorySize": 512, "Timeout": 180, "Role": att(r, "Arn"), "Code": M{"S3Bucket": asset.S3BucketName(), "S3Key": asset.S3ObjectKey()}, "Environment": M{"Variables": vars}, "LoggingConfig": M{"LogFormat": "JSON", "LogGroup": logs.Ref()}})
 		return f

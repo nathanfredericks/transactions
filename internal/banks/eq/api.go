@@ -246,7 +246,7 @@ func cardHistory(ctx context.Context, h *bank.HTTP, start, end string) ([]bank.R
 
 func newHTTP(s *bank.Session) *bank.HTTP {
 	h := bank.NewHTTP(s)
-	h.Check = func(status int, body []byte) error {
+	h.Check = func(_ int, body []byte) error {
 		lower := strings.ToLower(string(body))
 		if strings.Contains(lower, "scheduled maintenance") && strings.Contains(lower, "eqbankstatus.ca") {
 			return bank.Fail(bank.Maintenance, "bank-api")

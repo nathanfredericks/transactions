@@ -243,7 +243,7 @@ var identifier = regexp.MustCompile(`^[A-Za-z0-9_-]{1,100}$`)
 
 func (s *Server) Control() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/status", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v1/status", func(w http.ResponseWriter, _ *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		n := 0
@@ -265,7 +265,7 @@ func (s *Server) Control() http.Handler {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.failed {
-			http.Error(w, "broker unavailable", 503)
+			http.Error(w, "broker unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		for _, v := range s.state.Reservations {
@@ -281,19 +281,19 @@ func (s *Server) Control() http.Handler {
 			}
 		}
 		if live >= 100 {
-			http.Error(w, "broker busy", 429)
+			http.Error(w, "broker busy", http.StatusTooManyRequests)
 			return
 		}
 		var b [24]byte
 		if _, e := rand.Read(b[:]); e != nil {
-			http.Error(w, "broker unavailable", 503)
+			http.Error(w, "broker unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		v := Reservation{ID: hex.EncodeToString(b[:]), Request: q, Status: "queued", CreatedAt: time.Now(), ExpiresAt: time.Now().Add(75 * time.Second)}
 		s.state.Reservations = append(s.state.Reservations, v)
 		s.save()
 		if s.failed {
-			http.Error(w, "broker unavailable", 503)
+			http.Error(w, "broker unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		jsonResponse(w, 202, v)
@@ -325,7 +325,7 @@ func (s *Server) Control() http.Handler {
 					s.save()
 				}
 				if s.failed {
-					http.Error(w, "broker unavailable", 503)
+					http.Error(w, "broker unavailable", http.StatusServiceUnavailable)
 					return
 				}
 				w.WriteHeader(204)
@@ -345,13 +345,13 @@ func (s *Server) Control() http.Handler {
 		s.rateMu.Unlock()
 		if limited {
 			w.Header().Set("Retry-After", "1")
-			http.Error(w, "rate limited", 429)
+			http.Error(w, "rate limited", http.StatusTooManyRequests)
 			return
 		}
 		supplied := r.Header.Get("Authorization")
 		expected := "Bearer " + s.Token
 		if subtle.ConstantTimeCompare([]byte(supplied), []byte(expected)) != 1 {
-			http.Error(w, "unauthorized", 401)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		mux.ServeHTTP(w, r)
@@ -384,8 +384,8 @@ func (w proxyWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 func (s *Server) CDP() http.Handler {
 	upstream, _ := url.Parse(s.Supervisor.Upstream)
 	proxy := httputil.NewSingleHostReverseProxy(upstream)
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, e error) {
-		http.Error(w, "browser unavailable; navigate again", 503)
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
+		http.Error(w, "browser unavailable; navigate again", http.StatusServiceUnavailable)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {
@@ -402,7 +402,7 @@ func (s *Server) CDP() http.Handler {
 		if blocked {
 			s.mu.Unlock()
 			w.Header().Set("Retry-After", "5")
-			http.Error(w, "browser reserved; navigate again after release", 503)
+			http.Error(w, "browser reserved; navigate again after release", http.StatusServiceUnavailable)
 			return
 		}
 		s.owner = "hermes"
@@ -423,7 +423,7 @@ func (s *Server) CDP() http.Handler {
 			return true
 		}) != nil {
 			_ = s.Supervisor.Stop()
-			http.Error(w, "browser unavailable", 503)
+			http.Error(w, "browser unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		// A bank request can arrive while the launcher is starting.
@@ -436,7 +436,7 @@ func (s *Server) CDP() http.Handler {
 		}
 		s.mu.Unlock()
 		if blocked {
-			http.Error(w, "browser reserved", 503)
+			http.Error(w, "browser reserved", http.StatusServiceUnavailable)
 			return
 		}
 		proxy.ServeHTTP(proxyWriter{ResponseWriter: w, sup: s.Supervisor}, r)

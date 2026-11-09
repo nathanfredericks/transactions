@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	// Registers the character sets bank alert emails use.
 	_ "github.com/emersion/go-message/charset"
 	message "github.com/emersion/go-message/mail"
 	"github.com/k3a/html2text"
@@ -39,29 +40,31 @@ func Parse(raw []byte) (*ParsedEmail, error) {
 	result := &ParsedEmail{MessageID: strings.Trim(r.Header.Get("Message-ID"), "<> \t"), From: from[0].Address, Subject: subject, Date: date}
 	for {
 		part, e := r.NextPart()
-		if e == io.EOF {
+		if errors.Is(e, io.EOF) {
 			break
 		}
 		if e != nil {
 			return nil, e
 		}
-		if h, ok := part.Header.(*message.InlineHeader); ok {
-			kind, _, e := h.ContentType()
-			if e != nil {
-				return nil, e
-			}
-			if kind != "text/plain" && kind != "text/html" {
-				continue
-			}
-			body, e := io.ReadAll(io.LimitReader(part.Body, 1024*1024+1))
-			if e != nil || len(body) > 1024*1024 {
-				return nil, errors.New("email part too large or unreadable")
-			}
-			if kind == "text/html" {
-				result.HTML = string(body)
-			} else {
-				result.Text = string(body)
-			}
+		h, ok := part.Header.(*message.InlineHeader)
+		if !ok {
+			continue
+		}
+		kind, _, e := h.ContentType()
+		if e != nil {
+			return nil, e
+		}
+		if kind != "text/plain" && kind != "text/html" {
+			continue
+		}
+		body, e := io.ReadAll(io.LimitReader(part.Body, 1024*1024+1))
+		if e != nil || len(body) > 1024*1024 {
+			return nil, errors.New("email part too large or unreadable")
+		}
+		if kind == "text/html" {
+			result.HTML = string(body)
+		} else {
+			result.Text = string(body)
 		}
 	}
 	if result.Text == "" {

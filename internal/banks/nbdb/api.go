@@ -117,7 +117,7 @@ func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, erro
 	return s, bank.Fail(bank.Authentication, "authorization")
 }
 
-func (a *Adapter) Fetch(ctx context.Context, s bank.Session, r bank.FetchRequest) (bank.Snapshot, bank.Session, error) {
+func (a *Adapter) Fetch(ctx context.Context, s bank.Session, _ bank.FetchRequest) (bank.Snapshot, bank.Session, error) {
 	out := bank.Snapshot{At: time.Now()}
 	var data struct {
 		Data struct {

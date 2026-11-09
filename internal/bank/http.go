@@ -29,8 +29,8 @@ func NewHTTP(s *Session) *HTTP {
 	jar, _ := cookiejar.New(nil)
 	for _, c := range s.Cookies {
 		if u, e := url.Parse(c.URL); e == nil {
-			copy := c.Value
-			jar.SetCookies(u, []*http.Cookie{&copy})
+			cookie := c.Value
+			jar.SetCookies(u, []*http.Cookie{&cookie})
 		}
 	}
 	return &HTTP{Session: s, Client: &http.Client{Jar: jar, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}

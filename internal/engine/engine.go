@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"math"
@@ -418,12 +417,6 @@ func (e *Engine) RecoverBrowser(ctx context.Context, r Request) (Outcome, error)
 	defer e.Store.Release(ctx, e.Lease)
 	e.Job.Attempt = 2 // A launch/timeout failure is infrastructure failure, not rejected credentials.
 	return e.failure(ctx, bank.Fail(bank.Temporary, "browser-task-incomplete"))
-}
-
-func decode[T any](raw json.RawMessage) (T, error) {
-	var out T
-	err := json.Unmarshal(raw, &out)
-	return out, err
 }
 
 // A token exchange is never blindly replayed after an uncertain transport result.

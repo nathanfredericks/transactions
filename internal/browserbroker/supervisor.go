@@ -104,7 +104,7 @@ func (s *Supervisor) Ensure(ctx context.Context, allowed func() bool) error {
 }
 
 func (s *Supervisor) CloseConnections() {
-	s.connections.Range(func(k, v any) bool { _ = k.(net.Conn).Close(); s.connections.Delete(k); return true })
+	s.connections.Range(func(k, _ any) bool { _ = k.(net.Conn).Close(); s.connections.Delete(k); return true })
 }
 
 func (s *Supervisor) Stop() error {

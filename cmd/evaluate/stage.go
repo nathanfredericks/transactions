@@ -308,9 +308,10 @@ func score(cases []Case, path string, pr map[string]price, out string) {
 				}
 			case cs.Reachable:
 				a.reachN++
-				if c.Output.PayeeID == cs.Label {
+				switch c.Output.PayeeID {
+				case cs.Label:
 					ok = true
-				} else if c.Output.PayeeID == "none" {
+				case "none":
 					a.missed++
 				}
 			}

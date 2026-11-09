@@ -393,8 +393,7 @@ func (e *Engine) clearEchoes(ctx context.Context, account string, credit Record,
 		return err
 	}
 	type match struct {
-		key string
-		w   Write
+		w Write
 	}
 	var matches []match
 	for _, item := range raw {

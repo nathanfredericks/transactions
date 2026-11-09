@@ -30,7 +30,7 @@ type ynabClient struct {
 
 var errDuplicateImport = errors.New("YNAB retained the import identity")
 
-type ynabErrorResponse struct {
+type ynabError struct {
 	APIError *struct {
 		ID     string `json:"id"`
 		Name   string `json:"name"`
@@ -38,7 +38,7 @@ type ynabErrorResponse struct {
 	} `json:"error"`
 }
 
-func (e *ynabErrorResponse) Error() string {
+func (e *ynabError) Error() string {
 	if e == nil || e.APIError == nil {
 		return "ynab api: unknown error"
 	}
@@ -120,7 +120,7 @@ func (c *ynabClient) do(ctx context.Context, method string, path string, request
 	}
 
 	if res.StatusCode >= 400 {
-		apiErr := &ynabErrorResponse{}
+		apiErr := &ynabError{}
 		if err := json.Unmarshal(body, apiErr); err == nil && apiErr.APIError != nil {
 			return apiErr
 		}

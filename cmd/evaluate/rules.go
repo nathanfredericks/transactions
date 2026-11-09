@@ -109,7 +109,6 @@ func rules(m *learn.Mirror, ex []learn.Example, out string) {
 	var w strings.Builder
 	fmt.Fprintf(&w, "# Rules check\n\nRecent window: %s to %s. \"Matches\" are approved purchases the rule's query selects. \"You approved it\" means your approved transaction has the rule's payee, category and memo. \"Learning reproduces it\" replays history forward in time with no rules, and counts matches where learning alone (history, no model) sets the same payee, category and memo, among those you approved as the rule says.\n\n", from, dates[len(dates)-1])
 	fmt.Fprintf(&w, "| Rule | Sets | Matches (2 yrs / recent) | You approved it (recent) | Learning reproduces it | Verdict |\n|---|---|---|---|---|---|\n")
-	type verdict struct{ id, text string }
 	var details []string
 	for _, r := range all {
 		ms := matches[r.ID]

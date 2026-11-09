@@ -101,9 +101,9 @@ func (o *Observer) Latest(match func(Exchange) bool) (Exchange, bool) {
 	defer o.mu.Unlock()
 	var latest *Exchange
 	for _, v := range o.items {
-		copy := *v
-		if match(copy) && (latest == nil || copy.Sequence > latest.Sequence) {
-			latest = &copy
+		exchange := *v
+		if match(exchange) && (latest == nil || exchange.Sequence > latest.Sequence) {
+			latest = &exchange
 		}
 	}
 	if latest != nil {
@@ -119,9 +119,9 @@ func (o *Observer) Matches(match func(Exchange) bool) []Exchange {
 	defer o.mu.Unlock()
 	var result []Exchange
 	for _, value := range o.items {
-		copy := *value
-		if match(copy) {
-			result = append(result, copy)
+		exchange := *value
+		if match(exchange) {
+			result = append(result, exchange)
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Sequence < result[j].Sequence })
