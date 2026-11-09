@@ -114,11 +114,6 @@ linters:
       - path: ^internal/engine/admin\.go$
         linters: [gocritic, musttag]
 
-      # P2 removes the admin hosting block and rewrites cdk.go as the only
-      # deploy path.
-      - path: ^cdk/
-        linters: [gosec, nestif, noctx, unparam]
-
       # The offline replay harness and the learner belong to the learning
       # work (D12); no phase restructures them.
       - path: ^cmd/evaluate/

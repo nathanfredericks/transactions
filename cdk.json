@@ -2,15 +2,6 @@
   "app": "go build -C cdk -o ../dist/cdk-app . && dist/cdk-app",
   "context": {
     "activate": "true",
-    "repository": "https://github.com/nathanfredericks/transactions",
-    "adminBranch": "main",
-    "adminDomain": "fredericks.app",
-    "adminSubdomain": "transactions-admin",
-    "adminCertificateArn": "arn:aws:acm:us-east-1:187489282488:certificate/dea000aa-76aa-4629-a7e7-9e7099d4031a",
-    "adminBaseUrl": "https://transactions-admin.fredericks.app",
-    "adminAuth0Domain": "auth.fredericks.app",
-    "adminAllowedEmails": "nathan@fredericks.dev",
-    "secretArn": "arn:aws:secretsmanager:ca-central-1:187489282488:secret:Transactions-1WJlTp",
-    "adminAuth0ClientId": "bWjZGouH6e1NZ1HGFa6abxuEShBjx1pA"
+    "secretArn": "arn:aws:secretsmanager:ca-central-1:187489282488:secret:Transactions-1WJlTp"
   }
 }

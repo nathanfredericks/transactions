@@ -1,6 +1,12 @@
-.git
-dist
-cdk
-cdk.out
-.env*
-*.local.json
+# Allowlist: only what Dockerfile and Dockerfile.broker copy. Anything else
+# would change the CDK image asset hash and rebuild the browser image.
+*
+!Dockerfile
+!go.mod
+!go.sum
+!internal
+!cmd/browser
+!cmd/browser-broker
+!third_party/cloakbrowser-0.3.25/LICENSE
+!third_party/cloakbrowser-0.3.25/PLAYWRIGHT-LICENSE
+!third_party/cloakbrowser-0.6.0/LICENSE

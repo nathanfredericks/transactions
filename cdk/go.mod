@@ -5,18 +5,6 @@ go 1.26.10
 require (
 	github.com/aws/aws-cdk-go/awscdk/v2 v2.253.0
 	github.com/aws/jsii-runtime-go v1.128.0
-	github.com/nathanfredericks/transactions v0.0.0-00010101000000-000000000000
-)
-
-require (
-	github.com/go-rod/rod v0.116.2 // indirect
-	github.com/google/uuid v1.6.0 // indirect
-	github.com/k3a/html2text v1.3.0 // indirect
-	github.com/ysmood/fetchup v0.2.3 // indirect
-	github.com/ysmood/goob v0.4.0 // indirect
-	github.com/ysmood/got v0.40.0 // indirect
-	github.com/ysmood/gson v0.7.3 // indirect
-	github.com/ysmood/leakless v0.9.0 // indirect
 )
 
 require (
@@ -38,5 +26,3 @@ require (
 	golang.org/x/tools/cmd/godoc v0.1.0-deprecated // indirect
 	golang.org/x/tools/godoc v0.1.0-deprecated // indirect
 )
-
-replace github.com/nathanfredericks/transactions => ..
