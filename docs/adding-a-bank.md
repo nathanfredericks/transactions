@@ -10,9 +10,9 @@ type Adapter interface {
 }
 ```
 
-Choose an existing strategy (`posted`, `reconcile`, `balances`), schedule and browser. Reconciliation registrations supply an import prefix and purchase-account label. CDK iterates the registry to create credential references and schedules; it does not add a Lambda, workflow or task definition per bank.
+Choose an existing strategy (`posted`, `reconcile`, `balances`), schedule and browser. Reconciliation registrations supply an import prefix and purchase-account label. CDK iterates the registry to create one schedule per bank; it does not add a Lambda, workflow, task definition or secret per bank.
 
-Add configuration with its expected account UUIDs, exclusions, history start and MFA sender/subject. Populate its CDK-created bank secret with `username`, `password`, `mailToken`. Keep `enabled` false until verification. Session renewal timing is returned in the session; ordinary fetches must return rotated tokens and cookies even when a later response fails validation.
+Add configuration with its expected account UUIDs, exclusions, history start and MFA sender/subject. Add its login to the single `Transactions` secret: an entry under the `BANKS` map, keyed by the registry ID, with `username`, `password` and `mailToken`. All three must be non-empty. Keep `enabled` false until verification. Session renewal timing is returned in the session; ordinary fetches must return rotated tokens and cookies even when a later response fails validation.
 
 Adapters only implement bank protocols. They must not use DynamoDB/S3, notify, call YNAB or retry requests independently. Use bounded Rod operations without `Must` calls. Translate known responses to typed failures; a timeout, generic 403 or malformed response is not evidence of expiry. Never log response bodies or authentication data. Account-only fetches must validate the same identities without importing.
 

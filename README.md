@@ -74,22 +74,21 @@ See [cutover and verification](docs/cutover.md) and [adding a bank](docs/adding-
 
 ## Build and inspect
 
-No mocks, new test files or test-suite runs are used for this rebuild. CI performs only static checks and builds.
+The repository has no tests. CI runs static checks and builds on pull requests and pushes to `main`: `golangci-lint` (with the `gofumpt` and `goimports` formatters), `govulncheck`, `go mod tidy -diff`, `go vet`, `go build` and `cdk synth`, for the root module and the `cdk` module. Release evidence is the `cmd/evaluate` replay and live dry runs through the [local verification loop](docs/local-verification.md).
+
+The `cdk` module is separate and points at the root module with a `replace` directive, so no `go.work` is needed; delete any local one, or keep `GOWORK=off` set. The CDK app builds from `cdk/` and runs from the repository root.
 
 ```sh
-GOWORK=off go build ./...
-go vet ./...
-(cd cdk && go build ./... && go vet ./...)
+export GOWORK=off
+go build ./... && go vet ./... && golangci-lint run && govulncheck ./... && go mod tidy -diff
+(cd cdk && go build ./... && go vet ./... && golangci-lint run && govulncheck ./... && go mod tidy -diff)
 npm --prefix admin ci --ignore-scripts
 npm --prefix admin run typecheck
 npm --prefix admin run lint
 npm --prefix admin run build
-# If a local workspace does not exist: go work init . ./cdk
 npx --yes aws-cdk@2.1144.0 synth --output dist/cdk
 docker build --platform linux/arm64 --secret id=cloak_license,src="$HOME/.cloakbrowser/license.key" -t transactions-engine-browser:verify .
 ```
-
-Existing source-level tests in retained packages are historical, and are not the release evidence for this rebuild. The retired coordinator/handler implementations and their tests were removed with the old runtime.
 
 Production releases use committed, pushed `main` source. Run
 `python3 scripts/deploy-main.py release` from a clean `main` checkout to rebuild
