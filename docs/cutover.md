@@ -29,11 +29,9 @@ go run ./cmd/operator -action job.retry -bank rogers-bank -job JOB_ID
 
 Dry-run payload: `{"version":1,"jobId":"unique-stable-id","bank":"eq-bank","source":"manual","purpose":"retrieve","dryRun":true}`.
 
-Baseline approval: `{"approved":true,"links":{"BANK_ACCOUNT_UUID#BANK_RECORD_ID":"YNAB_TRANSACTION_ID"},"settlements":{"BANK_ACCOUNT_UUID#POSTED_RECORD_ID":"YNAB_PENDING_TRANSACTION_ID"},"newRecords":["BANK_ACCOUNT_UUID#MISSING_RECORD_ID"]}`. Every record must link to an existing YNAB entry or be explicitly marked for import after cutover. Missing posted transactions are never silently marked as handled. The backend revalidates identities, amounts and dates, rejects duplicate links and unknown records, and prevents re-importing an existing stable import ID. An existing posted entry with that exact ID can be explicitly retained despite user edits. A settlement decision links a posted bank record to an existing uncleared entry, including reviewed foreign-exchange differences. The first import updates only its bank fields and preserves payee/category/memo; the reviewed amount/date are checked again before writing. Approval is not an import. The admin provides the same choices with nearby matching YNAB entries; no JSON editing is required.
+Baseline approval: `{"approved":true,"links":{"BANK_ACCOUNT_UUID#BANK_RECORD_ID":"YNAB_TRANSACTION_ID"},"settlements":{"BANK_ACCOUNT_UUID#POSTED_RECORD_ID":"YNAB_PENDING_TRANSACTION_ID"},"newRecords":["BANK_ACCOUNT_UUID#MISSING_RECORD_ID"]}`. Every record must link to an existing YNAB entry or be explicitly marked for import after cutover. Missing posted transactions are never silently marked as handled. The backend revalidates identities, amounts and dates, rejects duplicate links and unknown records, and prevents re-importing an existing stable import ID. An existing posted entry with that exact ID can be explicitly retained despite user edits. A settlement decision links a posted bank record to an existing uncleared entry, including reviewed foreign-exchange differences. The first import updates only its bank fields and preserves payee/category/memo; the reviewed amount/date are checked again before writing. Approval is not an import.
 
 NBDB review: action `review.balance`, payload `{"accountId":"BANK_ACCOUNT_UUID","decision":"confirmed","transactionId":"YNAB_TRANSACTION_ID"}` or an explicitly reviewed `not-written` decision. A bank authentication reset never clears this hold.
-
-A webhook POST to `/webhook` requires the configured bearer token and `bank`, `notification`, stable `eventId`, and `occurredAt` timestamp. Success returns `202` and a durable `jobId`. Reusing an event ID with a different payload is rejected. Do not resend with new IDs to work around uncertain outcomes.
 
 ## Measure
 
@@ -41,7 +39,7 @@ CloudWatch structured `bank-job` records contain bank, purpose, outcome, browser
 
 Confirm SNS email delivery independently, and inspect the delivery-failure queue and failed application notification rows. Successful scheduled retrieval and routine renewal are quiet. A lost Pushover response may duplicate a notification, but never retries a financial write.
 
-The user confirmed on 6 October 2026 that the webhook is no longer used. No active webhook sender needs migration; the endpoint remains available for future configured senders.
+The user confirmed on 6 October 2026 that the webhook is no longer used. The webhook handler has since been deleted.
 
 ## Completed deployment
 

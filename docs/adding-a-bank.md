@@ -18,4 +18,4 @@ Adapters only implement bank protocols. They must not use DynamoDB/S3, notify, c
 
 Prove login, independent-invocation API reads and supported renewal using real accounts. Compare complete normalized snapshots and transaction identities to the bank's displayed data. If a protocol cannot renew, return authentication-required so the shared worker signs in. Do not invent refresh-token support from an OAuth vendor name.
 
-Email/webhook-only banks use the existing configured notification pipeline. A provider with a new kind of alert may require protocol-specific parsing; keep it inside its adapter/registration rather than adding another importer or workflow.
+Email-only banks use the existing configured notification pipeline. A provider with a new kind of alert may require protocol-specific parsing; keep it inside its adapter/registration rather than adding another importer or workflow.

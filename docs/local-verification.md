@@ -46,9 +46,6 @@ AWS_REGION=ca-central-1 go run ./cmd/operator -action bank.resume -bank eq-bank
 go build ./...
 go vet ./...
 (cd cdk && go build ./... && go vet ./...)
-npm --prefix admin run typecheck
-npm --prefix admin run lint
-npm --prefix admin run build
 ```
 
 Keep the agreed restriction against mocks, new test files and test-suite runs. Real local bank checks, static checks and builds are the development loop.
@@ -80,7 +77,7 @@ docker run --rm --init --mount "type=bind,src=$PWD,dst=/workspace" --workdir /wo
 scripts/cloak/binary.sh info
 ```
 
-The reference script imports the installed pinned wrapper from the browsers stage. `binary.sh` also supports deliberate `install`, `update` and `clear-cache`, with an optional operator cache directory. These commands are never invoked by production; do not update the pinned validation image while comparing behavior. Optional external proxy/GeoIP paths need their own real configured checks before operational use.
+The reference script imports the installed pinned wrapper from the browsers stage. `binary.sh` also supports deliberate `install`, `update` and `clear-cache`, with an optional operator cache directory. These commands are never invoked by production; do not update the pinned validation image while comparing behavior.
 
 ## NBDB browser identity
 

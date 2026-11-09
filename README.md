@@ -1,15 +1,14 @@
 # Transactions
 
-One Go application imports bank transactions and balances into YNAB. Bank protocols live in adapters; a shared engine owns authentication state, leases, reconciliation, writes and notification delivery. The Next.js admin is in `admin/` and calls the Go gateway through IAM-authenticated Lambda invocation.
+One Go application imports bank transactions and balances into YNAB. Bank protocols live in adapters; a shared engine owns authentication state, leases, reconciliation, writes and notification delivery.
 
 ```mermaid
 flowchart TD
   Email[SES email] --> S3[Private S3: incoming email]
   S3 --> Gateway[Gateway Lambda]
-  Webhook[Authenticated webhook + stable event ID] --> Gateway
   Schedule[EventBridge schedules] --> Gateway
-  Admin[Next.js admin / operator command] --> Gateway
-  Gateway --> State[(DynamoDB: jobs, leases, incidents, rules, ledger)]
+  Operator[Operator command] --> Gateway
+  Gateway --> State[(DynamoDB: jobs, leases, incidents, ledger)]
   Gateway --> Workflow[One Step Functions workflow]
   Workflow --> Engine[Processor Lambda: shared engine]
   Engine --> Lease[Acquire bank lease and generation]
@@ -35,12 +34,11 @@ flowchart TD
 - `internal/banks`: EQ, Rogers and NBDB adapters; registry owns schedules, browser selection and import strategy.
 - `internal/engine`: one orchestration, retry, baseline, import and notification implementation.
 - `internal/state`: one DynamoDB fencing and S3 persistence implementation.
-- `internal/service`, `internal/override`, `internal/email`, `internal/notify`: reused YNAB, AI, JSONLogic, MIME and Pushover code.
+- `internal/service`, `internal/email`, `internal/notify`: reused YNAB, AI, MIME and Pushover code.
 - `cmd/lambda`: gateway and processor roles from the same Go binary.
 - `cmd/browser`: bounded Rod authentication worker; no YNAB secret permission.
 - `cmd/operator`: administrative API client; no session-reading operation.
 - `cdk`: Go CDK definition for the complete runtime. No NAT gateway or always-running worker.
-- `admin`: thin Next.js rule editor, job delivery status, authentication reset and baseline review.
 
 ## Operational rules
 
@@ -50,23 +48,17 @@ A bank lease fences every state change with a generation. Session objects are im
 
 EQ four-hour imports process cleared transactions only. Purchase-alert jobs retain the pending authorization import path.
 
-EQ authentication runs on demand during four-hour imports and purchase-alert lookups. These jobs reuse usable sessions and renew or launch browser authentication when needed; sessions may expire between jobs, so purchase alerts can take longer to resolve. There is no background EQ upkeep schedule. Previously queued EQ upkeep jobs finish without authentication or bank requests. Explicit manual session verification remains available and has no import path. Rogers/NBDB authenticate when their scheduled retrieval needs it. Bank-enforced session limits still apply.
+EQ authentication runs on demand during four-hour imports and purchase-alert lookups. These jobs reuse usable sessions and renew or launch browser authentication when needed; sessions may expire between jobs, so purchase alerts can take longer to resolve. There is no background EQ upkeep schedule. Explicit manual session verification remains available and has no import path. Rogers/NBDB authenticate when their scheduled retrieval needs it. Bank-enforced session limits still apply.
 
 YNAB writes have no generic retry wrapper. Transaction creation uses stable import IDs; updates check the identified transaction after uncertain completion. An uncertain NBDB adjustment leaves an account hold that later jobs cannot bypass. Notifications have separate status and bounded delivery attempts; retrying delivery cannot import anything.
 
 ## Configuration and deployment
 
-The one configuration document is `/transactions-engine/settings`. All runtime credentials live in one Secrets Manager secret, `Transactions`, created outside the stack (`scripts/merge-secrets.py`) and passed to CDK as the `secretArn` context. Its JSON holds the application keys (`WEBHOOK_TOKEN`, `YNAB_ACCESS_TOKEN`, `OPENAI_API_KEY`, `PUSHOVER_TOKEN`, `PUSHOVER_USER`), `CLOAKBROWSER_LICENSE_KEY`, `BROWSER_BROKER_TOKEN` and `BANKS` (one `{username, password, mailToken}` per bank ID). The Lambdas and the browser task can both read it. Do not put tokens in CDK context, workflow payloads, Git or logs. S3 objects are private and encrypted.
+The one configuration document is `/transactions-engine/settings`. All runtime credentials live in one Secrets Manager secret, `Transactions`, created outside the stack and passed to CDK as the `secretArn` context. Its JSON holds the application keys (`YNAB_ACCESS_TOKEN`, `OPENAI_API_KEY`, `PUSHOVER_TOKEN`, `PUSHOVER_USER`), `CLOAKBROWSER_LICENSE_KEY`, `BROWSER_BROKER_TOKEN` and `BANKS` (one `{username, password, mailToken}` per bank ID). The Lambdas and the browser task can both read it. Do not put tokens in CDK context, workflow payloads, Git or logs. S3 objects are private and encrypted.
 
 The committed CDK context records this production deployment with schedules active. For a fresh installation or a deliberate schedule pause, synthesize/deploy with `-c activate=false`; the initial settings placeholder always has imports disabled. Complete configuration and baseline review before enabling imports. Admin hosting is enabled with the `repository` CDK context. The GitHub token and the Auth0 client and session secrets are deployment-only values in the 1Password item `Transactions` (fields `github_token`, `auth0_client_secret`, `auth0_session_secret`). They are NoEcho stack parameters: `scripts/deploy-main.py secrets` sets them, and later releases reuse the stack's values.
 
-The admin uses the official Auth0 Next.js SDK, following StarRez Entries, with one-day rolling sessions. `adminAuth0Domain`, `adminBaseUrl` and `adminAllowedEmails` configure the tenant, canonical URL and comma-separated verified-email allowlist. An empty allowlist denies access. Authentication is checked in middleware and again before every backend invocation; server actions preserve sign-in redirects when a session expires. There is no authentication bypass. The browser access-token endpoint is disabled.
-
-The Auth0 client ID is the `adminAuth0ClientId` CDK context; its client secret and dedicated session secret are in 1Password as above. To rotate them, update the 1Password item and run `scripts/deploy-main.py release --refresh-admin`, then rebuild the admin. The Auth0 application is a separate Regular Web Application. Register `https://transactions-admin.fredericks.app/auth/callback` and `http://localhost:3000/auth/callback` as allowed callbacks, and both origins plus their `/sign-in` paths as allowed logout URLs. The Auth0 application must enable the intended identity connection. Auth0 credentials reach the Amplify configuration as NoEcho parameters; the hosting build writes only the required server environment variables to `.env.production`, without printing values. Rebuild the admin after credential changes.
-
-**Auth0 is live.** Hosting basic authentication is disabled, and the old `transactions-engine/admin-password` secret is retired.
-
-The production admin is served at https://transactions-admin.fredericks.app/. The `adminDomain`, `adminSubdomain` and `adminCertificateArn` contexts define the Amplify domain mapping and existing ACM certificate in CDK. Cloudflare DNS is updated with the `cf` CLI to the CNAME target returned by Amplify; keep this record DNS-only. Runtime settings `adminUrl` must use the same HTTPS address for notification links. Set the `alarmEmail` context to the operator address and confirm the SNS subscription. Infrastructure email is independent of Pushover.
+The admin app is gone, but `cdk/cdk.go` and `scripts/deploy-main.py` still define its Amplify and Auth0 hosting and the deploy-only secrets above; the one-deploy-path phase (P2 in [the audit roadmap](docs/audit/README.md)) removes them, so release this code together with that change. Set the `alarmEmail` context to the operator address and confirm the SNS subscription. Infrastructure email is independent of Pushover.
 
 Use the [local verification loop](docs/local-verification.md) to fix authentication and exercise real API calls without redeploying.
 
@@ -82,10 +74,6 @@ The `cdk` module is separate and points at the root module with a `replace` dire
 export GOWORK=off
 go build ./... && go vet ./... && golangci-lint run && govulncheck ./... && go mod tidy -diff && go fix -diff ./...
 (cd cdk && go build ./... && go vet ./... && golangci-lint run && govulncheck ./... && go mod tidy -diff && go fix -diff ./...)
-npm --prefix admin ci --ignore-scripts
-npm --prefix admin run typecheck
-npm --prefix admin run lint
-npm --prefix admin run build
 npx --yes aws-cdk@2.1144.0 synth --output dist/cdk
 docker build --platform linux/arm64 --secret id=cloak_license,src="$HOME/.cloakbrowser/license.key" -t transactions-engine-browser:verify .
 ```
