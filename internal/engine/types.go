@@ -36,7 +36,7 @@ type Job struct {
 	Attempt          int         `json:"attempt"`
 	MissingAttempt   int         `json:"missingAttempt"`
 	BrowserDeadline  time.Time   `json:"browserDeadline"`
-	CapacitySince    time.Time   `json:"capacitySince,omitempty"`
+	CapacitySince    time.Time   `json:"capacitySince"`
 	CapacityWaits    int         `json:"capacityWaits,omitempty"`
 	CapacityNotified bool        `json:"capacityNotified,omitempty"`
 	BrowserAttempted bool        `json:"browserAttempted"`

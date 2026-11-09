@@ -55,9 +55,6 @@ linters:
       excludes:
         - G104 # Duplicates errcheck.
         - G404 # math/rand only picks jitter and replay samples, never secrets.
-    modernize:
-      disable:
-        - omitzero # Switching omitempty to omitzero changes the stored JSON.
     staticcheck:
       checks:
         - all
