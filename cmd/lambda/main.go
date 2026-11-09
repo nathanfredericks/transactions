@@ -33,20 +33,11 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 	}()
 	if os.Getenv("ROLE") == "gateway" {
 		var envelope struct {
-			Version        string          `json:"version"`
-			RequestContext json.RawMessage `json:"requestContext"`
-			Records        []struct {
+			Records []struct {
 				Source string `json:"eventSource"`
 			} `json:"Records"`
 		}
 		_ = json.Unmarshal(raw, &envelope)
-		if len(envelope.RequestContext) > 0 {
-			var event events.APIGatewayV2HTTPRequest
-			if json.Unmarshal(raw, &event) != nil {
-				return nil, errors.New("invalid HTTP event")
-			}
-			return app.Webhook(ctx, event)
-		}
 		if len(envelope.Records) > 0 {
 			var event events.S3Event
 			if json.Unmarshal(raw, &event) != nil {
@@ -80,8 +71,6 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 		}
 	}
 	switch request.Action {
-	case "maintain":
-		return app.Maintain(ctx)
 	case "submit":
 		if request.Job == nil {
 			return nil, errors.New("job required")

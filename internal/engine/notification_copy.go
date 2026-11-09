@@ -13,7 +13,7 @@ func failureNotice(name string, f *bank.Failure) (title, message string) {
 	if strings.HasSuffix(f.Operation, "/browser-access-rejected") {
 		key = "browser-access-rejected"
 	}
-	if f.Operation == "previous-import-missing" || f.Operation == "purchase-not-found" {
+	if f.Operation == "previous-import-missing" {
 		key = f.Operation
 	}
 	switch key {
@@ -47,9 +47,6 @@ func failureNotice(name string, f *bank.Failure) (title, message string) {
 	case "previous-import-missing":
 		title = "{bank}: Previously imported transaction missing"
 		message = "YNAB recognizes a previously imported transaction, but it has been deleted or is no longer present. Review whether to restore or exclude it before importing again. [previous-import-missing]"
-	case "purchase-not-found":
-		title = "{bank}: Purchase not found"
-		message = "A transaction alert from {bank} was received, but no matching purchase appeared after repeated checks. Further imports are blocked until reviewed. Open the linked job to inspect the issue. [purchase-not-found]"
 	default:
 		title = "{bank}: Job did not complete"
 		message = "A job for {bank} could not finish. Inspect the linked job for details before retrying. [bank-error]"

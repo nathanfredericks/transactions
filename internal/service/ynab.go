@@ -7,9 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/nathanfredericks/transactions/internal/config"
@@ -62,10 +60,6 @@ type ynabPayloadTransaction struct {
 	PayeeName  *string `json:"payee_name,omitempty"`
 	CategoryID *string `json:"category_id,omitempty"`
 	Memo       *string `json:"memo,omitempty"`
-}
-
-func toYNABExpenseMilliunits(amount float64) int64 {
-	return int64(math.Round(amount * -1000))
 }
 
 func newYNABClient(ctx context.Context) (*ynabClient, error) {
@@ -173,77 +167,4 @@ func createTransaction(ctx context.Context, budgetID string, payload ynabPayload
 		}
 	}
 	return nil, errors.New("ynab api returned no created transaction")
-}
-
-func CheckForRecentTransaction(ctx context.Context, accountID string, amount float64, daysBack int) (bool, error) {
-	client, err := newYNABClient(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	sinceDate := time.Now().AddDate(0, 0, -daysBack).Format("2006-01-02")
-	values := url.Values{}
-	values.Set("since_date", sinceDate)
-
-	response := struct {
-		Data struct {
-			Transactions []*types.YNABTransaction `json:"transactions"`
-		} `json:"data"`
-	}{}
-
-	path := fmt.Sprintf("/budgets/%s/accounts/%s/transactions?%s", client.budgetID, accountID, values.Encode())
-	if err := client.do(ctx, http.MethodGet, path, nil, &response); err != nil {
-		return false, fmt.Errorf("fetching transactions: %w", err)
-	}
-
-	targetAmount := toYNABExpenseMilliunits(amount)
-	for _, t := range response.Data.Transactions {
-		if !t.Deleted && t.Amount == targetAmount {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func formatDate(ctx context.Context, t time.Time) (string, error) {
-	params, err := config.GetParameters(ctx)
-	if err != nil {
-		return "", fmt.Errorf("getting parameters: %w", err)
-	}
-	loc, err := time.LoadLocation(params.Timezone)
-	if err != nil {
-		return "", fmt.Errorf("loading timezone %s: %w", params.Timezone, err)
-	}
-	return t.In(loc).Format("2006-01-02"), nil
-}
-
-func CreateTransaction(ctx context.Context, accountID string, amount float64, payee string, date time.Time, category string, memo string) (*types.YNABTransaction, error) {
-	client, err := newYNABClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	dateStr, err := formatDate(ctx, date)
-	if err != nil {
-		return nil, err
-	}
-
-	payload := ynabPayloadTransaction{
-		AccountID: accountID,
-		Date:      dateStr,
-		Amount:    toYNABExpenseMilliunits(amount),
-		PayeeName: &payee,
-		Cleared:   ynabClearingStatusUncleared,
-	}
-	if category != "" {
-		payload.CategoryID = &category
-	}
-	if memo != "" {
-		payload.Memo = &memo
-	}
-
-	tx, err := createTransaction(ctx, client.budgetID, payload)
-	if err != nil {
-		return nil, fmt.Errorf("creating transaction: %w", err)
-	}
-	return tx, nil
 }

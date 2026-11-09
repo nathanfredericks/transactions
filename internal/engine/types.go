@@ -51,7 +51,6 @@ type Request struct {
 	JobID     string          `json:"jobId"`
 	Bank      string          `json:"bank"`
 	Job       *Job            `json:"job,omitempty"`
-	Lease     state.Lease     `json:"lease"`
 	Execution string          `json:"execution"`
 	Payload   json.RawMessage `json:"payload,omitempty"`
 }
@@ -73,7 +72,6 @@ type BrowserResult struct {
 	SessionKey string        `json:"sessionKey,omitempty"`
 }
 type Health struct {
-	ImportReview     bool      `json:"importReview,omitempty"`
 	Blocked          bool      `json:"blocked"`
 	Kind             bank.Kind `json:"kind"`
 	Failures         int       `json:"failures"`

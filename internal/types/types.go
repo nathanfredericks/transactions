@@ -23,16 +23,9 @@ type EmailConfig struct {
 	Last4         []string `json:"last4"`
 }
 
-type WebhookConfig struct {
-	YNABAccountID string   `json:"ynabAccountId"`
-	Bank          string   `json:"bank"`
-	Last4         []string `json:"last4"`
-}
-
 // Secrets is the JSON stored in the single Transactions secret. The Lambdas
-// use the first five keys; the browser task uses the browser and bank keys.
+// use the first four keys; the browser task uses the browser and bank keys.
 type Secrets struct {
-	WebhookToken           string                     `json:"WEBHOOK_TOKEN"`
 	YNABAccessToken        string                     `json:"YNAB_ACCESS_TOKEN"`
 	OpenAIAPIKey           string                     `json:"OPENAI_API_KEY"`
 	PushoverToken          string                     `json:"PUSHOVER_TOKEN"`
@@ -48,13 +41,6 @@ type BankCredentials struct {
 	Username  string `json:"username"`
 	Password  string `json:"password"`
 	MailToken string `json:"mailToken"`
-}
-
-type Parameters struct {
-	PaymentProcessors []string
-	Timezone          string
-	OpenAIEndpoint    string
-	OpenAIModel       string
 }
 
 type YNABTransaction struct {

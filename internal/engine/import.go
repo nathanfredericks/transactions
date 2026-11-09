@@ -446,11 +446,6 @@ func (e *Engine) alertImport(ctx context.Context) error {
 	if e.Job.AlertAmount <= 0 || e.Job.AlertDate == "" {
 		return bank.Fail(bank.Invalid, "alert-amount")
 	}
-	// An alert the earlier bank-retrieval path already linked must not be written again.
-	var legacy map[string]any
-	if linked, err := e.get(ctx, "alert#"+bank.Hash(e.Job.MessageID), &legacy); err != nil || linked {
-		return err
-	}
 	key := "WRITE#alert#" + e.Job.ID
 	var previous Write
 	if _, err := e.get(ctx, key, &previous); err != nil {

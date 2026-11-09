@@ -67,11 +67,6 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 			out, err = e.failure(ctx, err)
 		}
 	}()
-	// Retired upkeep jobs may still be queued or returning from a browser.
-	// Finish them under their lease without touching authentication or bank data.
-	if e.Job.Bank == "eq-bank" && e.Job.Source == "session" && e.Job.Purpose == "maintain-session" {
-		return e.complete(ctx)
-	}
 	var health Health
 	if _, err = e.get(ctx, e.healthKey(), &health); err != nil {
 		return out, err
@@ -83,14 +78,9 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 		return e.outcome("review-required", 0), err
 	}
 	if health.RetryAt.After(time.Now()) {
-		if e.Job.Purpose == "maintain-session" {
-			e.Job.Status = "complete"
-			err = e.saveJob(ctx)
-			return e.outcome("complete", 0), err
-		}
 		return e.outcome("deferred", int(math.Ceil(time.Until(health.RetryAt).Seconds()))), nil
 	}
-	if !e.Job.DryRun && e.Job.Purpose != "maintain-session" && !e.Settings.ImportsEnabled {
+	if !e.Job.DryRun && !e.Settings.ImportsEnabled {
 		e.Job.Status = "paused"
 		err = e.saveJob(ctx)
 		return e.outcome("paused", 0), err
@@ -191,7 +181,7 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 		hold = true
 		return e.outcome("authentication-required", 0), nil
 	}
-	snapshot, updated, fetchErr := adapter.Fetch(ctx, session, bank.FetchRequest{AccountsOnly: e.Job.Purpose == "maintain-session", StartDate: settings.StartDate})
+	snapshot, updated, fetchErr := adapter.Fetch(ctx, session, bank.FetchRequest{StartDate: settings.StartDate})
 	if err = e.saveSession(ctx, updated); err != nil {
 		return out, err
 	}
@@ -202,7 +192,7 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 				return out, err
 			}
 			if re == nil {
-				snapshot, updated, fetchErr = adapter.Fetch(ctx, renewed, bank.FetchRequest{AccountsOnly: e.Job.Purpose == "maintain-session", StartDate: settings.StartDate})
+				snapshot, updated, fetchErr = adapter.Fetch(ctx, renewed, bank.FetchRequest{StartDate: settings.StartDate})
 				if err = e.saveSession(ctx, updated); err != nil {
 					return out, err
 				}
@@ -234,51 +224,33 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 	if err = e.saveJob(ctx); err != nil {
 		return out, err
 	}
-	if e.Job.Purpose != "maintain-session" {
-		var baseline Baseline
-		found, be := e.get(ctx, "BASELINE", &baseline)
-		if be != nil {
-			return out, be
+	var baseline Baseline
+	found, be := e.get(ctx, "BASELINE", &baseline)
+	if be != nil {
+		return out, be
+	}
+	if !found || !baseline.Approved {
+		if !e.Job.DryRun {
+			return out, bank.Fail(bank.Invalid, "baseline-review-required")
 		}
-		if !found || !baseline.Approved {
-			if !e.Job.DryRun {
-				return out, bank.Fail(bank.Invalid, "baseline-review-required")
-			}
-		}
-		switch registration.Strategy {
-		case "reconcile":
-			var missing bool
-			missing, err = e.reconcile(ctx, snapshot, baseline)
-			if err == nil && missing {
-				if e.Job.MissingAttempt < 3 {
-					delays := []int{60, 300, 900}
-					wait := delays[e.Job.MissingAttempt]
-					e.Job.MissingAttempt++
-					e.Job.Status = "waiting"
-					err = e.saveJob(ctx)
-					return e.outcome("deferred", wait), err
-				}
-				return out, bank.Fail(bank.Invalid, "purchase-not-found")
-			}
-		case "posted":
-			err = e.posted(ctx, snapshot, baseline)
-		case "balances":
-			err = e.balances(ctx, snapshot)
-		default:
-			err = bank.Fail(bank.Invalid, "import-strategy")
-		}
-		if err != nil {
-			return out, err
-		}
+	}
+	switch registration.Strategy {
+	case "reconcile":
+		err = e.reconcile(ctx, snapshot, baseline)
+	case "posted":
+		err = e.posted(ctx, snapshot, baseline)
+	case "balances":
+		err = e.balances(ctx, snapshot)
+	default:
+		err = bank.Fail(bank.Invalid, "import-strategy")
+	}
+	if err != nil {
+		return out, err
 	}
 	return e.recovered(ctx, registration.Name, health)
 }
 
 func (e *Engine) recovered(ctx context.Context, name string, health Health) (Outcome, error) {
-	// Successful authentication cannot resolve an outstanding financial review.
-	if e.Job.Purpose == "maintain-session" && health.ImportReview {
-		return e.complete(ctx)
-	}
 	var err error
 	if e.Job.CapacityNotified && !e.Job.DryRun {
 		var incident Notification
@@ -337,9 +309,6 @@ func (e *Engine) failure(ctx context.Context, cause error) (Outcome, error) {
 		return e.outcome("failed", 0), err
 	}
 	health.Failures++
-	if e.Job.Purpose == "retrieve" && (f.Kind == bank.Invalid || f.Kind == bank.Uncertain) {
-		health.ImportReview = true
-	}
 	health.Kind = f.Kind
 	if health.Episode == "" {
 		health.Episode = e.Job.ID

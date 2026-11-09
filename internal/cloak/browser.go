@@ -501,19 +501,3 @@ func (s *runtimeState) setup(p *rod.Page) (*human.Page, error) {
 func LaunchContext(ctx context.Context, options Options) (*Browser, error) {
 	return Launch(ctx, options)
 }
-
-func LaunchPersistentContext(ctx context.Context, options Options) (*Browser, error) {
-	if options.UserDataDir == "" {
-		return nil, errors.New("persistent profile directory required")
-	}
-	return Launch(ctx, options)
-}
-
-// LaunchBrowser uses the driver's ordinary new-page viewport; LaunchContext
-// uses Cloak's wrapper viewport. Both support independent NewContext calls.
-func LaunchBrowser(ctx context.Context, options Options) (*Browser, error) {
-	if options.Viewport == nil && !options.NoViewport {
-		options.Viewport = &Size{Width: 1280, Height: 720}
-	}
-	return Launch(ctx, options)
-}

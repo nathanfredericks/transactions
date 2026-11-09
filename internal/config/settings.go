@@ -13,8 +13,6 @@ import (
 )
 
 type BankSettings struct {
-	// SecretARN is ignored: bank logins now live in the Transactions secret.
-	SecretARN        string   `json:"secretArn,omitempty"`
 	ExpectedAccounts []string `json:"expectedAccounts"`
 	ExcludedAccounts []string `json:"excludedAccounts"`
 	StartDate        string   `json:"startDate"`
@@ -34,12 +32,10 @@ type Settings struct {
 	OpenAIEndpoint    string `json:"openaiEndpoint"`
 	OpenAIModel       string `json:"openaiModel"`
 	// OpenAIEffort is the model's reasoning effort ("" for its default).
-	OpenAIEffort      string                  `json:"openaiEffort,omitempty"`
-	PaymentProcessors []string                `json:"paymentProcessors"`
-	ImportsEnabled    bool                    `json:"importsEnabled"`
-	Banks             map[string]BankSettings `json:"banks"`
-	Email             []types.EmailConfig     `json:"email"`
-	Webhook           []types.WebhookConfig   `json:"webhook"`
+	OpenAIEffort   string                  `json:"openaiEffort,omitempty"`
+	ImportsEnabled bool                    `json:"importsEnabled"`
+	Banks          map[string]BankSettings `json:"banks"`
+	Email          []types.EmailConfig     `json:"email"`
 }
 type settingsKey struct{}
 

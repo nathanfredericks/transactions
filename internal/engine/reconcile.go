@@ -88,7 +88,7 @@ func exactMatch(a, b Record) bool {
 		a.Date == b.Date && a.Amount == b.Amount && merchant(a.Description) == merchant(b.Description)
 }
 
-func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline Baseline) (bool, error) {
+func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline Baseline) error {
 	job := s.Job
 	result := struct{ Records []Record }{snapshot.Records}
 	// EQ retrievals import cleared rows only. Purchase emails are written as
@@ -105,7 +105,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 	mapping := map[string]string{}
 	mapped, err := s.mapping(ctx, snapshot)
 	if err != nil {
-		return false, err
+		return err
 	}
 	var accountIDs []string
 	for id, target := range mapped {
@@ -116,12 +116,12 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 	for _, id := range accountIDs {
 		snapshots[id], err = service.GetAccountTransactions(ctx, mapping[id])
 		if err != nil {
-			return false, err
+			return err
 		}
 	}
 	entries, err := s.ledger(ctx)
 	if err != nil {
-		return false, err
+		return err
 	}
 	// A pending authorization still present in the full bank snapshot belongs to
 	// its own purchase. Reserve it before matching posted rows, including when
@@ -142,9 +142,6 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 	claimed := map[string]bool{}
 	resolved := map[string]*Entry{}
 	review := 0
-	created := 0
-	adopted := 0
-	updated := 0
 	hold := func(r Record, candidates []*Entry, reason string) error {
 		review++
 		if job.DryRun {
@@ -164,14 +161,14 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 	for _, r := range result.Records {
 		recordKey := r.AccountID + "#" + identity(r)
 		if mapping[r.AccountID] == "" {
-			return false, bank.Fail(bank.Invalid, "record-account")
+			return bank.Fail(bank.Invalid, "record-account")
 		}
 		if baseline.Seen[r.AccountID+"#"+identity(r)] {
 			continue
 		}
 
 		if _, e := time.Parse("2006-01-02", r.Date); e != nil {
-			return false, e
+			return e
 		}
 		var exact []*Entry
 		for _, entry := range entries {
@@ -183,7 +180,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			}
 		}
 		if len(exact) > 1 {
-			return false, bank.Fail(bank.Invalid, "conflicting-ledger-references")
+			return bank.Fail(bank.Invalid, "conflicting-ledger-references")
 		}
 		var entry *Entry
 		if len(exact) == 1 {
@@ -194,7 +191,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 				EntryKey string `json:"entryKey"`
 			}
 			if _, err := s.get(ctx, "RESOLUTION#"+bank.Hash(r.AccountID+"#"+identity(r)), &resolution); err != nil {
-				return false, err
+				return err
 			}
 			if resolution.EntryKey != "" {
 				// A resolution approves the reviewed purchase, not every future
@@ -204,7 +201,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 				}
 				found, err := s.get(ctx, "review#"+bank.Hash(r.AccountID+"#"+identity(r)), &review)
 				if err != nil {
-					return false, err
+					return err
 				}
 				if !found || !exactMatch(review.Record, r) {
 					resolution.EntryKey = ""
@@ -218,7 +215,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 					}
 				}
 				if entry == nil {
-					return false, bank.Fail(bank.Invalid, "review-link-missing")
+					return bank.Fail(bank.Invalid, "review-link-missing")
 				}
 			}
 		}
@@ -250,14 +247,14 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			}
 			if len(candidates) > 1 || (len(candidates) == 1 && competing > 1) {
 				if err = hold(r, candidates, "Multiple pending or newly posted records match"); err != nil {
-					return false, err
+					return err
 				}
 				continue
 			}
 			if len(candidates) == 1 {
 				if claimed[candidates[0].Key] {
 					if err = hold(r, candidates, "Pending record is still present in this history"); err != nil {
-						return false, err
+						return err
 					}
 					continue
 				}
@@ -275,7 +272,6 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			if linked := baseline.Links[r.AccountID+"#"+identity(r)]; linked != "" {
 				entry.YNABID = linked
 				entry.Adopted = true
-				adopted++
 			}
 			if settlement, ok := baseline.Settlements[r.AccountID+"#"+identity(r)]; ok {
 				var existing *types.YNABTransaction
@@ -285,24 +281,23 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 					}
 				}
 				if existing == nil || existing.AccountID != settlement.AccountID || ((existing.Amount != settlement.Amount || existing.Date != settlement.Date) && (existing.Amount != r.Amount || existing.Date != r.Date)) {
-					return false, bank.Fail(bank.Invalid, "baseline-settlement-changed")
+					return bank.Fail(bank.Invalid, "baseline-settlement-changed")
 				}
 				entry.YNABID, entry.Adopted = existing.ID, true
 				amount := settlement.Amount
 				entry.AuthorizationAmount, entry.AuthorizationDate = &amount, settlement.Date
 				if !job.DryRun {
 					if err := s.updateTransaction(ctx, entry.Key, existing, r); err != nil {
-						return false, err
+						return err
 					}
 				}
-				adopted++
 			}
 
 			if entry.YNABID == "" {
 				// Recover from a write which succeeded before the ledger was committed.
 				for _, t := range snapshots[r.AccountID] {
 					if t.Deleted && t.ImportID != nil && *t.ImportID == entry.ImportID {
-						return false, bank.Fail(bank.Invalid, "previous-import-missing")
+						return bank.Fail(bank.Invalid, "previous-import-missing")
 					}
 					if !t.Deleted && t.ImportID != nil && *t.ImportID == entry.ImportID {
 						entry.YNABID = t.ID
@@ -312,7 +307,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			if entry.YNABID == "" {
 				var previous Write
 				if _, err := s.get(ctx, "WRITE#"+entry.Key, &previous); err != nil {
-					return false, err
+					return err
 				}
 				// A pending create has no YNAB import ID. Its confirmed response ID
 				// still recovers a crash between completing the write and ledger save.
@@ -324,7 +319,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 					}
 				}
 				if previous.Status != "" && entry.YNABID == "" {
-					return false, bank.Fail(bank.Uncertain, "transaction-write")
+					return bank.Fail(bank.Uncertain, "transaction-write")
 				}
 			}
 			if entry.YNABID == "" {
@@ -333,40 +328,39 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 				if !job.DryRun {
 					intent := Write{Status: "started", AccountID: mapping[r.AccountID], Amount: r.Amount, Date: r.Date, ImportID: entry.ImportID, Decision: decision.Source(), Suggestion: &decision.Suggestion}
 					if err := s.put(ctx, "WRITE#"+entry.Key, intent, job.ID); err != nil {
-						return false, err
+						return err
 					}
 					tx, e := service.CreateEQTransaction(ctx, mapping[r.AccountID], r.Date, r.Amount, decision.Enrichment, entry.ImportID, r.Status)
 					if e != nil {
-						return false, writeFailure(e, "transaction-write")
+						return writeFailure(e, "transaction-write")
 					}
 					s.recordSuggestion(ctx, decision, tx, entry.ImportID)
 					entry.YNABID = tx.ID
 					intent.Status, intent.TransactionID = "complete", tx.ID
 					if err := s.put(ctx, "WRITE#"+entry.Key, intent, job.ID); err != nil {
-						return false, err
+						return err
 					}
 					snapshots[r.AccountID] = append(snapshots[r.AccountID], tx)
 				}
-				created++
 			}
 			if !job.DryRun && entry.YNABID != "" {
 				var previous Write
 				if found, err := s.get(ctx, "WRITE#"+entry.Key, &previous); err != nil {
-					return false, err
+					return err
 				} else if found && previous.Status == "started" {
 					previous.Status, previous.TransactionID = "complete", entry.YNABID
 					if err := s.put(ctx, "WRITE#"+entry.Key, previous, job.ID); err != nil {
-						return false, err
+						return err
 					}
 				}
 			}
 			entries = append(entries, entry)
 		} else {
 			if claimed[entry.Key] {
-				return false, bank.Fail(bank.Invalid, "multiple-ledger-claims")
+				return bank.Fail(bank.Invalid, "multiple-ledger-claims")
 			}
 			if entry.Record.Status == "posted" && r.Status == "pending" {
-				return false, bank.Fail(bank.Invalid, "posted-regressed")
+				return bank.Fail(bank.Invalid, "posted-regressed")
 			}
 			if entry.Record.Status != r.Status || entry.Record.Amount != r.Amount || entry.Record.Date != r.Date {
 				var tx *types.YNABTransaction
@@ -376,14 +370,13 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 					}
 				}
 				if tx == nil {
-					return false, bank.Fail(bank.Invalid, "ledger-transaction-removed")
+					return bank.Fail(bank.Invalid, "ledger-transaction-removed")
 				}
 				if !job.DryRun {
 					if err = s.updateTransaction(ctx, entry.Key, tx, r); err != nil {
-						return false, err
+						return err
 					}
 				}
-				updated++
 			}
 			// Keep the provisional identity when the native posted identity arrives.
 			r.ProvisionalID = entry.Record.ProvisionalID
@@ -407,18 +400,14 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 		resolved[recordKey] = entry
 		if !job.DryRun {
 			if err = s.put(ctx, entry.Key, entry, job.ID); err != nil {
-				return false, err
+				return err
 			}
 		}
 	}
-	missing := false
 	if review > 0 {
-		return false, bank.Fail(bank.Invalid, "ambiguous-posting")
+		return bank.Fail(bank.Invalid, "ambiguous-posting")
 	}
-	_ = created
-	_ = adopted
-	_ = updated
-	return missing, nil
+	return nil
 }
 
 func purchaseAccount(id string) string { r, _ := banks.Find(id); return r.PurchaseAccount }

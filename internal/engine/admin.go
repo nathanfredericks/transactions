@@ -36,9 +36,6 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 			}
 			ids[id] = true
 		}
-		for _, entry := range e.Settings.Webhook {
-			ids[entry.Bank] = true
-		}
 		for id := range ids {
 			rows, err := e.Store.List(ctx, "BANK#"+id, "JOB#")
 			if err != nil {

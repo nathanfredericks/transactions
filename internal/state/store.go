@@ -221,28 +221,3 @@ func (s *Store) Download(ctx context.Context, k string, out any) error {
 	defer r.Body.Close()
 	return json.NewDecoder(io.LimitReader(r.Body, 20*1024*1024)).Decode(out)
 }
-
-// Set uses optimistic revisions for admin edits; no read/overwrite race.
-func (s *Store) Set(ctx context.Context, pk, sk string, value any, revision string) (string, error) {
-	next := uuid.NewString()
-	b, e := json.Marshal(value)
-	if e != nil {
-		return "", e
-	}
-	var object map[string]any
-	if json.Unmarshal(b, &object) == nil && object != nil {
-		object["revision"] = next
-		b, _ = json.Marshal(object)
-	}
-	item := key(pk, sk)
-	item["data"] = &d.AttributeValueMemberS{Value: string(b)}
-	item["revision"] = &d.AttributeValueMemberS{Value: next}
-	condition := "attribute_not_exists(pk)"
-	var values map[string]d.AttributeValue
-	if revision != "" {
-		condition = "revision = :revision"
-		values = map[string]d.AttributeValue{":revision": &d.AttributeValueMemberS{Value: revision}}
-	}
-	_, e = s.DB.PutItem(ctx, &dynamodb.PutItemInput{TableName: &s.Table, Item: item, ConditionExpression: &condition, ExpressionAttributeValues: values})
-	return next, e
-}

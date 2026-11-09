@@ -109,7 +109,6 @@ type Dependencies struct {
 }
 type Registration struct {
 	ID, Name, Strategy, Browser, Schedule, ImportPrefix, PurchaseAccount string
-	KeepWarm                                                             bool
 	New                                                                  func(Dependencies) Adapter
 }
 

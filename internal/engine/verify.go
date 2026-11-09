@@ -22,7 +22,7 @@ func (e *Engine) VerifySession(ctx context.Context, bankID string, renew bool) (
 	if !ok || !settings.Enabled {
 		return nil, bank.Fail(bank.Invalid, "bank-disabled")
 	}
-	e.Job = Job{ID: "verify-" + uuid.NewString(), Bank: bankID, Purpose: "maintain-session", DryRun: true}
+	e.Job = Job{ID: "verify-" + uuid.NewString(), Bank: bankID, DryRun: true}
 	l, acquired, err := e.Store.Acquire(ctx, bankID, e.Job.ID)
 	if err != nil {
 		return nil, err
