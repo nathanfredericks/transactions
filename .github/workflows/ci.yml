@@ -19,11 +19,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: '**/go.sum'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: admin/package-lock.json
       - name: Go modules are tidy and fixed
         run: |
           go mod tidy -diff
@@ -56,9 +51,3 @@ jobs:
         run: |
           go build -C cdk -o ../dist/cdk-app .
           CDK_CONTEXT_JSON="$(python3 -c 'import json; print(json.dumps(json.load(open("cdk.json"))["context"]))')" CDK_OUTDIR=dist/cdk dist/cdk-app
-      - name: Admin checks
-        run: |
-          npm --prefix admin ci --ignore-scripts
-          npm --prefix admin run lint
-          npm --prefix admin run typecheck
-          npm --prefix admin run build

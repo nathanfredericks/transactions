@@ -7,11 +7,6 @@ go.work.sum
 /cdk/cdk
 /coverage.out
 /dist/
-/admin/node_modules/
-/admin/.next/
-/admin/*.tsbuildinfo
-/admin/.env*
-!/admin/.env.example
 /cdk/outputs.json
 /cdk/deploy.local.json
 
