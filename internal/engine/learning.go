@@ -191,11 +191,6 @@ func (e *Engine) enrich(ctx context.Context, cache **learning, descriptor string
 	return d
 }
 
-// ruled records that a rule, not learning, filled the transaction.
-func (e *Engine) ruled(descriptor string, amount int64, date, account string, rule *types.TransactionOverride) Decision {
-	return Decision{Suggestion: learn.Suggestion{Descriptor: descriptor, AccountID: account, Date: date, Amount: amount, Bank: e.Job.Bank, JobID: e.Job.ID, Version: version(), At: time.Now().UTC(), PayeeID: rule.Payee, PayeeSource: "rule", CategoryID: rule.Category, CategorySource: "rule", Memo: rule.Memo, MemoSource: "rule"}}
-}
-
 // recordSuggestion stores the suggestion for a written transaction, so the
 // mirror can join it to the user's final approved state. It carries no
 // financial authority and never fails the import.

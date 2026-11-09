@@ -13,7 +13,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.51.1
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.67.8
 	github.com/aws/smithy-go v1.28.1
-	github.com/diegoholiveira/jsonlogic/v3 v3.9.0
 	github.com/emersion/go-message v0.18.2
 	github.com/go-rod/rod v0.116.2
 	github.com/google/uuid v1.6.0
@@ -41,7 +40,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.30.9 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.13 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.6 // indirect
-	github.com/barkimedes/go-deepcopy v0.0.0-20220514131651-17c30cfc62df // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect

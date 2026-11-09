@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/nathanfredericks/transactions/internal/config"
-	overridepkg "github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 
@@ -245,41 +244,6 @@ func CreateTransaction(ctx context.Context, accountID string, amount float64, pa
 	tx, err := createTransaction(ctx, client.budgetID, payload)
 	if err != nil {
 		return nil, fmt.Errorf("creating transaction: %w", err)
-	}
-	return tx, nil
-}
-
-func CreateTransactionWithOverride(ctx context.Context, accountID string, amount float64, date time.Time, override *types.TransactionOverride) (*types.YNABTransaction, error) {
-	client, err := newYNABClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	dateStr, err := formatDate(ctx, date)
-	if err != nil {
-		return nil, err
-	}
-
-	payload := ynabPayloadTransaction{
-		AccountID: accountID,
-		Date:      dateStr,
-		Amount:    toYNABExpenseMilliunits(amount),
-		PayeeID:   &override.Payee,
-		Cleared:   ynabClearingStatusUncleared,
-	}
-	if override.Category != "" {
-		payload.CategoryID = &override.Category
-	}
-	if override.Memo != "" {
-		memoStr, err := overridepkg.RenderMemo(override.Memo, dateStr)
-		if err != nil {
-			return nil, err
-		}
-		payload.Memo = &memoStr
-	}
-
-	tx, err := createTransaction(ctx, client.budgetID, payload)
-	if err != nil {
-		return nil, fmt.Errorf("creating transaction with override: %w", err)
 	}
 	return tx, nil
 }

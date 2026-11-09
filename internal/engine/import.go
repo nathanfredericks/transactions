@@ -11,7 +11,6 @@ import (
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
 	"github.com/nathanfredericks/transactions/internal/learn"
-	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/types"
 )
@@ -138,7 +137,7 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error 
 		if err = e.put(ctx, operation, Write{Status: "started", AccountID: target.ID, Amount: r.Amount, Date: r.Date, ImportID: id, Description: r.Description, Decision: decision.Source(), Suggestion: &decision.Suggestion}, e.Job.ID); err != nil {
 			return err
 		}
-		tx, err := service.CreateEQTransaction(ctx, target.ID, r.Date, r.Amount, decision.Enrichment, id, "posted", nil)
+		tx, err := service.CreateEQTransaction(ctx, target.ID, r.Date, r.Amount, decision.Enrichment, id, "posted")
 		if err != nil {
 			return writeFailure(err, "transaction-write")
 		}
@@ -274,25 +273,11 @@ func (e *Engine) notificationImport(ctx context.Context) (int, error) {
 		slog.Info("late alert has no matching credit; importing it as a purchase", "job", e.Job.ID)
 	}
 	amount := -alert.Amount
-	at, err := time.ParseInLocation("2006-01-02", date, zone)
-	if err != nil {
+	if _, err := time.ParseInLocation("2006-01-02", date, zone); err != nil {
 		return 0, err
 	}
-	rules, err := override.GetTransactionOverrides(ctx)
-	if err != nil {
-		return 0, err
-	}
-	rule, err := override.FindOverride(ctx, rules, float64(alert.Amount)/1000, alert.Descriptor, at)
-	if err != nil {
-		return 0, err
-	}
-	var decision Decision
-	if rule != nil {
-		decision = e.ruled(alert.Descriptor, amount, date, e.Job.AccountID, rule)
-	} else {
-		var cache *learning
-		decision = e.enrich(ctx, &cache, alert.Descriptor, amount, date, e.Job.AccountID)
-	}
+	var cache *learning
+	decision := e.enrich(ctx, &cache, alert.Descriptor, amount, date, e.Job.AccountID)
 	slog.Info("notification preview", "job", e.Job.ID, "date", date, "amount", amount, "parser", alert.Source, "payeeSource", decision.Source(), "categorySource", decision.Suggestion.CategorySource, "existingPayee", decision.Enrichment.Payee.ID != "", "stale", stale, "dryRun", e.Job.DryRun)
 	importID := "ALERT:" + bank.Hash(e.Job.ID)[:30]
 	if e.Job.DryRun {
@@ -302,7 +287,7 @@ func (e *Engine) notificationImport(ctx context.Context) (int, error) {
 	if err = e.put(ctx, key, intent, e.Job.ID); err != nil {
 		return 0, err
 	}
-	tx, err := service.CreateEQTransaction(ctx, e.Job.AccountID, date, amount, decision.Enrichment, importID, "pending", rule)
+	tx, err := service.CreateEQTransaction(ctx, e.Job.AccountID, date, amount, decision.Enrichment, importID, "pending")
 	if err != nil {
 		return 0, writeFailure(err, "notification-import")
 	}

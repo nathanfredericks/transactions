@@ -10,8 +10,6 @@ import (
 
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
-	"github.com/nathanfredericks/transactions/internal/config"
-	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/types"
 )
@@ -161,10 +159,6 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			return err
 		}
 		return nil
-	}
-	overrides, err := override.GetTransactionOverrides(ctx)
-	if err != nil {
-		return false, err
 	}
 	var cache *learning
 	for _, r := range result.Records {
@@ -334,35 +328,14 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 				}
 			}
 			if entry.YNABID == "" {
-				params, e := config.GetParameters(ctx)
-				if e != nil {
-					return false, e
-				}
-				loc, e := time.LoadLocation(params.Timezone)
-				if e != nil {
-					return false, e
-				}
-				day, e := time.ParseInLocation("2006-01-02", r.Date, loc)
-				if e != nil {
-					return false, e
-				}
-				rule, e := override.FindOverride(ctx, overrides, math.Abs(float64(r.Amount))/1000, r.Description, day)
-				if e != nil {
-					return false, e
-				}
-				var decision Decision
-				if rule != nil {
-					decision = s.ruled(r.Description, r.Amount, r.Date, mapping[r.AccountID], rule)
-				} else {
-					decision = s.enrich(ctx, &cache, r.Description, r.Amount, r.Date, mapping[r.AccountID])
-				}
+				decision := s.enrich(ctx, &cache, r.Description, r.Amount, r.Date, mapping[r.AccountID])
 				slog.Info("EQ transaction preview", "account", mapping[r.AccountID], "date", r.Date, "amount", r.Amount, "payeeSource", decision.Source(), "categorySource", decision.Suggestion.CategorySource, "existingPayee", decision.Enrichment.Payee.ID != "", "status", r.Status, "importId", entry.ImportID, "dryRun", job.DryRun)
 				if !job.DryRun {
 					intent := Write{Status: "started", AccountID: mapping[r.AccountID], Amount: r.Amount, Date: r.Date, ImportID: entry.ImportID, Decision: decision.Source(), Suggestion: &decision.Suggestion}
 					if err := s.put(ctx, "WRITE#"+entry.Key, intent, job.ID); err != nil {
 						return false, err
 					}
-					tx, e := service.CreateEQTransaction(ctx, mapping[r.AccountID], r.Date, r.Amount, decision.Enrichment, entry.ImportID, r.Status, rule)
+					tx, e := service.CreateEQTransaction(ctx, mapping[r.AccountID], r.Date, r.Amount, decision.Enrichment, entry.ImportID, r.Status)
 					if e != nil {
 						return false, writeFailure(e, "transaction-write")
 					}

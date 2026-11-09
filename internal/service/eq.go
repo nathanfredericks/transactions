@@ -8,7 +8,6 @@ import (
 
 	"github.com/nathanfredericks/transactions/internal/bank"
 
-	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 
@@ -49,15 +48,12 @@ func GetAccountTransactions(ctx context.Context, account string) ([]*types.YNABT
 	return response.Data.Transactions, err
 }
 
-func CreateEQTransaction(ctx context.Context, account, date string, amount int64, enrichment types.Enrichment, importID, status string, rule *types.TransactionOverride) (*types.YNABTransaction, error) {
+func CreateEQTransaction(ctx context.Context, account, date string, amount int64, enrichment types.Enrichment, importID, status string) (*types.YNABTransaction, error) {
 	client, err := newYNABClient(ctx)
 	if err != nil {
 		return nil, err
 	}
-	payload, err := eqTransactionPayload(account, date, amount, enrichment, importID, status, rule)
-	if err != nil {
-		return nil, err
-	}
+	payload := eqTransactionPayload(account, date, amount, enrichment, importID, status)
 	tx, err := createTransaction(ctx, client.budgetID, payload)
 	if err == nil || payload.ImportID == nil {
 		// A pending POST has no API deduplication identity. Leave an uncertain
@@ -79,7 +75,7 @@ func CreateEQTransaction(ctx context.Context, account, date string, amount int64
 	return nil, err
 }
 
-func eqTransactionPayload(account, date string, amount int64, enrichment types.Enrichment, importID, status string, rule *types.TransactionOverride) (ynabPayloadTransaction, error) {
+func eqTransactionPayload(account, date string, amount int64, enrichment types.Enrichment, importID, status string) ynabPayloadTransaction {
 	cleared := "uncleared"
 	if status == "posted" {
 		cleared = "cleared"
@@ -106,21 +102,7 @@ func eqTransactionPayload(account, date string, amount int64, enrichment types.E
 	if status == "posted" && importID != "" {
 		payload.ImportID = &importID
 	}
-	if rule != nil {
-		payload.PayeeName, payload.CategoryID, payload.Memo = nil, nil, nil
-		payload.PayeeID = &rule.Payee
-		if rule.Category != "" {
-			payload.CategoryID = &rule.Category
-		}
-		if rule.Memo != "" {
-			memo, e := override.RenderMemo(rule.Memo, date)
-			if e != nil {
-				return ynabPayloadTransaction{}, e
-			}
-			payload.Memo = &memo
-		}
-	}
-	return payload, nil
+	return payload
 }
 
 // amountOnlyPayload is a user-entered, uncleared, unapproved entry with no payee,
@@ -263,30 +245,4 @@ func Lookups(ctx context.Context) (LookupResult, error) {
 		out.Categories = append(out.Categories, g)
 	}
 	return out, nil
-}
-
-func ValidateRuleReferences(ctx context.Context, payee, category string) error {
-	v, e := Lookups(ctx)
-	if e != nil {
-		return e
-	}
-	found := false
-	for _, p := range v.Payees {
-		found = found || p.ID == payee
-	}
-	if !found {
-		return errors.New("invalid payee")
-	}
-	if category != "" {
-		found = false
-		for _, g := range v.Categories {
-			for _, c := range g.Categories {
-				found = found || c.ID == category
-			}
-		}
-		if !found {
-			return errors.New("invalid category")
-		}
-	}
-	return nil
 }

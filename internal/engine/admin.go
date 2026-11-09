@@ -9,63 +9,18 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	d "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfnt "github.com/aws/aws-sdk-go-v2/service/sfn/types"
 	"github.com/google/uuid"
 
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
-	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 
 func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 	switch r.Action {
-	case "rules.list":
-		return override.GetTransactionOverrides(ctx)
-	case "rules.get":
-		var input struct {
-			ID string `json:"id"`
-		}
-		if json.Unmarshal(r.Payload, &input) != nil {
-			return nil, bankStateError()
-		}
-		var rule types.TransactionOverride
-		found, err := e.Store.Get(ctx, "RULES", "RULE#"+input.ID, &rule)
-		if err != nil {
-			return nil, err
-		}
-		if !found {
-			return nil, nil
-		}
-		return rule, nil
-	case "rules.save":
-		var rule types.TransactionOverride
-		if json.Unmarshal(r.Payload, &rule) != nil {
-			return nil, bankStateError()
-		}
-		if err := validateRule(rule); err != nil {
-			return nil, err
-		}
-		if err := service.ValidateRuleReferences(ctx, rule.Payee, rule.Category); err != nil {
-			return nil, err
-		}
-		if rule.ID == "" {
-			rule.ID = uuid.NewString()
-		}
-		rule.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		revision, err := e.Store.Set(ctx, "RULES", "RULE#"+rule.ID, rule, rule.Revision)
-		return map[string]string{"id": rule.ID, "revision": revision}, err
-	case "rules.delete":
-		var input struct{ ID, Revision string }
-		if json.Unmarshal(r.Payload, &input) != nil || input.ID == "" || input.Revision == "" {
-			return nil, bankStateError()
-		}
-		_, err := e.Store.DB.DeleteItem(ctx, &dynamodb.DeleteItemInput{TableName: &e.Store.Table, Key: map[string]d.AttributeValue{"pk": &d.AttributeValueMemberS{Value: "RULES"}, "sk": &d.AttributeValueMemberS{Value: "RULE#" + input.ID}}, ConditionExpression: aws.String("revision = :r"), ExpressionAttributeValues: map[string]d.AttributeValue{":r": &d.AttributeValueMemberS{Value: input.Revision}}})
-		return map[string]bool{"deleted": err == nil}, err
 	case "lookups":
 		return service.Lookups(ctx)
 	case "jobs.list":
@@ -282,58 +237,6 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 	default:
 		return nil, errors.New("unsupported operation")
 	}
-}
-
-func validateRule(r types.TransactionOverride) error {
-	if strings.TrimSpace(r.Name) == "" || r.Payee == "" || len(r.Memo) > 500 || len(r.Query) > 20000 {
-		return errors.New("invalid rule")
-	}
-	if _, err := override.RenderMemo(r.Memo, "2026-10-06"); err != nil {
-		return err
-	}
-	var query any
-	if json.Unmarshal([]byte(r.Query), &query) != nil {
-		return errors.New("invalid query")
-	}
-	var walk func(any, int) error
-	walk = func(v any, depth int) error {
-		if depth > 20 {
-			return errors.New("query too deep")
-		}
-		switch x := v.(type) {
-		case map[string]any:
-			if len(x) != 1 {
-				return errors.New("invalid expression")
-			}
-			for op, value := range x {
-				switch op {
-				case "and", "or", "!", "==", "!=", "===", "!==", "<", ">", "<=", ">=", "in":
-					return walk(value, depth+1)
-				case "var":
-					field, ok := value.(string)
-					if !ok || (field != "amount" && field != "merchant" && field != "day" && field != "month") {
-						return errors.New("invalid field")
-					}
-				default:
-					return errors.New("unsupported operator")
-				}
-			}
-		case []any:
-			if len(x) == 0 {
-				return errors.New("empty expression")
-			}
-			for _, child := range x {
-				if err := walk(child, depth+1); err != nil {
-					return err
-				}
-			}
-		case string, float64, bool:
-		default:
-			return errors.New("invalid operand")
-		}
-		return nil
-	}
-	return walk(query, 0)
 }
 
 func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {

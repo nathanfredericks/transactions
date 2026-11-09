@@ -57,17 +57,6 @@ type Parameters struct {
 	OpenAIModel       string
 }
 
-type TransactionOverride struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Payee     string `json:"payee"`
-	Category  string `json:"category"`
-	Memo      string `json:"memo"`
-	Query     string `json:"query"`
-	UpdatedAt string `json:"updatedAt"`
-	Revision  string `json:"revision"`
-}
-
 type YNABTransaction struct {
 	ImportID          *string `json:"import_id"`
 	TransferAccountID *string `json:"transfer_account_id"`

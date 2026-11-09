@@ -47,10 +47,8 @@ func main() {
 		deterministic(m, ex, *out)
 	case "models":
 		models(m, ex, *out)
-	case "rules":
-		rules(m, ex, *out)
 	default:
-		log.Fatal("usage: evaluate [flags] deterministic|models|rules")
+		log.Fatal("usage: evaluate [flags] deterministic|models")
 	}
 }
 
