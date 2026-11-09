@@ -74,14 +74,14 @@ See [cutover and verification](docs/cutover.md) and [adding a bank](docs/adding-
 
 ## Build and inspect
 
-The repository has no tests. CI runs static checks and builds on pull requests and pushes to `main`: `golangci-lint` (with the `gofumpt` and `goimports` formatters), `govulncheck`, `go mod tidy -diff`, `go vet`, `go build` and `cdk synth`, for the root module and the `cdk` module. Release evidence is the `cmd/evaluate` replay and live dry runs through the [local verification loop](docs/local-verification.md).
+The repository has no tests. CI runs static checks and builds on pull requests and pushes to `main`: `golangci-lint` (with the `gofumpt` and `goimports` formatters), `govulncheck`, `go mod tidy -diff`, `go fix -diff`, `go vet`, `go build` and `cdk synth`, for the root module and the `cdk` module. Release evidence is the `cmd/evaluate` replay and live dry runs through the [local verification loop](docs/local-verification.md).
 
 The `cdk` module is separate and points at the root module with a `replace` directive, so no `go.work` is needed; delete any local one, or keep `GOWORK=off` set. The CDK app builds from `cdk/` and runs from the repository root.
 
 ```sh
 export GOWORK=off
-go build ./... && go vet ./... && golangci-lint run && govulncheck ./... && go mod tidy -diff
-(cd cdk && go build ./... && go vet ./... && golangci-lint run && govulncheck ./... && go mod tidy -diff)
+go build ./... && go vet ./... && golangci-lint run && govulncheck ./... && go mod tidy -diff && go fix -diff ./...
+(cd cdk && go build ./... && go vet ./... && golangci-lint run && govulncheck ./... && go mod tidy -diff && go fix -diff ./...)
 npm --prefix admin ci --ignore-scripts
 npm --prefix admin run typecheck
 npm --prefix admin run lint

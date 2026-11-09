@@ -1,15 +1,18 @@
 name: Build and inspect
-on: [push, pull_request, workflow_dispatch]
+on:
+  pull_request:
+  push:
+    branches: [main]
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  GOWORK: "off"
 jobs:
   checks:
     runs-on: ubuntu-latest
-    services:
-      dynamodb:
-        image: amazon/dynamodb-local:2.5.2
-        ports:
-          - 8000:8000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -21,19 +24,38 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: admin/package-lock.json
-      - name: Go static checks and builds
+      - name: Go modules are tidy and fixed
         run: |
-          test -z "$(gofmt -l cmd internal cdk/cdk.go)"
+          go mod tidy -diff
+          go fix -diff ./...
+          cd cdk
+          go mod tidy -diff
+          go fix -diff ./...
+      - name: Go vet and build
+        run: |
           go vet ./...
           go build ./...
-          DYNAMODB_LOCAL=http://localhost:8000 go test ./...
           cd cdk
           go vet ./...
           go build ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+      - name: golangci-lint (cdk)
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+          working-directory: cdk
+      - name: govulncheck
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+          cd cdk
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - name: CDK synthesis
         run: |
-          go work init . ./cdk
-          CDK_CONTEXT_JSON="$(python3 -c 'import json; print(json.dumps(json.load(open("cdk.json"))["context"]))')" CDK_OUTDIR=dist/cdk go run ./cdk
+          go build -C cdk -o ../dist/cdk-app .
+          CDK_CONTEXT_JSON="$(python3 -c 'import json; print(json.dumps(json.load(open("cdk.json"))["context"]))')" CDK_OUTDIR=dist/cdk dist/cdk-app
       - name: Admin checks
         run: |
           npm --prefix admin ci --ignore-scripts
