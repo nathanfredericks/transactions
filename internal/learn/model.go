@@ -33,13 +33,23 @@ type Options struct {
 	Editions bool
 	// MemoMode is "agree" (all same-amount examples agree) or "mode".
 	MemoMode string
+	// MemoDescriptor uses the memo every past use of the same bank text shares.
+	MemoDescriptor bool
+	// MemoSeries tells same-price subscriptions apart by the day they recur.
+	MemoSeries bool
+	// MemoPayee uses the memo every recent charge from the payee shares, for
+	// charges whose amount varies.
+	MemoPayee bool
+	// DescriptorWeight multiplies the weight of a payee's past categories that
+	// came with the same bank text (0 or 1 for no preference).
+	DescriptorWeight float64
 	// Splits enables splitting a charge into recurring components.
 	Splits bool
 }
 
 // DefaultOptions are the production settings chosen by the replay harness.
 func DefaultOptions() Options {
-	return Options{Memory: "majority", HalfLifeDays: 180, TripContext: false, WholeTrip: false, Editions: true, AmountKernel: true, CategoryMode: "weighted", MemoMode: "agree", Splits: false}
+	return Options{Memory: "majority", HalfLifeDays: 180, TripContext: false, WholeTrip: false, Editions: true, AmountKernel: true, CategoryMode: "weighted", MemoMode: "agree", MemoDescriptor: true, MemoSeries: true, MemoPayee: true, DescriptorWeight: 3, Splits: false}
 }
 
 // Query is a transaction to enrich. Amount is signed milliunits (outflow < 0).
@@ -358,6 +368,9 @@ func (m *Model) Category(payeeID string, q Query) (string, string) {
 				r := math.Log(math.Abs(float64(e.Amount)) / math.Abs(float64(q.Amount)))
 				w *= math.Exp(-r * r)
 			}
+			if m.opt.DescriptorWeight > 1 && q.Descriptor != "" && Normalize(e.Descriptor) == Normalize(q.Descriptor) {
+				w *= m.opt.DescriptorWeight
+			}
 			if m.event(e.CategoryID, q.Date) {
 				eventScores[e.CategoryID] += w
 			} else {
@@ -549,34 +562,116 @@ func (m *Model) Memo(payeeID string, q Query) (string, string) {
 			return memo, "scheduled"
 		}
 	}
-	var same []Example
+	var recent, same, sameText []Example
+	key := Normalize(q.Descriptor)
 	for _, e := range m.byPayee[target] {
-		if !e.Split() && e.Amount == q.Amount && days(e.Date, q.Date) <= 400 {
+		if e.Split() {
+			continue
+		}
+		// The same bank text keeps its memo however long ago it was seen.
+		if key != "" && Normalize(e.Descriptor) == key {
+			sameText = append(sameText, e)
+		}
+		if days(e.Date, q.Date) > 400 {
+			continue
+		}
+		recent = append(recent, e)
+		if e.Amount == q.Amount {
 			same = append(same, e)
 		}
 	}
-	if len(same) == 0 {
-		return "", "none"
-	}
-	if m.opt.MemoMode == "mode" {
-		w := map[string]float64{}
-		for _, e := range same {
-			w[strings.ToLower(e.Memo)] += m.weight(e.Date, q.Date)
+	// The same bank text has always carried the same memo.
+	if m.opt.MemoDescriptor {
+		if memo, ok := agreed(sameText, 2); ok {
+			return memo, "descriptor"
 		}
-		pick := best(w)
-		for i := len(same) - 1; i >= 0; i-- {
-			if strings.ToLower(same[i].Memo) == pick {
-				return same[i].Memo, "history"
+	}
+	if len(same) > 0 {
+		if m.opt.MemoMode == "mode" {
+			w := map[string]float64{}
+			for _, e := range same {
+				w[strings.ToLower(e.Memo)] += m.weight(e.Date, q.Date)
+			}
+			pick := best(w)
+			for i := len(same) - 1; i >= 0; i-- {
+				if strings.ToLower(same[i].Memo) == pick {
+					return same[i].Memo, "history"
+				}
 			}
 		}
+		if memo, ok := agreed(same, 1); ok {
+			return memo, "history"
+		}
+		// Several subscriptions at one price: the one that recurs monthly on
+		// this day of the month.
+		if m.opt.MemoSeries {
+			if memo := series(same, q.Date); memo != "" {
+				return memo, "series"
+			}
+		}
+		return "", "none"
 	}
-	memo := same[len(same)-1].Memo
-	for _, e := range same {
-		if !strings.EqualFold(e.Memo, memo) {
-			return "", "none"
+	// Every recent charge from this payee carries the same memo, whatever its
+	// amount (such as a subscription billed in another currency).
+	if m.opt.MemoPayee {
+		if memo, ok := agreed(recent, 3); ok {
+			return memo, "payee"
 		}
 	}
-	return memo, "history"
+	return "", "none"
+}
+
+// agreed returns the memo every example shares, given at least n examples. An
+// empty shared memo is a valid answer.
+func agreed(ex []Example, n int) (string, bool) {
+	if len(ex) < n || len(ex) == 0 {
+		return "", false
+	}
+	memo := ex[len(ex)-1].Memo
+	for _, e := range ex {
+		if !strings.EqualFold(strings.TrimSpace(e.Memo), strings.TrimSpace(memo)) {
+			return "", false
+		}
+	}
+	return memo, true
+}
+
+// series picks, among same-amount charges with different memos, the memo whose
+// latest charge was about a month ago on nearly the same day of the month.
+func series(same []Example, date string) string {
+	q, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return ""
+	}
+	latest := map[string]Example{}
+	for _, e := range same {
+		k := strings.ToLower(strings.TrimSpace(e.Memo))
+		if k != "" && e.Date > latest[k].Date {
+			latest[k] = e
+		}
+	}
+	found := ""
+	for _, e := range latest {
+		d, err := time.Parse("2006-01-02", e.Date)
+		if err != nil {
+			continue
+		}
+		gap := q.Sub(d).Hours() / 24
+		dom := q.Day() - d.Day()
+		if dom < 0 {
+			dom = -dom
+		}
+		if dom > 15 {
+			dom = 31 - dom
+		}
+		if gap >= 25 && gap <= 37 && dom <= 3 {
+			if found != "" {
+				return ""
+			}
+			found = e.Memo
+		}
+	}
+	return found
 }
 
 // split finds the one combination of 2–4 of the payee's recurring components

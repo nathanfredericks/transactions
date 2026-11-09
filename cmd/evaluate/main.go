@@ -47,8 +47,10 @@ func main() {
 		deterministic(m, ex, *out)
 	case "models":
 		models(m, ex, *out)
+	case "rules":
+		rules(m, ex, *out)
 	default:
-		log.Fatal("usage: evaluate [flags] deterministic|models")
+		log.Fatal("usage: evaluate [flags] deterministic|models|rules")
 	}
 }
 
@@ -237,6 +239,12 @@ func deterministic(m *learn.Mirror, ex []learn.Example, out string) {
 		"default":            func(*learn.Options) {},
 		"memory=unanimous":   func(o *learn.Options) { o.Memory = "unanimous" },
 		"memo=mode":          func(o *learn.Options) { o.MemoMode = "mode" },
+		"memo+descriptor":    func(o *learn.Options) { o.MemoDescriptor = true },
+		"memo+series":        func(o *learn.Options) { o.MemoSeries = true },
+		"memo+payee":         func(o *learn.Options) { o.MemoPayee = true },
+		"memo+all three":     func(o *learn.Options) { o.MemoDescriptor, o.MemoSeries, o.MemoPayee = true, true, true },
+		"cat+descriptor x3":  func(o *learn.Options) { o.DescriptorWeight = 3 },
+		"cat+descriptor x10": func(o *learn.Options) { o.DescriptorWeight = 10 },
 		"splits":             func(o *learn.Options) { o.Splits = true },
 		"no-trip":            func(o *learn.Options) { o.TripContext = false },
 		"no-whole-trip":      func(o *learn.Options) { o.WholeTrip = false },
