@@ -35,7 +35,6 @@ type Settings struct {
 	// OpenAIEffort is the model's reasoning effort ("" for its default).
 	OpenAIEffort      string                  `json:"openaiEffort,omitempty"`
 	PaymentProcessors []string                `json:"paymentProcessors"`
-	AdminURL          string                  `json:"adminUrl"`
 	ImportsEnabled    bool                    `json:"importsEnabled"`
 	Banks             map[string]BankSettings `json:"banks"`
 	Email             []types.EmailConfig     `json:"email"`

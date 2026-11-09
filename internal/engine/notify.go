@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"github.com/nathanfredericks/transactions/internal/notify"
 
-	"net/url"
 	"time"
 )
 
@@ -63,7 +62,7 @@ func (e *Engine) Deliver(ctx context.Context, r Request) (Outcome, error) {
 			}
 			continue
 		}
-		options := notify.NotificationOptions{Title: n.Title, URL: e.Settings.AdminURL + "/jobs/" + url.PathEscape(r.JobID) + "?bank=" + url.QueryEscape(r.Bank), URLTitle: "View job"}
+		options := notify.NotificationOptions{Title: n.Title}
 		if n.Title == "Transaction Approved" {
 			options.Priority = 1
 			options.Sound = "cashregister"
