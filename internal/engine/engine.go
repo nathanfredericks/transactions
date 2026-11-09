@@ -146,9 +146,6 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 	if se != nil && !needsAuth {
 		return out, se
 	}
-	if session.RenewalUncertain {
-		return out, bank.Fail(bank.Invalid, "renewal-outcome-unknown")
-	}
 	if !needsAuth {
 		if !session.MaximumExpiresAt.IsZero() && !session.MaximumExpiresAt.After(time.Now()) {
 			needsAuth = true
@@ -224,21 +221,9 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 	if err = e.saveJob(ctx); err != nil {
 		return out, err
 	}
-	var baseline Baseline
-	found, be := e.get(ctx, "BASELINE", &baseline)
-	if be != nil {
-		return out, be
-	}
-	if !found || !baseline.Approved {
-		if !e.Job.DryRun {
-			return out, bank.Fail(bank.Invalid, "baseline-review-required")
-		}
-	}
 	switch registration.Strategy {
-	case "reconcile":
-		err = e.reconcile(ctx, snapshot, baseline)
 	case "posted":
-		err = e.posted(ctx, snapshot, baseline)
+		err = e.posted(ctx, snapshot)
 	case "balances":
 		err = e.balances(ctx, snapshot)
 	default:
@@ -332,7 +317,7 @@ func (e *Engine) failure(ctx context.Context, cause error) (Outcome, error) {
 		e.Job.Status = "waiting"
 		outcome = "deferred"
 	}
-	if f.Kind == bank.Invalid || f.Kind == bank.Uncertain || health.Blocked {
+	if f.Kind == bank.Invalid || health.Blocked {
 		e.Job.Status = "review-required"
 		outcome = "review-required"
 	}
@@ -388,32 +373,23 @@ func (e *Engine) RecoverBrowser(ctx context.Context, r Request) (Outcome, error)
 	return e.failure(ctx, bank.Fail(bank.Temporary, "browser-task-incomplete"))
 }
 
-// A token exchange is never blindly replayed after an uncertain transport result.
-// An explicit reset is required before discarding uncertain renewal state.
+// renew exchanges the session's tokens. A renewal whose outcome is unknown
+// counts as expired authentication, so the job signs in through the browser.
 func (e *Engine) renew(ctx context.Context, adapter bank.Adapter, session bank.Session) (bank.Session, error) {
 	oldAccess, oldRefresh, oldExpiry := session.Headers["authorization"], session.Headers["refreshtoken"], session.ExpiresAt
-	// Fence the exchange before sending it. A process crash after the bank
-	// rotates tokens must not leave a seemingly reusable old session behind.
-	session.RenewalUncertain = true
-	if err := e.saveSession(ctx, session); err != nil {
-		return session, err
-	}
 	renewed, err := adapter.Renew(ctx, session)
 	slog.Info("session-renewal", "bank", e.Job.Bank, "success", err == nil,
 		"accessRotated", oldAccess != renewed.Headers["authorization"], "refreshRotated", oldRefresh != renewed.Headers["refreshtoken"],
 		"expiryExtended", renewed.ExpiresAt.After(oldExpiry))
 	if err != nil {
 		failure := bank.Classify(err)
-		// Keep the safe underlying category and operation when a renewal is
-		// held for review; never log exchange bodies or authentication material.
+		// Never log exchange bodies or authentication material.
 		slog.Warn("session-renewal-failed", "bank", e.Job.Bank, "kind", failure.Kind,
 			"operation", failure.Operation, "exchangeUncertain", failure.ExchangeUncertain)
 		if failure.ExchangeUncertain || failure.Kind == bank.Invalid {
-			renewed.RenewalUncertain = true
-			return renewed, bank.Fail(bank.Invalid, "renewal-outcome-unknown")
+			return renewed, bank.Fail(bank.Authentication, "renewal-outcome-unknown")
 		}
 	}
-	renewed.RenewalUncertain = false
 	return renewed, err
 }
 

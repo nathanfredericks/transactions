@@ -13,9 +13,6 @@ func failureNotice(name string, f *bank.Failure) (title, message string) {
 	if strings.HasSuffix(f.Operation, "/browser-access-rejected") {
 		key = "browser-access-rejected"
 	}
-	if f.Operation == "previous-import-missing" {
-		key = f.Operation
-	}
 	switch key {
 	case "authentication-required":
 		title = "{bank}: Could not log in automatically"
@@ -41,12 +38,6 @@ func failureNotice(name string, f *bank.Failure) (title, message string) {
 	case "invalid-response":
 		title = "{bank}: Unexpected response received"
 		message = "An unexpected response was received during a {bank} job. This job has stopped and needs review. Open the linked job to inspect the issue. [invalid-response]"
-	case "uncertain-write":
-		title = "{bank}: YNAB update not confirmed"
-		message = "A YNAB update for {bank} may have already been accepted, but confirmation was lost. Further updates for this operation are blocked until the outcome is reviewed. [uncertain-write]"
-	case "previous-import-missing":
-		title = "{bank}: Previously imported transaction missing"
-		message = "YNAB recognizes a previously imported transaction, but it has been deleted or is no longer present. Review whether to restore or exclude it before importing again. [previous-import-missing]"
 	default:
 		title = "{bank}: Job did not complete"
 		message = "A job for {bank} could not finish. Inspect the linked job for details before retrying. [bank-error]"

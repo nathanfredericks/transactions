@@ -3,8 +3,10 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -15,15 +17,8 @@ import (
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 
-type Baseline struct {
-	Approved    bool              `json:"approved"`
-	At          time.Time         `json:"at"`
-	Seen        map[string]bool   `json:"seen"`
-	Links       map[string]string `json:"links"`
-	Settlements map[string]Write  `json:"settlements,omitempty"`
-	NewRecords  map[string]bool   `json:"newRecords"`
-	SnapshotKey string            `json:"snapshotKey"`
-}
+// Write is the record of a notification import, kept so a later bank credit can
+// recognize an echoed refund and prove the user has not edited it.
 type Write struct {
 	Status        string `json:"status"`
 	TransactionID string `json:"transactionId"`
@@ -45,11 +40,23 @@ type Write struct {
 	Suggestion *learn.Suggestion `json:"suggestion,omitempty"`
 }
 
-func writeFailure(cause error, operation string) error {
-	if bank.Classify(cause).Kind == bank.Invalid {
-		return cause
+// writeFailure classifies a failed YNAB write. A 4xx other than 429 means YNAB
+// did not apply it. Anything else is retried by the job, then the next
+// schedule: posted writes carry an import ID YNAB dedupes, and alert writes
+// can at worst leave one visible, unapproved duplicate.
+func writeFailure(err error, operation string) error {
+	if f, ok := errors.AsType[*bank.Failure](err); ok {
+		return f
 	}
-	return bank.Fail(bank.Uncertain, operation)
+	if status, ok := errors.AsType[*service.StatusError](err); ok {
+		if status.Status == http.StatusTooManyRequests {
+			return bank.Fail(bank.Throttled, operation)
+		}
+		if status.Status < 500 {
+			return bank.Fail(bank.Invalid, operation)
+		}
+	}
+	return bank.Fail(bank.Temporary, operation)
 }
 
 func bankStateError() error { return bank.Fail(bank.Invalid, "state") }
@@ -84,49 +91,52 @@ func (e *Engine) mapping(ctx context.Context, s bank.Snapshot) (map[string]servi
 	return mapped, nil
 }
 
-func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error {
+// posted imports each posted record that YNAB does not already hold under its
+// import ID, deleted transactions included, so the user's deletions stand.
+func (e *Engine) posted(ctx context.Context, s bank.Snapshot) error {
 	mapping, err := e.mapping(ctx, s)
 	if err != nil {
 		return err
 	}
-	var cache *learning
-	for _, r := range s.Records {
-		target := mapping[r.AccountID]
-		if target.ID == "" {
-			continue
+	records := s.Records
+	var legacy legacyLedger
+	if e.Job.Bank == "eq-bank" {
+		// EQ retrievals import cleared rows only. Purchase emails are written as
+		// amount-only entries that YNAB matches to the cleared import.
+		records = make([]Record, 0, len(s.Records))
+		for _, r := range s.Records {
+			if r.Status == "posted" {
+				records = append(records, r)
+			}
 		}
-		if b.Seen[r.AccountID+"#"+r.ProvisionalID] {
-			continue
-		}
-		id := r.ProvisionalID
-		operation := "WRITE#" + r.AccountID + "#" + bank.Hash(id)
-		var previous Write
-		_, err = e.get(ctx, operation, &previous)
-		if err != nil {
+		slog.Info("EQ import eligibility", "source", e.Job.Source, "posted", len(records), "pendingSkipped", len(s.Records)-len(records))
+		if legacy, err = e.legacyLedger(ctx); err != nil {
 			return err
 		}
-		if previous.Status == "complete" {
+	}
+	imported := map[string]map[string]bool{}
+	var cache *learning
+	for _, r := range records {
+		target := mapping[r.AccountID]
+		if target.ID == "" || legacy.covers(r) {
 			continue
 		}
-		if previous.Status == "started" {
+		ids, ok := imported[target.ID]
+		if !ok {
 			rows, err := service.GetAccountTransactions(ctx, target.ID)
 			if err != nil {
 				return err
 			}
+			ids = map[string]bool{}
 			for _, tx := range rows {
-				if !tx.Deleted && tx.ImportID != nil && *tx.ImportID == id {
-					previous.Status, previous.TransactionID = "complete", tx.ID
-					break
+				if tx.ImportID != nil {
+					ids[*tx.ImportID] = true
 				}
 			}
-			if previous.Status != "complete" {
-				return bank.Fail(bank.Uncertain, "transaction-write")
-			}
-			if !e.Job.DryRun {
-				if err := e.put(ctx, operation, previous, e.Job.ID); err != nil {
-					return err
-				}
-			}
+			imported[target.ID] = ids
+		}
+		id := e.importID(r)
+		if ids[id] {
 			continue
 		}
 		decision := e.enrich(ctx, &cache, r.Description, r.Amount, r.Date, target.ID)
@@ -134,16 +144,15 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error 
 		if e.Job.DryRun {
 			continue
 		}
-		if err = e.put(ctx, operation, Write{Status: "started", AccountID: target.ID, Amount: r.Amount, Date: r.Date, ImportID: id, Description: r.Description, Decision: decision.Source(), Suggestion: &decision.Suggestion}, e.Job.ID); err != nil {
-			return err
-		}
 		tx, err := service.CreateEQTransaction(ctx, target.ID, r.Date, r.Amount, decision.Enrichment, id, "posted")
+		if errors.Is(err, service.ErrDuplicateImport) {
+			ids[id] = true
+			continue
+		}
 		if err != nil {
 			return writeFailure(err, "transaction-write")
 		}
-		if err = e.put(ctx, operation, Write{Status: "complete", TransactionID: tx.ID, ImportID: id, Description: r.Description, Decision: decision.Source(), Suggestion: &decision.Suggestion}, e.Job.ID); err != nil {
-			return err
-		}
+		ids[id] = true
 		e.recordSuggestion(ctx, decision, tx, id)
 		if r.Amount > 0 {
 			if err = e.clearEchoes(ctx, target.ID, r, tx.ID); err != nil {
@@ -152,6 +161,16 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error 
 		}
 	}
 	return nil
+}
+
+// importID is the YNAB import ID of a posted record. EQ keeps the formula of
+// its earlier ledger, so its past imports still dedupe.
+func (e *Engine) importID(r Record) string {
+	registration, _ := banks.Find(e.Job.Bank)
+	if registration.ImportPrefix == "" {
+		return r.ProvisionalID
+	}
+	return registration.ImportPrefix + ":" + bank.Hash("tx#" + r.AccountID + "#" + bank.Hash(identity(r)))[:32]
 }
 
 func (e *Engine) balances(ctx context.Context, s bank.Snapshot) error {
@@ -169,31 +188,15 @@ func (e *Engine) balances(ctx context.Context, s bank.Snapshot) error {
 		if target.ID == "" {
 			continue
 		}
-		var uncertain Write
-		found, err := e.get(ctx, "BALANCE#"+a.ID, &uncertain)
-		if err != nil {
-			return err
-		}
-		if found && uncertain.Status == "started" {
-			return bank.Fail(bank.Uncertain, "balance-adjustment")
-		}
 		amount := a.Balance - target.Balance
 		if amount == 0 || e.Job.DryRun {
 			continue
 		}
-		w := Write{Status: "started", AccountID: target.ID, Amount: amount, Date: day}
-		if err = e.put(ctx, "BALANCE#"+a.ID, w, e.Job.ID); err != nil {
-			return err
-		}
+		// Each run writes the remaining difference, so a lost response is
+		// corrected by the next run rather than held for review.
 		registration, _ := banks.Find(e.Job.Bank)
-		tx, err := service.CreateBalanceAdjustment(ctx, target.ID, day, amount, e.Settings.AdjustmentPayeeID, registration.Name)
-		if err != nil {
-			return bank.Fail(bank.Uncertain, "balance-adjustment")
-		}
-		w.Status = "complete"
-		w.TransactionID = tx.ID
-		if err = e.put(ctx, "BALANCE#"+a.ID, w, e.Job.ID); err != nil {
-			return err
+		if _, err := service.CreateBalanceAdjustment(ctx, target.ID, day, amount, e.Settings.AdjustmentPayeeID, registration.Name); err != nil {
+			return writeFailure(err, "balance-adjustment")
 		}
 	}
 	return nil
@@ -214,22 +217,6 @@ func (e *Engine) notificationImport(ctx context.Context) (int, error) {
 	switch previous.Status {
 	case "complete", "echo":
 		return 0, nil
-	case "started":
-		// Recover the recorded write before invoking AI again. A new interpretation
-		// must never change an operation whose financial outcome is uncertain.
-		if e.Job.DryRun {
-			return 0, nil
-		}
-		transactions, err := service.GetAccountTransactions(ctx, previous.AccountID)
-		if err != nil {
-			return 0, err
-		}
-		for _, tx := range transactions {
-			if !tx.Deleted && tx.ImportID != nil && *tx.ImportID == previous.ImportID {
-				return 0, e.completeNotification(ctx, key, previous, tx)
-			}
-		}
-		return 0, bank.Fail(bank.Uncertain, "notification-import")
 	}
 	alert, err := service.ExtractAlert(ctx, e.Job.Text)
 	if err != nil {
@@ -283,10 +270,7 @@ func (e *Engine) notificationImport(ctx context.Context) (int, error) {
 	if e.Job.DryRun {
 		return 0, nil
 	}
-	intent := Write{Status: "started", AccountID: e.Job.AccountID, Amount: amount, Date: date, ImportID: importID, Description: alert.Descriptor, AlertDate: alert.Date, Stale: stale, Decision: decision.Source(), Suggestion: &decision.Suggestion}
-	if err = e.put(ctx, key, intent, e.Job.ID); err != nil {
-		return 0, err
-	}
+	intent := Write{AccountID: e.Job.AccountID, Amount: amount, Date: date, ImportID: importID, Description: alert.Descriptor, AlertDate: alert.Date, Stale: stale, Decision: decision.Source(), Suggestion: &decision.Suggestion}
 	tx, err := service.CreateEQTransaction(ctx, e.Job.AccountID, date, amount, decision.Enrichment, importID, "pending")
 	if err != nil {
 		return 0, writeFailure(err, "notification-import")
@@ -436,8 +420,7 @@ func addDays(date string, days int) string {
 
 // alertImport writes an amount-only purchase for an alert that names no merchant.
 // It never signs in to the bank or calls a model; a later cleared import supplies
-// the details. The write has no YNAB import identity, so an interrupted create is
-// held for review and never re-sent or inferred from amount and date.
+// the details. It carries no import ID, so YNAB can match it to that import.
 func (e *Engine) alertImport(ctx context.Context) error {
 	account := e.Settings.Banks[e.Job.Bank].AlertAccountID
 	if account == "" {
@@ -446,25 +429,11 @@ func (e *Engine) alertImport(ctx context.Context) error {
 	if e.Job.AlertAmount <= 0 || e.Job.AlertDate == "" {
 		return bank.Fail(bank.Invalid, "alert-amount")
 	}
-	key := "WRITE#alert#" + e.Job.ID
-	var previous Write
-	if _, err := e.get(ctx, key, &previous); err != nil {
-		return err
-	}
-	switch previous.Status {
-	case "complete":
-		return nil
-	case "started":
-		return bank.Fail(bank.Uncertain, "alert-import")
-	}
 	slog.Info("amount-only alert preview", "job", e.Job.ID, "date", e.Job.AlertDate, "amount", -e.Job.AlertAmount, "dryRun", e.Job.DryRun)
 	if e.Job.DryRun {
 		return nil
 	}
 	amount := -e.Job.AlertAmount
-	if err := e.put(ctx, key, Write{Status: "started", AccountID: account, Amount: amount, Date: e.Job.AlertDate}, e.Job.ID); err != nil {
-		return err
-	}
 	tx, err := service.CreateAmountOnlyTransaction(ctx, account, e.Job.AlertDate, amount)
 	if err != nil {
 		return writeFailure(err, "alert-import")
@@ -474,21 +443,5 @@ func (e *Engine) alertImport(ctx context.Context) error {
 		name = purchaseAccount(e.Job.Bank)
 	}
 	notice := Notification{ID: "purchase#" + e.Job.ID, JobID: e.Job.ID, Title: "Transaction Approved", Message: fmt.Sprintf("A transaction of $%.2f was approved on your %s.", float64(e.Job.AlertAmount)/1000, name), Status: "pending", At: time.Now()}
-	return e.Store.PutMany(ctx, e.Lease, map[string]any{key: Write{Status: "complete", TransactionID: tx.ID, AccountID: account, Amount: amount, Date: e.Job.AlertDate}, "NOTICE#" + notice.ID: notice})
-}
-
-func (e *Engine) ledger(ctx context.Context) ([]*Entry, error) {
-	rows, err := e.Store.List(ctx, "BANK#"+e.Job.Bank, "tx#")
-	if err != nil {
-		return nil, err
-	}
-	var out []*Entry
-	for _, raw := range rows {
-		var entry Entry
-		if json.Unmarshal(raw, &entry) != nil {
-			return nil, bankStateError()
-		}
-		out = append(out, &entry)
-	}
-	return out, nil
+	return e.put(ctx, "NOTICE#"+notice.ID, notice, e.Job.ID)
 }

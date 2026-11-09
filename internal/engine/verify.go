@@ -40,9 +40,6 @@ func (e *Engine) VerifySession(ctx context.Context, bankID string, renew bool) (
 	if err != nil {
 		return nil, err
 	}
-	if s.RenewalUncertain {
-		return nil, bank.Fail(bank.Invalid, "renewal-outcome-unknown")
-	}
 	adapter := r.New(bank.Dependencies{})
 	if renew {
 		updated, renewalErr := e.renew(ctx, adapter, s)

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/nathanfredericks/transactions/internal/bank"
-
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 
@@ -53,26 +51,7 @@ func CreateEQTransaction(ctx context.Context, account, date string, amount int64
 	if err != nil {
 		return nil, err
 	}
-	payload := eqTransactionPayload(account, date, amount, enrichment, importID, status)
-	tx, err := createTransaction(ctx, client.budgetID, payload)
-	if err == nil || payload.ImportID == nil {
-		// A pending POST has no API deduplication identity. Leave an uncertain
-		// outcome held by the durable write intent; never infer it by amount/date.
-		return tx, err
-	}
-	// An interrupted POST can have succeeded. Recover by stable import ID before retrying.
-	existing, lookupErr := GetAccountTransactions(ctx, account)
-	if lookupErr == nil {
-		for _, t := range existing {
-			if !t.Deleted && t.ImportID != nil && *t.ImportID == importID {
-				return t, nil
-			}
-		}
-	}
-	if lookupErr == nil && errors.Is(err, errDuplicateImport) {
-		return nil, bank.Fail(bank.Invalid, "previous-import-missing")
-	}
-	return nil, err
+	return createTransaction(ctx, client.budgetID, eqTransactionPayload(account, date, amount, enrichment, importID, status))
 }
 
 func eqTransactionPayload(account, date string, amount int64, enrichment types.Enrichment, importID, status string) ynabPayloadTransaction {
@@ -112,7 +91,7 @@ func amountOnlyPayload(account, date string, amount int64) ynabPayloadTransactio
 }
 
 // CreateAmountOnlyTransaction records a purchase alert that states only an amount.
-// It has no deduplication identity: callers must hold an uncertain outcome.
+// It has no import ID, so YNAB can match it to the later cleared import.
 func CreateAmountOnlyTransaction(ctx context.Context, account, date string, amount int64) (*types.YNABTransaction, error) {
 	client, err := newYNABClient(ctx)
 	if err != nil {
@@ -128,29 +107,6 @@ func DeleteTransaction(ctx context.Context, id string) error {
 		return err
 	}
 	return client.do(ctx, http.MethodDelete, fmt.Sprintf("/budgets/%s/transactions/%s", client.budgetID, id), nil, nil)
-}
-
-func UpdateEQTransaction(ctx context.Context, tx *types.YNABTransaction, date string, amount int64, status string) (*types.YNABTransaction, error) {
-	client, err := newYNABClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-	cleared := tx.Cleared
-	if cleared != "reconciled" {
-		cleared = "uncleared"
-		if status == "posted" {
-			cleared = "cleared"
-		}
-	}
-	// Explicitly retain user fields; only bank date, amount and clearing state change.
-	request := map[string]any{"transaction": map[string]any{"account_id": tx.AccountID, "date": date, "amount": amount, "cleared": cleared, "approved": tx.Approved, "payee_id": tx.PayeeID, "category_id": tx.CategoryID, "memo": tx.Memo}}
-	var response struct {
-		Data struct {
-			Transaction *types.YNABTransaction `json:"transaction"`
-		} `json:"data"`
-	}
-	err = client.do(ctx, http.MethodPut, fmt.Sprintf("/budgets/%s/transactions/%s", client.budgetID, tx.ID), request, &response)
-	return response.Data.Transaction, err
 }
 
 func ValidateAdjustmentPayee(ctx context.Context, id string) error {

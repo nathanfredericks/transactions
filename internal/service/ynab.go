@@ -25,21 +25,19 @@ type ynabClient struct {
 	httpClient  *http.Client
 }
 
-var errDuplicateImport = errors.New("YNAB retained the import identity")
+// ErrDuplicateImport means YNAB already has a transaction with the write's
+// import ID, deleted ones included, so the write is already done.
+var ErrDuplicateImport = errors.New("ynab already has this import id")
 
-type ynabError struct {
-	APIError *struct {
-		ID     string `json:"id"`
-		Name   string `json:"name"`
-		Detail string `json:"detail"`
-	} `json:"error"`
+// StatusError is a YNAB response with an HTTP error status. A 4xx other than
+// 429 means YNAB did not apply the request.
+type StatusError struct {
+	Status           int
+	ID, Name, Detail string
 }
 
-func (e *ynabError) Error() string {
-	if e == nil || e.APIError == nil {
-		return "ynab api: unknown error"
-	}
-	return fmt.Sprintf("api: error id=%s name=%s detail=%s", e.APIError.ID, e.APIError.Name, e.APIError.Detail)
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("ynab api: status=%d id=%s name=%s detail=%s", e.Status, e.ID, e.Name, e.Detail)
 }
 
 type ynabPayee struct {
@@ -113,11 +111,18 @@ func (c *ynabClient) do(ctx context.Context, method string, path string, request
 	}
 
 	if res.StatusCode >= 400 {
-		apiErr := &ynabError{}
-		if err := json.Unmarshal(body, apiErr); err == nil && apiErr.APIError != nil {
-			return apiErr
+		apiErr := &StatusError{Status: res.StatusCode}
+		var parsed struct {
+			Error *struct {
+				ID     string `json:"id"`
+				Name   string `json:"name"`
+				Detail string `json:"detail"`
+			} `json:"error"`
 		}
-		return fmt.Errorf("ynab api: status=%d", res.StatusCode)
+		if json.Unmarshal(body, &parsed) == nil && parsed.Error != nil {
+			apiErr.ID, apiErr.Name, apiErr.Detail = parsed.Error.ID, parsed.Error.Name, parsed.Error.Detail
+		}
+		return apiErr
 	}
 
 	if responseBody == nil || len(body) == 0 {
@@ -163,7 +168,7 @@ func createTransaction(ctx context.Context, budgetID string, payload ynabPayload
 	}
 	for _, id := range response.Data.DuplicateImportIDs {
 		if payload.ImportID != nil && id == *payload.ImportID {
-			return nil, errDuplicateImport
+			return nil, ErrDuplicateImport
 		}
 	}
 	return nil, errors.New("ynab api returned no created transaction")

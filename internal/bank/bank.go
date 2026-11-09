@@ -25,7 +25,6 @@ const (
 	Throttled      Kind = "throttled"
 	Temporary      Kind = "temporary"
 	Invalid        Kind = "invalid-response"
-	Uncertain      Kind = "uncertain-write"
 )
 
 type Failure struct {
@@ -49,7 +48,6 @@ type Session struct {
 	BrowserPlatform  string            `json:"browserPlatform,omitempty"`
 	BrowserVersion   string            `json:"browserVersion,omitempty"`
 	BrowserSeed      int               `json:"browserSeed,omitempty"`
-	RenewalUncertain bool              `json:"renewalUncertain,omitempty"`
 	Version          int               `json:"version"`
 	Bank             string            `json:"bank"`
 	Headers          map[string]string `json:"headers"`
