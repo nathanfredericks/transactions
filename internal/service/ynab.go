@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/nathanfredericks/transactions/internal/config"
 	overridepkg "github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/types"
 )
@@ -69,12 +70,12 @@ func toYNABExpenseMilliunits(amount float64) int64 {
 }
 
 func newYNABClient(ctx context.Context) (*ynabClient, error) {
-	secrets, err := getSecrets(ctx)
+	secrets, err := config.GetSecrets(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting secrets: %w", err)
 	}
 
-	settings, err := loadSettings(ctx)
+	settings, err := config.Load(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +208,7 @@ func CheckForRecentTransaction(ctx context.Context, accountID string, amount flo
 }
 
 func formatDate(ctx context.Context, t time.Time) (string, error) {
-	params, err := getParameters(ctx)
+	params, err := config.GetParameters(ctx)
 	if err != nil {
 		return "", fmt.Errorf("getting parameters: %w", err)
 	}

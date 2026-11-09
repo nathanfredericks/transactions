@@ -10,7 +10,7 @@ import (
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 
-var loadSecretPayload = func(ctx context.Context, secretARN string) ([]byte, error) {
+func loadSecretPayload(ctx context.Context, secretARN string) ([]byte, error) {
 	cfg, err := GetAWSConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("loading AWS config: %w", err)

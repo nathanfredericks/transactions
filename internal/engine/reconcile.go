@@ -29,13 +29,6 @@ type Entry struct {
 	AlertMessageID      string `json:"alertMessageId,omitempty"`
 }
 
-var getAccountTransactions = service.GetAccountTransactions
-var getOverrides = override.GetTransactionOverrides
-var getParameters = config.GetParameters
-var findOverride = override.FindOverride
-var updateEQTransaction = service.UpdateEQTransaction
-var hash = bank.Hash
-
 func (s *Engine) importPrefix() string { r, _ := banks.Find(s.Job.Bank); return r.ImportPrefix }
 func identity(r Record) string {
 	if r.BankID != nil {
@@ -118,7 +111,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 	}
 	snapshots := map[string][]*types.YNABTransaction{}
 	for _, id := range accountIDs {
-		snapshots[id], err = getAccountTransactions(ctx, mapping[id])
+		snapshots[id], err = service.GetAccountTransactions(ctx, mapping[id])
 		if err != nil {
 			return false, err
 		}
@@ -158,13 +151,13 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 		for _, e := range candidates {
 			keys = append(keys, e.Key)
 		}
-		id := hash(r.AccountID + "#" + identity(r))
+		id := bank.Hash(r.AccountID + "#" + identity(r))
 		if err := s.put(ctx, "review#"+id, map[string]any{"record": r, "candidates": keys, "reason": reason, "jobId": job.ID}, job.ID); err != nil {
 			return err
 		}
 		return nil
 	}
-	overrides, err := getOverrides(ctx)
+	overrides, err := override.GetTransactionOverrides(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -201,7 +194,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			var resolution struct {
 				EntryKey string `json:"entryKey"`
 			}
-			if _, err := s.get(ctx, "RESOLUTION#"+hash(r.AccountID+"#"+identity(r)), &resolution); err != nil {
+			if _, err := s.get(ctx, "RESOLUTION#"+bank.Hash(r.AccountID+"#"+identity(r)), &resolution); err != nil {
 				return false, err
 			}
 			if resolution.EntryKey != "" {
@@ -210,7 +203,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 				var review struct {
 					Record Record `json:"record"`
 				}
-				found, err := s.get(ctx, "review#"+hash(r.AccountID+"#"+identity(r)), &review)
+				found, err := s.get(ctx, "review#"+bank.Hash(r.AccountID+"#"+identity(r)), &review)
 				if err != nil {
 					return false, err
 				}
@@ -273,8 +266,8 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 			}
 		}
 		if entry == nil {
-			stable := "tx#" + r.AccountID + "#" + hash(identity(r))
-			entry = &Entry{Key: stable, Record: r, ImportID: s.importPrefix() + ":" + hash(stable)[:32]}
+			stable := "tx#" + r.AccountID + "#" + bank.Hash(identity(r))
+			entry = &Entry{Key: stable, Record: r, ImportID: s.importPrefix() + ":" + bank.Hash(stable)[:32]}
 			if r.Status == "pending" {
 				amount := r.Amount
 				entry.AuthorizationAmount = &amount
@@ -336,7 +329,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 				}
 			}
 			if entry.YNABID == "" {
-				params, e := getParameters(ctx)
+				params, e := config.GetParameters(ctx)
 				if e != nil {
 					return false, e
 				}
@@ -348,7 +341,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 				if e != nil {
 					return false, e
 				}
-				rule, e := findOverride(ctx, overrides, math.Abs(float64(r.Amount))/1000, r.Description, day)
+				rule, e := override.FindOverride(ctx, overrides, math.Abs(float64(r.Amount))/1000, r.Description, day)
 				if e != nil {
 					return false, e
 				}
@@ -364,7 +357,7 @@ func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline
 					if err := s.put(ctx, "WRITE#"+entry.Key, intent, job.ID); err != nil {
 						return false, err
 					}
-					tx, e := createTransaction(ctx, mapping[r.AccountID], r.Date, r.Amount, decision.Enrichment, entry.ImportID, r.Status, rule)
+					tx, e := service.CreateEQTransaction(ctx, mapping[r.AccountID], r.Date, r.Amount, decision.Enrichment, entry.ImportID, r.Status, rule)
 					if e != nil {
 						return false, writeFailure(e, "transaction-write")
 					}
@@ -469,7 +462,7 @@ func (s *Engine) updateTransaction(ctx context.Context, key string, tx *types.YN
 		if err := s.put(ctx, operation, w, s.Job.ID); err != nil {
 			return err
 		}
-		if _, err := updateEQTransaction(ctx, tx, r.Date, r.Amount, r.Status); err != nil {
+		if _, err := service.UpdateEQTransaction(ctx, tx, r.Date, r.Amount, r.Status); err != nil {
 			return bank.Fail(bank.Uncertain, "transaction-update")
 		}
 	}

@@ -137,7 +137,7 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error 
 		if err = e.put(ctx, operation, Write{Status: "started", AccountID: target.ID, Amount: r.Amount, Date: r.Date, ImportID: id, Description: r.Description, Decision: decision.Source(), Suggestion: &decision.Suggestion}, e.Job.ID); err != nil {
 			return err
 		}
-		tx, err := createTransaction(ctx, target.ID, r.Date, r.Amount, decision.Enrichment, id, "posted", nil)
+		tx, err := service.CreateEQTransaction(ctx, target.ID, r.Date, r.Amount, decision.Enrichment, id, "posted", nil)
 		if err != nil {
 			return writeFailure(err, "transaction-write")
 		}
@@ -199,23 +199,6 @@ func (e *Engine) balances(ctx context.Context, s bank.Snapshot) error {
 	return nil
 }
 
-// Seams for tests; production uses the service implementations.
-var (
-	extractAlert       = service.ExtractAlert
-	createTransaction  = service.CreateEQTransaction
-	createAmountOnly   = service.CreateAmountOnlyTransaction
-	accountTransaction = service.GetAccountTransactions
-	deleteTransaction  = service.DeleteTransaction
-	findRules          = func(ctx context.Context, amount float64, descriptor string, at time.Time) (*types.TransactionOverride, error) {
-		rules, err := override.GetTransactionOverrides(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return override.FindOverride(ctx, rules, amount, descriptor, at)
-	}
-	submitJob = func(ctx context.Context, e *Engine, j Job) error { _, err := e.Submit(ctx, j); return err }
-)
-
 // echoWaits are the delays, in seconds, a late alert waits for its bank credit
 // to reach YNAB before it is treated as a genuine purchase.
 var echoWaits = []int{60, 300, 900}
@@ -237,7 +220,7 @@ func (e *Engine) notificationImport(ctx context.Context) (int, error) {
 		if e.Job.DryRun {
 			return 0, nil
 		}
-		transactions, err := accountTransaction(ctx, previous.AccountID)
+		transactions, err := service.GetAccountTransactions(ctx, previous.AccountID)
 		if err != nil {
 			return 0, err
 		}
@@ -248,7 +231,7 @@ func (e *Engine) notificationImport(ctx context.Context) (int, error) {
 		}
 		return 0, bank.Fail(bank.Uncertain, "notification-import")
 	}
-	alert, err := extractAlert(ctx, e.Job.Text)
+	alert, err := service.ExtractAlert(ctx, e.Job.Text)
 	if err != nil {
 		slog.Warn("notification extraction failed", "job", e.Job.ID, "error", err)
 		return 0, bank.Fail(bank.Temporary, "notification-extract")
@@ -294,7 +277,11 @@ func (e *Engine) notificationImport(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	rule, err := findRules(ctx, float64(alert.Amount)/1000, alert.Descriptor, at)
+	rules, err := override.GetTransactionOverrides(ctx)
+	if err != nil {
+		return 0, err
+	}
+	rule, err := override.FindOverride(ctx, rules, float64(alert.Amount)/1000, alert.Descriptor, at)
 	if err != nil {
 		return 0, err
 	}
@@ -314,7 +301,7 @@ func (e *Engine) notificationImport(ctx context.Context) (int, error) {
 	if err = e.put(ctx, key, intent, e.Job.ID); err != nil {
 		return 0, err
 	}
-	tx, err := createTransaction(ctx, e.Job.AccountID, date, amount, decision.Enrichment, importID, "pending", rule)
+	tx, err := service.CreateEQTransaction(ctx, e.Job.AccountID, date, amount, decision.Enrichment, importID, "pending", rule)
 	if err != nil {
 		return 0, writeFailure(err, "notification-import")
 	}
@@ -347,7 +334,7 @@ func deref(s *string) string {
 // inflow of the same amount, from the same descriptor, posted between the date
 // the alert states and the day it arrived, not already claimed by another alert.
 func (e *Engine) findEchoCredit(ctx context.Context, alert service.Alert, received string) (*types.YNABTransaction, error) {
-	rows, err := accountTransaction(ctx, e.Job.AccountID)
+	rows, err := service.GetAccountTransactions(ctx, e.Job.AccountID)
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +375,8 @@ func (e *Engine) requestRetrieval(ctx context.Context) error {
 	if !ok || !e.Settings.Banks[e.Job.Bank].Enabled {
 		return nil
 	}
-	return submitJob(ctx, e, Job{Version: 1, ID: "echo-" + bank.Hash(e.Job.ID)[:32], Bank: registration.ID, Source: "scheduled", Purpose: "retrieve"})
+	_, err := e.Submit(ctx, Job{Version: 1, ID: "echo-" + bank.Hash(e.Job.ID)[:32], Bank: registration.ID, Source: "scheduled", Purpose: "retrieve"})
+	return err
 }
 
 // clearEchoes runs when a bank credit is imported. An alert this importer wrote
@@ -421,7 +409,7 @@ func (e *Engine) clearEchoes(ctx context.Context, account string, credit Record,
 	if len(matches) == 0 {
 		return nil
 	}
-	rows, err := accountTransaction(ctx, account)
+	rows, err := service.GetAccountTransactions(ctx, account)
 	if err != nil {
 		return err
 	}
@@ -432,7 +420,7 @@ func (e *Engine) clearEchoes(ctx context.Context, account string, credit Record,
 	if len(matches) == 1 {
 		w := matches[0].w
 		if tx := byID[w.TransactionID]; tx != nil && !tx.Deleted && untouched(tx, w) {
-			if err := deleteTransaction(ctx, tx.ID); err != nil {
+			if err := service.DeleteTransaction(ctx, tx.ID); err != nil {
 				return err
 			}
 			slog.Info("removed alert repeated by a bank credit", "credit", creditID, "transaction", tx.ID)
@@ -497,7 +485,7 @@ func (e *Engine) alertImport(ctx context.Context) error {
 	if err := e.put(ctx, key, Write{Status: "started", AccountID: account, Amount: amount, Date: e.Job.AlertDate}, e.Job.ID); err != nil {
 		return err
 	}
-	tx, err := createAmountOnly(ctx, account, e.Job.AlertDate, amount)
+	tx, err := service.CreateAmountOnlyTransaction(ctx, account, e.Job.AlertDate, amount)
 	if err != nil {
 		return writeFailure(err, "alert-import")
 	}

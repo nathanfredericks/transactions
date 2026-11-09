@@ -82,37 +82,34 @@ var live struct {
 	mirror *learn.Mirror
 }
 
-// Seams for tests; production reads YNAB live and calls the configured model.
-var (
-	loadLearning = func(ctx context.Context, e *Engine) (*learning, error) {
-		live.Lock()
-		defer live.Unlock()
-		if live.mirror == nil || live.budget != e.Settings.BudgetID {
-			live.mirror, live.budget = learn.NewMirror(), e.Settings.BudgetID
-		}
-		changed, err := syncMirror(ctx, live.mirror, e.today())
-		if err != nil {
-			live.mirror = nil
-			return nil, err
-		}
-		// The importer's own records keep the bank descriptor YNAB may not.
-		rows, err := e.Store.List(ctx, learningPK, "TX#")
-		if err != nil {
-			slog.Warn("suggestion records unavailable", "error", err)
-		}
-		for _, raw := range rows {
-			var s learn.Suggestion
-			if json.Unmarshal(raw, &s) == nil && s.TransactionID != "" {
-				live.mirror.Suggestions[s.TransactionID] = &s
-			}
-		}
-		approved, confirmed := outcomes(live.mirror, changed)
-		slog.Info("ynab-learning", "job", e.Job.ID, "changed", len(changed), "transactions", len(live.mirror.Transactions), "approvedWithSuggestion", approved, "confirmedFields", confirmed)
-		return buildLearning(live.mirror, e.excludedPayees()), nil
+// loadLearning reads the budget from YNAB, live, and the importer's own
+// suggestion records, and builds the learned model from them.
+func loadLearning(ctx context.Context, e *Engine) (*learning, error) {
+	live.Lock()
+	defer live.Unlock()
+	if live.mirror == nil || live.budget != e.Settings.BudgetID {
+		live.mirror, live.budget = learn.NewMirror(), e.Settings.BudgetID
 	}
-	chooseWithModel = service.ChooseWithModel
-	syncMirror      = service.SyncMirror
-)
+	changed, err := service.SyncMirror(ctx, live.mirror, e.today())
+	if err != nil {
+		live.mirror = nil
+		return nil, err
+	}
+	// The importer's own records keep the bank descriptor YNAB may not.
+	rows, err := e.Store.List(ctx, learningPK, "TX#")
+	if err != nil {
+		slog.Warn("suggestion records unavailable", "error", err)
+	}
+	for _, raw := range rows {
+		var s learn.Suggestion
+		if json.Unmarshal(raw, &s) == nil && s.TransactionID != "" {
+			live.mirror.Suggestions[s.TransactionID] = &s
+		}
+	}
+	approved, confirmed := outcomes(live.mirror, changed)
+	slog.Info("ynab-learning", "job", e.Job.ID, "changed", len(changed), "transactions", len(live.mirror.Transactions), "approvedWithSuggestion", approved, "confirmedFields", confirmed)
+	return buildLearning(live.mirror, e.excludedPayees()), nil
+}
 
 // Decision is what an import writes and the record of why.
 type Decision struct {
@@ -159,7 +156,7 @@ func (e *Engine) enrich(ctx context.Context, cache **learning, descriptor string
 		d.Suggestion.PayeeSource = r.Source
 	} else {
 		candidates := l.model.Candidates(descriptor, 20)
-		out, model, err := chooseWithModel(ctx, l.model.Input(q, "", candidates))
+		out, model, err := service.ChooseWithModel(ctx, l.model.Input(q, "", candidates))
 		d.Suggestion.Model = model
 		if err != nil {
 			return fallback("model", err)

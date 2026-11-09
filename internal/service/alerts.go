@@ -97,7 +97,7 @@ func ExtractAlert(ctx context.Context, text string) (Alert, error) {
 	if a, ok := ParseAlert(text); ok {
 		return a, nil
 	}
-	raw, err := callModel(ctx, "Read the purchase alert. Copy the purchase amount and the merchant descriptor exactly as they appear. Do not shorten, expand, translate or rename the descriptor.", text, "alert", alertSchema)
+	raw, err := callResponsesAPI(ctx, "Read the purchase alert. Copy the purchase amount and the merchant descriptor exactly as they appear. Do not shorten, expand, translate or rename the descriptor.", text, "alert", alertSchema)
 	if err != nil {
 		return Alert{}, fmt.Errorf("calling AI for alert details: %w", err)
 	}
