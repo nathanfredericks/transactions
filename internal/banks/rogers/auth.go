@@ -11,7 +11,6 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 
 	"github.com/nathanfredericks/transactions/internal/bank"
-	"github.com/nathanfredericks/transactions/internal/cloak"
 )
 
 func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session bank.Session, err error) {
@@ -41,7 +40,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	}
 	o := bank.Observe(p)
 	defer o.Close()
-	router := cloak.NewRequestRouter(p)
+	router := p.HijackRequests()
 	e = router.Add("https://selfserve.apis.rogersbank.com/*", "", func(h *rod.Hijack) {
 		headers := []*proto.FetchHeaderEntry{}
 		for k, v := range h.Request.Headers() {
@@ -65,10 +64,8 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	if e != nil {
 		return bank.Session{}, e
 	}
-	if e = cloak.StartRequestRouter(p, router); e != nil {
-		return bank.Session{}, e
-	}
-	defer cloak.StopRequestRouter(p, router)
+	go router.Run()
+	defer func() { _ = router.Stop() }()
 	if e = p.Navigate("https://selfserve.rogersbank.com/home"); e != nil {
 		return bank.Session{}, bank.Fail(bank.Temporary, "navigation")
 	}

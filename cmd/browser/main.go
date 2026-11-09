@@ -140,7 +140,7 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 	browserVersion := ""
 	browserPlatform := "windows"
 	if r.Browser == "cloak" {
-		options := cloak.Options{Binary: binary, Headless: cloak.Headed(), Humanize: true, HumanPreset: "careful", GeoIP: true, Timezone: "America/Halifax"}
+		options := cloak.Options{Binary: binary, Headless: cloak.Headed(), Humanize: true, HumanPreset: "careful", Timezone: "America/Halifax"}
 		if r.ID == "nbdb" {
 			if v := os.Getenv("NBDB_BROWSER_PLATFORM"); v != "" {
 				if v != "windows" && v != "linux" && v != "macos" {

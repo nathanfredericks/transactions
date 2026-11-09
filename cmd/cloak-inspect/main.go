@@ -12,11 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
-
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
 
 	"github.com/nathanfredericks/transactions/internal/cloak"
 )
@@ -29,7 +25,6 @@ func main() {
 }
 
 func run() error {
-	auth := flag.Bool("auth", false, "Inspect repeated HTTP authentication and request routing")
 	profiles := flag.Bool("profiles", false, "Inspect persistent profile reopening")
 	full := flag.Bool("full", false, "Inspect handle/frame/composition/cancellation operations too")
 	flag.Parse()
@@ -43,15 +38,6 @@ func run() error {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/auth/") {
-			user, password, ok := r.BasicAuth()
-			if !ok || user != "fixture" || password != "sample" {
-				w.Header().Set("WWW-Authenticate", `Basic realm="`+r.URL.Path+`"`)
-				w.WriteHeader(http.StatusUnauthorized)
-				fmt.Fprint(w, "Local fixture requires authentication")
-				return
-			}
-		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(body)
 	})
@@ -64,13 +50,10 @@ func run() error {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
-	if *auth {
-		return inspectAuth(ctx, "http://"+listener.Addr().String())
-	}
 	if *profiles {
 		return inspectProfiles(ctx, "http://"+listener.Addr().String())
 	}
-	owned, err := cloak.Launch(ctx, cloak.Options{Headless: cloak.Headed(), Humanize: true, HumanPreset: "careful", GeoIP: true, Timezone: "America/Halifax"})
+	owned, err := cloak.Launch(ctx, cloak.Options{Headless: cloak.Headed(), Humanize: true, HumanPreset: "careful", Timezone: "America/Halifax"})
 	if err != nil {
 		return err
 	}
@@ -322,34 +305,4 @@ func inspectProfiles(ctx context.Context, url string) error {
 		}
 	}
 	return json.NewEncoder(os.Stdout).Encode(map[string]bool{"persistentCookies": true, "persistentStorage": true, "profileRetained": true})
-}
-
-func inspectAuth(ctx context.Context, url string) error {
-	owned, err := cloak.Launch(ctx, cloak.Options{Headless: cloak.Headed(), Context: cloak.ContextOptions{HTTPUsername: "fixture", HTTPPassword: "sample", HTTPOrigin: url}})
-	if err != nil {
-		return err
-	}
-	defer owned.Close()
-	page, err := owned.NewPage(ctx)
-	if err != nil {
-		return err
-	}
-	router := cloak.NewRequestRouter(page)
-	if err = router.Add("*/blocked", "", func(h *rod.Hijack) { h.Response.Fail(proto.NetworkErrorReasonBlockedByClient) }); err != nil {
-		return err
-	}
-	if err = cloak.StartRequestRouter(page, router); err != nil {
-		return err
-	}
-	defer cloak.StopRequestRouter(page, router)
-	for _, path := range []string{"/auth/first", "/auth/second"} {
-		if err = page.Navigate(url + path); err != nil {
-			return err
-		}
-		title, err := page.Eval("()=>document.title")
-		if err != nil || title.Value.Str() != "Cloak input inspection" {
-			return errors.New("HTTP authentication failed")
-		}
-	}
-	return json.NewEncoder(os.Stdout).Encode(map[string]bool{"originAuthentication": true, "requestRouting": true, "repeatedChallenges": true})
 }

@@ -57,8 +57,6 @@ type (
 		Humanize                                             bool
 		HumanPreset                                          string
 		HumanConfig                                          map[string]json.RawMessage
-		Proxy                                                *Proxy
-		GeoIP                                                bool
 		Context                                              ContextOptions
 		Pipe                                                 bool
 	}
@@ -67,19 +65,17 @@ type (
 // ContextOptions are explicit equivalents of the Playwright options supported
 // by this port. Locale/timezone are accepted but ignored here, as in the source.
 type ContextOptions struct {
-	Viewport                   *Size
-	NoViewport                 bool
-	UserAgent, ColorScheme     string
-	Locale, TimezoneID         string
-	ExtraHTTPHeaders           map[string]string
-	Cookies                    []*proto.NetworkCookieParam
-	Storage                    map[string]map[string]string
-	Permissions                []proto.BrowserPermissionType
-	Geolocation                *proto.EmulationSetGeolocationOverride
-	HTTPUsername, HTTPPassword string
-	HTTPOrigin                 string
-	DeviceScaleFactor          float64
-	Screen                     *Size
+	Viewport               *Size
+	NoViewport             bool
+	UserAgent, ColorScheme string
+	Locale, TimezoneID     string
+	ExtraHTTPHeaders       map[string]string
+	Cookies                []*proto.NetworkCookieParam
+	Storage                map[string]map[string]string
+	Permissions            []proto.BrowserPermissionType
+	Geolocation            *proto.EmulationSetGeolocationOverride
+	DeviceScaleFactor      float64
+	Screen                 *Size
 }
 type Browser struct {
 	Raw         *rod.Browser
@@ -177,11 +173,6 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 	}
 	if _, err := os.Stat(o.Binary); err != nil {
 		return nil, errors.New("cloak binary unavailable")
-	}
-	var err error
-	o, err = resolveNetwork(ctx, o)
-	if err != nil {
-		return nil, err
 	}
 	cfg, err := human.Resolve(o.HumanPreset, o.HumanConfig)
 	if err != nil {
@@ -399,7 +390,6 @@ type pageEntry struct {
 	once sync.Once
 	page *human.Page
 	err  error
-	auth *pageAuth
 }
 
 func ForPage(p *rod.Page) (*human.Page, bool) {
@@ -485,12 +475,6 @@ func (s *runtimeState) setup(p *rod.Page) (*human.Page, error) {
 		}
 	}
 
-	if handler, err := setupAuth(p, o); err != nil {
-		return nil, err
-	} else if handler != nil {
-		entry, _ := s.pages.Load(p.TargetID)
-		entry.(*pageEntry).auth = handler
-	}
 	if !o.Humanize {
 		return nil, nil
 	}

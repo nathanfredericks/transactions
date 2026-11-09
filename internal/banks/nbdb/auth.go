@@ -14,7 +14,6 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 
 	"github.com/nathanfredericks/transactions/internal/bank"
-	"github.com/nathanfredericks/transactions/internal/cloak"
 )
 
 func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session bank.Session, err error) {
@@ -57,14 +56,12 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		}
 		slog.Info("NBDB remembered browser restored", "cookies", len(params))
 	}
-	router := cloak.NewRequestRouter(p)
+	router := p.HijackRequests()
 	if e = router.Add("https://sdk.privacy-center.org/*", "", func(h *rod.Hijack) { h.Response.Fail(proto.NetworkErrorReasonBlockedByClient) }); e != nil {
 		return bank.Session{}, e
 	}
-	if e = cloak.StartRequestRouter(p, router); e != nil {
-		return bank.Session{}, e
-	}
-	defer cloak.StopRequestRouter(p, router)
+	go router.Run()
+	defer func() { _ = router.Stop() }()
 	o := bank.Observe(p)
 	defer o.Close()
 	defer func() {
