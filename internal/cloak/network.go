@@ -4,8 +4,6 @@ package cloak
 import (
 	"context"
 	"errors"
-	"github.com/oschwald/maxminddb-golang"
-	"golang.org/x/net/proxy"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +13,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/oschwald/maxminddb-golang"
+	"golang.org/x/net/proxy"
 )
 
 type Proxy struct{ Server, Username, Password, Bypass string }
@@ -35,6 +36,7 @@ func ParseProxy(value string) (*Proxy, error) {
 	}
 	return p, nil
 }
+
 func (p *Proxy) URL() (*url.URL, error) {
 	u, err := url.Parse(p.Server)
 	if err != nil || u.Hostname() == "" {
@@ -45,6 +47,7 @@ func (p *Proxy) URL() (*url.URL, error) {
 	}
 	return u, nil
 }
+
 func (p *Proxy) args() ([]string, error) {
 	u, err := p.URL()
 	if err != nil {
@@ -160,8 +163,9 @@ func geoDatabase(ctx context.Context) string {
 	}
 	return dest
 }
+
 func downloadGeo(ctx context.Context, dest string) error {
-	if err := os.MkdirAll(filepath.Dir(dest), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 		return err
 	}
 	file, err := os.CreateTemp(filepath.Dir(dest), "geoip-*.tmp")
@@ -199,6 +203,7 @@ func downloadGeo(ctx context.Context, dest string) error {
 	db.Close()
 	return os.Rename(file.Name(), dest)
 }
+
 func resolveNetwork(ctx context.Context, o Options) (Options, error) {
 	// Match the original no-proxy GeoIP no-op and remove unresolved WebRTC auto.
 	needsIP := false

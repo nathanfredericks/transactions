@@ -2,18 +2,21 @@
 package human
 
 import (
-	"github.com/go-rod/rod/lib/input"
-	"github.com/go-rod/rod/lib/proto"
 	"math/rand/v2"
 	"runtime"
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/go-rod/rod/lib/input"
+	"github.com/go-rod/rod/lib/proto"
 )
 
-var nearby = map[rune]string{'a': "sqwz", 'b': "vghn", 'c': "xdfv", 'd': "sfecx", 'e': "wrsdf", 'f': "dgrtcv", 'g': "fhtyb", 'h': "gjybn", 'i': "ujko", 'j': "hkunm", 'k': "jloi", 'l': "kop", 'm': "njk", 'n': "bhjm", 'o': "iklp", 'p': "ol", 'q': "wa", 'r': "edft", 's': "awedxz", 't': "rfgy", 'u': "yhji", 'v': "cfgb", 'w': "qase", 'x': "zsdc", 'y': "tghu", 'z': "asx", '1': "2q", '2': "13qw", '3': "24we", '4': "35er", '5': "46rt", '6': "57ty", '7': "68yu", '8': "79ui", '9': "80io", '0': "9p"}
-var symbolCodes = map[rune]string{'!': "Digit1", '@': "Digit2", '#': "Digit3", '$': "Digit4", '%': "Digit5", '^': "Digit6", '&': "Digit7", '*': "Digit8", '(': "Digit9", ')': "Digit0", '_': "Minus", '+': "Equal", '{': "BracketLeft", '}': "BracketRight", '|': "Backslash", ':': "Semicolon", '"': "Quote", '<': "Comma", '>': "Period", '?': "Slash", '~': "Backquote"}
-var symbolVK = map[rune]int{'!': 49, '@': 50, '#': 51, '$': 52, '%': 53, '^': 54, '&': 55, '*': 56, '(': 57, ')': 48, '_': 189, '+': 187, '{': 219, '}': 221, '|': 220, ':': 186, '"': 222, '<': 188, '>': 190, '?': 191, '~': 192}
+var (
+	nearby      = map[rune]string{'a': "sqwz", 'b': "vghn", 'c': "xdfv", 'd': "sfecx", 'e': "wrsdf", 'f': "dgrtcv", 'g': "fhtyb", 'h': "gjybn", 'i': "ujko", 'j': "hkunm", 'k': "jloi", 'l': "kop", 'm': "njk", 'n': "bhjm", 'o': "iklp", 'p': "ol", 'q': "wa", 'r': "edft", 's': "awedxz", 't': "rfgy", 'u': "yhji", 'v': "cfgb", 'w': "qase", 'x': "zsdc", 'y': "tghu", 'z': "asx", '1': "2q", '2': "13qw", '3': "24we", '4': "35er", '5': "46rt", '6': "57ty", '7': "68yu", '8': "79ui", '9': "80io", '0': "9p"}
+	symbolCodes = map[rune]string{'!': "Digit1", '@': "Digit2", '#': "Digit3", '$': "Digit4", '%': "Digit5", '^': "Digit6", '&': "Digit7", '*': "Digit8", '(': "Digit9", ')': "Digit0", '_': "Minus", '+': "Equal", '{': "BracketLeft", '}': "BracketRight", '|': "Backslash", ':': "Semicolon", '"': "Quote", '<': "Comma", '>': "Period", '?': "Slash", '~': "Backquote"}
+	symbolVK    = map[rune]int{'!': 49, '@': 50, '#': 51, '$': 52, '%': 53, '^': 54, '&': 55, '*': 56, '(': 57, ')': 48, '_': 189, '+': 187, '{': 219, '}': 221, '|': 220, ':': 186, '"': 222, '<': 188, '>': 190, '?': 191, '~': 192}
+)
 
 func (p *Page) modifiers() int {
 	n := 0
@@ -22,6 +25,7 @@ func (p *Page) modifiers() int {
 	}
 	return n
 }
+
 func (p *Page) down(k input.Key) error {
 	p.state.keys[k] = true
 	ev := k.Encode(proto.InputDispatchKeyEventTypeKeyDown, p.modifiers())
@@ -37,6 +41,7 @@ func (p *Page) down(k input.Key) error {
 	}
 	return ev.Call(p.state.raw)
 }
+
 func (p *Page) up(k input.Key) error {
 	delete(p.state.keys, k)
 	ev := k.Encode(proto.InputDispatchKeyEventTypeKeyUp, p.modifiers())
@@ -50,12 +55,14 @@ func (p *Page) up(k input.Key) error {
 	ev.UnmodifiedText = ""
 	return ev.Call(p.state.raw)
 }
+
 func (p *Page) key(k input.Key) error {
 	if err := p.down(k); err != nil {
 		return err
 	}
 	return p.up(k)
 }
+
 func (p *Page) normal(ch rune) error {
 	k, err := characterKey(ch)
 	if err != nil {
@@ -69,6 +76,7 @@ func (p *Page) normal(ch rune) error {
 	}
 	return p.up(k)
 }
+
 func (p *Page) shifted(ch rune, symbol bool) error {
 	if err := p.down(input.ShiftLeft); err != nil {
 		return err
@@ -102,12 +110,14 @@ func (p *Page) shifted(ch rune, symbol bool) error {
 	}
 	return p.up(input.ShiftLeft)
 }
+
 func (p *Page) interChar() error {
 	if rand.Float64() < p.cfg.TypingPauseChance {
 		return sleep(p.ctx(), rangeValue(p.cfg.TypingPauseRange))
 	}
 	return sleep(p.ctx(), max(10, p.cfg.TypingDelay+(rand.Float64()-0.5)*2*p.cfg.TypingDelaySpread))
 }
+
 func (p *Page) typeText(text string) error {
 	chars := []rune(text)
 	for i, ch := range chars {
@@ -264,6 +274,7 @@ func (p *Page) shortcutHold(key string, hold float64) error {
 	}
 	return nil
 }
+
 func (p *Page) selectAll() error {
 	if runtime.GOOS == "darwin" {
 		return p.shortcut("Meta+a")

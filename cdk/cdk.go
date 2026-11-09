@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-cdk-go/awscdk/v2/awsecrassets"
 	"github.com/aws/aws-cdk-go/awscdk/v2/awss3assets"
 	"github.com/aws/jsii-runtime-go"
+
 	"github.com/nathanfredericks/transactions/internal/banks"
 )
 
@@ -25,7 +26,7 @@ func main() {
 		root = filepath.Dir(root)
 	}
 	dist := filepath.Join(root, "dist", "lambda")
-	if err := os.MkdirAll(dist, 0755); err != nil {
+	if err := os.MkdirAll(dist, 0o755); err != nil {
 		panic(err)
 	}
 	build := exec.Command("go", "build", "-trimpath", "-ldflags=-s -w", "-o", filepath.Join(dist, "bootstrap"), "./cmd/lambda")
@@ -217,6 +218,7 @@ func main() {
 	}
 	app.Synth(nil)
 }
+
 func toString(v any) *string {
 	if s, ok := v.(*string); ok {
 		return s

@@ -3,12 +3,13 @@ package email
 import (
 	"bytes"
 	"fmt"
-	_ "github.com/emersion/go-message/charset"
-	message "github.com/emersion/go-message/mail"
-	"github.com/k3a/html2text"
 	"io"
 	"strings"
 	"time"
+
+	_ "github.com/emersion/go-message/charset"
+	message "github.com/emersion/go-message/mail"
+	"github.com/k3a/html2text"
 )
 
 type ParsedEmail struct {
@@ -70,6 +71,7 @@ func Parse(raw []byte) (*ParsedEmail, error) {
 	}
 	return result, nil
 }
+
 func HTMLToText(value string) string {
 	return strings.Join(strings.Fields(html2text.HTML2Text(value)), " ")
 }

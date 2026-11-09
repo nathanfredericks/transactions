@@ -8,15 +8,17 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
-	"github.com/nathanfredericks/transactions/internal/cloak"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
+
+	"github.com/nathanfredericks/transactions/internal/cloak"
 )
 
 func main() {
@@ -25,6 +27,7 @@ func main() {
 		os.Exit(1)
 	}
 }
+
 func run() error {
 	auth := flag.Bool("auth", false, "Inspect repeated HTTP authentication and request routing")
 	profiles := flag.Bool("profiles", false, "Inspect persistent profile reopening")

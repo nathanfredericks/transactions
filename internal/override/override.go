@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/nathanfredericks/transactions/internal/state"
 	"log/slog"
 	"math"
 	"os"
@@ -14,9 +13,12 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/nathanfredericks/transactions/internal/state"
+
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/diegoholiveira/jsonlogic/v3"
+
 	"github.com/nathanfredericks/transactions/internal/config"
 	"github.com/nathanfredericks/transactions/internal/types"
 )

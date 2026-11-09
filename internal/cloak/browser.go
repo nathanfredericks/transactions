@@ -9,12 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/cdp"
-	"github.com/go-rod/rod/lib/launcher"
-	"github.com/go-rod/rod/lib/launcher/flags"
-	"github.com/go-rod/rod/lib/proto"
-	"github.com/nathanfredericks/transactions/internal/cloak/human"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -23,6 +17,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/cdp"
+	"github.com/go-rod/rod/lib/launcher"
+	"github.com/go-rod/rod/lib/launcher/flags"
+	"github.com/go-rod/rod/lib/proto"
+
+	"github.com/nathanfredericks/transactions/internal/cloak/human"
 )
 
 const WrapperVersion = "0.3.25"
@@ -41,24 +43,26 @@ func (e *LaunchError) Error() string {
 //go:embed chromium-args.json
 var chromiumArgs []byte
 
-type Size struct{ Width, Height int }
-type Options struct {
-	Binary                                               string
-	Headless                                             *bool
-	StealthArgs                                          *bool
-	Args                                                 []string
-	Timezone, TimezoneID, Locale, UserAgent, ColorScheme string
-	Viewport                                             *Size
-	NoViewport                                           bool
-	UserDataDir                                          string
-	Humanize                                             bool
-	HumanPreset                                          string
-	HumanConfig                                          map[string]json.RawMessage
-	Proxy                                                *Proxy
-	GeoIP                                                bool
-	Context                                              ContextOptions
-	Pipe                                                 bool
-}
+type (
+	Size    struct{ Width, Height int }
+	Options struct {
+		Binary                                               string
+		Headless                                             *bool
+		StealthArgs                                          *bool
+		Args                                                 []string
+		Timezone, TimezoneID, Locale, UserAgent, ColorScheme string
+		Viewport                                             *Size
+		NoViewport                                           bool
+		UserDataDir                                          string
+		Humanize                                             bool
+		HumanPreset                                          string
+		HumanConfig                                          map[string]json.RawMessage
+		Proxy                                                *Proxy
+		GeoIP                                                bool
+		Context                                              ContextOptions
+		Pipe                                                 bool
+	}
+)
 
 // ContextOptions are explicit equivalents of the Playwright options supported
 // by this port. Locale/timezone are accepted but ignored here, as in the source.
@@ -88,12 +92,14 @@ type Browser struct {
 	processDone <-chan error
 	pipe        *pipeTransport
 }
-type runtimeKey struct{}
-type runtimeState struct {
-	options Options
-	cfg     human.Config
-	pages   sync.Map
-}
+type (
+	runtimeKey   struct{}
+	runtimeState struct {
+		options Options
+		cfg     human.Config
+		pages   sync.Map
+	}
+)
 
 func Headed() *bool { v := false; return &v }
 func BuildArgs(o Options) []string {
@@ -138,6 +144,7 @@ func BuildArgs(o Options) []string {
 	}
 	return result
 }
+
 func cleanupLaunch(launch *launcher.Launcher, persistent bool) {
 	if persistent {
 		launch.Delete(flags.UserDataDir) // Wait for exit without deleting the caller-owned profile.
@@ -154,6 +161,7 @@ func cleanupLaunch(launch *launcher.Launcher, persistent bool) {
 		launch.Kill()
 	}
 }
+
 func Launch(ctx context.Context, o Options) (*Browser, error) {
 	if o.UserAgent == "" {
 		o.UserAgent = o.Context.UserAgent
@@ -274,6 +282,7 @@ func Launch(ctx context.Context, o Options) (*Browser, error) {
 	state.watchPages(raw)
 	return result, nil
 }
+
 func (b *Browser) NewPage(ctx context.Context) (*rod.Page, error) {
 	return NewPage(ctx, b.Raw)
 }
@@ -319,6 +328,7 @@ func (b *Browser) NewContext(ctx context.Context, options ContextOptions) (*Brow
 	state.watchPages(raw)
 	return child, nil
 }
+
 func configureContext(raw *rod.Browser, o Options) error {
 	if len(o.Context.Cookies) > 0 {
 		if err := raw.SetCookies(o.Context.Cookies); err != nil {
@@ -330,6 +340,7 @@ func configureContext(raw *rod.Browser, o Options) error {
 	}
 	return nil
 }
+
 func (s *runtimeState) watchPages(raw *rod.Browser) {
 	go raw.EachEvent(func(e *proto.TargetTargetCreated) {
 		if e.TargetInfo.Type == "page" && e.TargetInfo.BrowserContextID == raw.BrowserContextID {
@@ -340,6 +351,7 @@ func (s *runtimeState) watchPages(raw *rod.Browser) {
 		}
 	})()
 }
+
 func (b *Browser) Close() error {
 	if !b.ownsProcess {
 		defer b.cancel()
@@ -366,6 +378,7 @@ func (b *Browser) Close() error {
 	}
 	return err
 }
+
 func SetupPage(p *rod.Page) (*human.Page, error) {
 	state, ok := p.GetContext().Value(runtimeKey{}).(*runtimeState)
 	if !ok {
@@ -397,6 +410,7 @@ func ForPage(p *rod.Page) (*human.Page, bool) {
 	result, err := SetupPage(p)
 	return result, err == nil && result != nil
 }
+
 func (s *runtimeState) setup(p *rod.Page) (*human.Page, error) {
 	o := s.options
 	viewport := o.Viewport
@@ -487,6 +501,7 @@ func (s *runtimeState) setup(p *rod.Page) (*human.Page, error) {
 func LaunchContext(ctx context.Context, options Options) (*Browser, error) {
 	return Launch(ctx, options)
 }
+
 func LaunchPersistentContext(ctx context.Context, options Options) (*Browser, error) {
 	if options.UserDataDir == "" {
 		return nil, errors.New("persistent profile directory required")

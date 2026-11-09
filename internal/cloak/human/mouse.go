@@ -2,10 +2,11 @@
 package human
 
 import (
-	"github.com/go-rod/rod/lib/proto"
 	"math"
 	"math/rand/v2"
 	"time"
+
+	"github.com/go-rod/rod/lib/proto"
 )
 
 type Box struct{ X, Y, Width, Height float64 }
@@ -16,10 +17,12 @@ func ease(t float64) float64 {
 	}
 	return 1 - math.Pow(-2*t+2, 3)/2
 }
+
 func bezier(a, b, c, d proto.Point, t float64) proto.Point {
 	u := 1 - t
 	return proto.Point{X: u*u*u*a.X + 3*u*u*t*b.X + 3*u*t*t*c.X + t*t*t*d.X, Y: u*u*u*a.Y + 3*u*u*t*b.Y + 3*u*t*t*c.Y + t*t*t*d.Y}
 }
+
 func (p *Page) rawMove(x, y float64) error {
 	buttons := 0
 	if p.state.buttonDown {
@@ -31,6 +34,7 @@ func (p *Page) rawMove(x, y float64) error {
 	}
 	return err
 }
+
 func (p *Page) initCursor() error {
 	if p.state.initialized {
 		return nil
@@ -43,6 +47,7 @@ func (p *Page) initCursor() error {
 	p.state.initialized = true
 	return nil
 }
+
 func (p *Page) move(x, y float64) error {
 	if err := p.initCursor(); err != nil {
 		return err
@@ -93,6 +98,7 @@ func (p *Page) move(x, y float64) error {
 	p.state.x, p.state.y = x, y
 	return nil
 }
+
 func (p *Page) idle(seconds float64) error {
 	x, y := p.state.x, p.state.y
 	until := time.Now().Add(time.Duration(seconds * float64(time.Second)))
@@ -108,6 +114,7 @@ func (p *Page) idle(seconds float64) error {
 	}
 	return nil
 }
+
 func (p *Page) beforeMove() error {
 	if err := p.initCursor(); err != nil {
 		return err
@@ -117,6 +124,7 @@ func (p *Page) beforeMove() error {
 	}
 	return nil
 }
+
 func (p *Page) target(b Box, isInput bool) proto.Point {
 	x, y := random(0.35, 0.65), random(0.35, 0.65)
 	if isInput {
@@ -125,11 +133,13 @@ func (p *Page) target(b Box, isInput bool) proto.Point {
 	}
 	return proto.Point{X: round(b.X + b.Width*x), Y: round(b.Y + b.Height*y)}
 }
+
 func (p *Page) mouseDown(count int) error {
 	p.state.buttonDown = true
 	buttons := 1
 	return (proto.InputDispatchMouseEvent{Type: proto.InputDispatchMouseEventTypeMousePressed, Button: proto.InputMouseButtonLeft, Buttons: &buttons, X: p.state.rawX, Y: p.state.rawY, ClickCount: count, Modifiers: p.modifiers()}).Call(p.state.raw)
 }
+
 func (p *Page) mouseUp(count int) error {
 	err := (proto.InputDispatchMouseEvent{Type: proto.InputDispatchMouseEventTypeMouseReleased, Button: proto.InputMouseButtonLeft, X: p.state.rawX, Y: p.state.rawY, ClickCount: count, Modifiers: p.modifiers()}).Call(p.state.raw)
 	if err == nil {
@@ -137,6 +147,7 @@ func (p *Page) mouseUp(count int) error {
 	}
 	return err
 }
+
 func (p *Page) clickMouse(isInput bool) error {
 	aim, hold := p.cfg.ClickAimDelayButton, p.cfg.ClickHoldButton
 	if isInput {

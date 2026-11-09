@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+
 	"github.com/nathanfredericks/transactions/internal/bank"
 
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/types"
-	"net/http"
 )
 
 type YNABAccount struct {
@@ -33,6 +34,7 @@ func GetAccounts(ctx context.Context) ([]YNABAccount, error) {
 	err = client.do(ctx, http.MethodGet, fmt.Sprintf("/budgets/%s/accounts", client.budgetID), nil, &response)
 	return response.Data.Accounts, err
 }
+
 func GetAccountTransactions(ctx context.Context, account string) ([]*types.YNABTransaction, error) {
 	client, err := newYNABClient(ctx)
 	if err != nil {
@@ -46,6 +48,7 @@ func GetAccountTransactions(ctx context.Context, account string) ([]*types.YNABT
 	err = client.do(ctx, http.MethodGet, fmt.Sprintf("/budgets/%s/accounts/%s/transactions?last_knowledge_of_server=0", client.budgetID, account), nil, &response)
 	return response.Data.Transactions, err
 }
+
 func CreateEQTransaction(ctx context.Context, account, date string, amount int64, enrichment types.Enrichment, importID, status string, rule *types.TransactionOverride) (*types.YNABTransaction, error) {
 	client, err := newYNABClient(ctx)
 	if err != nil {
@@ -75,6 +78,7 @@ func CreateEQTransaction(ctx context.Context, account, date string, amount int64
 	}
 	return nil, err
 }
+
 func eqTransactionPayload(account, date string, amount int64, enrichment types.Enrichment, importID, status string, rule *types.TransactionOverride) (ynabPayloadTransaction, error) {
 	cleared := "uncleared"
 	if status == "posted" {
@@ -187,6 +191,7 @@ func ValidateAdjustmentPayee(ctx context.Context, id string) error {
 	}
 	return fmt.Errorf("invalid adjustment payee")
 }
+
 func CreateBalanceAdjustment(ctx context.Context, account, date string, amount int64, payee, bankName string) (*types.YNABTransaction, error) {
 	client, err := newYNABClient(ctx)
 	if err != nil {
@@ -259,6 +264,7 @@ func Lookups(ctx context.Context) (LookupResult, error) {
 	}
 	return out, nil
 }
+
 func ValidateRuleReferences(ctx context.Context, payee, category string) error {
 	v, e := Lookups(ctx)
 	if e != nil {

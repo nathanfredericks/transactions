@@ -1,8 +1,9 @@
 package engine
 
 import (
-	"github.com/nathanfredericks/transactions/internal/bank"
 	"strings"
+
+	"github.com/nathanfredericks/transactions/internal/bank"
 )
 
 // Error copy reviewed against recovery policy and rewritten with the Claude rephrase skill.

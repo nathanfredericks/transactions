@@ -6,21 +6,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/sfn"
-	sfnt "github.com/aws/aws-sdk-go-v2/service/sfn/types"
-	"github.com/nathanfredericks/transactions/internal/bank"
-	"github.com/nathanfredericks/transactions/internal/banks"
-	"github.com/nathanfredericks/transactions/internal/config"
-	"github.com/nathanfredericks/transactions/internal/email"
 	"io"
 	"net/url"
 	"os"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/sfn"
+	sfnt "github.com/aws/aws-sdk-go-v2/service/sfn/types"
+
+	"github.com/nathanfredericks/transactions/internal/bank"
+	"github.com/nathanfredericks/transactions/internal/banks"
+	"github.com/nathanfredericks/transactions/internal/config"
+	"github.com/nathanfredericks/transactions/internal/email"
 )
 
 func (e *Engine) Submit(ctx context.Context, j Job) (string, error) {
@@ -62,6 +64,7 @@ func (e *Engine) Submit(ctx context.Context, j Job) (string, error) {
 	}
 	return j.ID, err
 }
+
 func (e *Engine) Email(ctx context.Context, event events.S3Event) (any, error) {
 	var ids []string
 	for _, record := range event.Records {
@@ -136,6 +139,7 @@ func (e *Engine) Email(ctx context.Context, event events.S3Event) (any, error) {
 	}
 	return map[string]any{"jobs": ids}, nil
 }
+
 func (e *Engine) Webhook(ctx context.Context, event events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
 	response := func(status int, v any) events.APIGatewayV2HTTPResponse {
 		b, _ := json.Marshal(v)
@@ -180,6 +184,7 @@ func (e *Engine) Webhook(ctx context.Context, event events.APIGatewayV2HTTPReque
 	}
 	return response(202, map[string]string{"jobId": id}), nil
 }
+
 func (e *Engine) Maintain(ctx context.Context) (any, error) {
 	var started []string
 	for _, registration := range banks.All {

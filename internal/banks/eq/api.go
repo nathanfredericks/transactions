@@ -12,14 +12,18 @@ import (
 	"github.com/nathanfredericks/transactions/internal/bank"
 )
 
-const api = "https://web-api.eqbank.ca/web/v1.1"
-const personal = "130742998"
-const card = "302911525"
+const (
+	api      = "https://web-api.eqbank.ca/web/v1.1"
+	personal = "130742998"
+	card     = "302911525"
+)
 
-type Adapter struct{ Dependencies bank.Dependencies }
-type auth struct {
-	ClientID string `json:"clientId"`
-}
+type (
+	Adapter struct{ Dependencies bank.Dependencies }
+	auth    struct {
+		ClientID string `json:"clientId"`
+	}
+)
 
 func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, error) {
 	// EQ's observed renewal flow extends a still-valid access token. Once it
@@ -47,6 +51,7 @@ func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, erro
 	}
 	return s, err
 }
+
 func (a *Adapter) Fetch(ctx context.Context, s bank.Session, r bank.FetchRequest) (bank.Snapshot, bank.Session, error) {
 	out := bank.Snapshot{At: time.Now()}
 	h := newHTTP(&s)
@@ -86,6 +91,7 @@ func (a *Adapter) Fetch(ctx context.Context, s bank.Session, r bank.FetchRequest
 	out.Records = append(out.Records, records...)
 	return out, s, e
 }
+
 func personalHistory(ctx context.Context, h *bank.HTTP, start, end string) ([]bank.Record, error) {
 	var response struct {
 		Data struct {

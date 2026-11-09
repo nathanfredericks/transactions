@@ -3,13 +3,15 @@ package eq
 import (
 	"context"
 	"encoding/json"
-	"github.com/go-rod/rod"
-	"github.com/nathanfredericks/transactions/internal/bank"
 	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-rod/rod"
+
+	"github.com/nathanfredericks/transactions/internal/bank"
 )
 
 func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (bank.Session, error) {

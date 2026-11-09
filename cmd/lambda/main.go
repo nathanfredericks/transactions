@@ -5,14 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/aws/smithy-go"
-	"github.com/nathanfredericks/transactions/internal/config"
-	"github.com/nathanfredericks/transactions/internal/engine"
 	"log/slog"
 	"os"
 	"time"
+
+	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/smithy-go"
+
+	"github.com/nathanfredericks/transactions/internal/config"
+	"github.com/nathanfredericks/transactions/internal/engine"
 )
 
 func handle(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -92,6 +94,7 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 		return app.Admin(ctx, request)
 	}
 }
+
 func main() {
 	lambda.Start(func(ctx context.Context, raw json.RawMessage) (any, error) {
 		result, err := handle(ctx, raw)

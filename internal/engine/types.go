@@ -5,15 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
+
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/config"
 	"github.com/nathanfredericks/transactions/internal/state"
-	"os"
-	"time"
 )
 
 type Job struct {
@@ -100,18 +102,23 @@ func New(ctx context.Context) (*Engine, error) {
 	}
 	return &Engine{Store: &state.Store{DB: dynamodb.NewFromConfig(cfg), S3: s3.NewFromConfig(cfg), Table: os.Getenv("STATE_TABLE"), Bucket: os.Getenv("STATE_BUCKET")}, Settings: settings, SFN: sfn.NewFromConfig(cfg)}, nil
 }
+
 func (e *Engine) get(ctx context.Context, key string, out any) (bool, error) {
 	return e.Store.Get(ctx, "BANK#"+e.Job.Bank, key, out)
 }
+
 func (e *Engine) put(ctx context.Context, key string, value any, _ string) error {
 	return e.Store.Put(ctx, e.Lease, key, value)
 }
+
 func (e *Engine) saveJob(ctx context.Context) error {
 	return e.Store.Put(ctx, e.Lease, "JOB#"+e.Job.ID, e.Job)
 }
+
 func (e *Engine) outcome(status string, wait int) Outcome {
 	return Outcome{Outcome: status, Bank: e.Job.Bank, JobID: e.Job.ID, WaitSeconds: wait, Lease: e.Lease}
 }
+
 func (e *Engine) session(ctx context.Context) (bank.Session, error) {
 	var pointer SessionPointer
 	found, err := e.get(ctx, "SESSION", &pointer)
@@ -134,6 +141,7 @@ func (e *Engine) session(ctx context.Context) (bank.Session, error) {
 	}
 	return s, nil
 }
+
 func (e *Engine) saveSession(ctx context.Context, s bank.Session) error {
 	if s.Version != 1 || s.Bank != e.Job.Bank {
 		return bank.Fail(bank.Invalid, "session-identity")
@@ -147,6 +155,7 @@ func (e *Engine) saveSession(ctx context.Context, s bank.Session) error {
 	}
 	return e.Store.Put(ctx, e.Lease, "SESSION", SessionPointer{Key: key, RenewAt: s.RenewAt})
 }
+
 func ValidateSnapshot(s bank.Snapshot, expected []string) error {
 	if len(s.Accounts) == 0 {
 		return bank.Fail(bank.Invalid, "empty-accounts")
@@ -176,6 +185,7 @@ func ValidateSnapshot(s bank.Snapshot, expected []string) error {
 	}
 	return nil
 }
+
 func (e *Engine) loadJob(ctx context.Context, id, bankID string) error {
 	ok, err := e.Store.Get(ctx, "BANK#"+bankID, "JOB#"+id, &e.Job)
 	if err != nil {

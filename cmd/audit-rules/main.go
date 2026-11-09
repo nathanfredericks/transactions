@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	types "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/nathanfredericks/transactions/internal/override"
 	"os"
 	"time"
+
+	types "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+
+	"github.com/nathanfredericks/transactions/internal/override"
 )
 
 func main() {
@@ -72,6 +74,7 @@ func main() {
 	}
 	fmt.Printf("Validated %d live rules and %d matching cases; no transactions written.\n", len(rules), len(fixture.Cases))
 }
+
 func must(e error) {
 	if e != nil {
 		fmt.Fprintln(os.Stderr, e)

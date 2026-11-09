@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
+
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 
@@ -45,6 +46,7 @@ type settingsKey struct{}
 func WithSettings(ctx context.Context, s *Settings) context.Context {
 	return context.WithValue(ctx, settingsKey{}, s)
 }
+
 func Load(ctx context.Context) (*Settings, error) {
 	if s, ok := ctx.Value(settingsKey{}).(*Settings); ok {
 		return s, nil

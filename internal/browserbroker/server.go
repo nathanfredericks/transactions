@@ -69,13 +69,14 @@ func NewServer(path, token string, sup *Supervisor, seats func(context.Context) 
 	}
 	return s, nil
 }
+
 func (s *Server) persist() error {
 	data, err := json.Marshal(s.state)
 	if err != nil {
 		return err
 	}
 	dir := filepath.Dir(s.StateFile)
-	if err = os.MkdirAll(dir, 0700); err != nil {
+	if err = os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	f, err := os.CreateTemp(dir, ".broker-*")
@@ -84,7 +85,7 @@ func (s *Server) persist() error {
 	}
 	name := f.Name()
 	defer os.Remove(name)
-	if err = f.Chmod(0600); err == nil {
+	if err = f.Chmod(0o600); err == nil {
 		_, err = f.Write(data)
 	}
 	if err == nil {
@@ -107,12 +108,14 @@ func (s *Server) persist() error {
 	}
 	return err
 }
+
 func (s *Server) save() {
 	if s.persist() != nil {
 		s.failed = true
 		s.owner = "releasing"
 	}
 }
+
 func (s *Server) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -126,6 +129,7 @@ func (s *Server) Run(ctx context.Context) {
 		}
 	}
 }
+
 func (s *Server) step(ctx context.Context) {
 	s.mu.Lock()
 	if s.failed {
@@ -376,6 +380,7 @@ func (w proxyWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	w.sup.connections.Store(t, true)
 	return t, b, nil
 }
+
 func (s *Server) CDP() http.Handler {
 	upstream, _ := url.Parse(s.Supervisor.Upstream)
 	proxy := httputil.NewSingleHostReverseProxy(upstream)

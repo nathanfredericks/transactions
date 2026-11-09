@@ -177,7 +177,6 @@ func createTransaction(ctx context.Context, budgetID string, payload ynabPayload
 }
 
 func CheckForRecentTransaction(ctx context.Context, accountID string, amount float64, daysBack int) (bool, error) {
-
 	client, err := newYNABClient(ctx)
 	if err != nil {
 		return false, err
@@ -220,7 +219,6 @@ func formatDate(ctx context.Context, t time.Time) (string, error) {
 }
 
 func CreateTransaction(ctx context.Context, accountID string, amount float64, payee string, date time.Time, category string, memo string) (*types.YNABTransaction, error) {
-
 	client, err := newYNABClient(ctx)
 	if err != nil {
 		return nil, err
@@ -252,7 +250,6 @@ func CreateTransaction(ctx context.Context, accountID string, amount float64, pa
 }
 
 func CreateTransactionWithOverride(ctx context.Context, accountID string, amount float64, date time.Time, override *types.TransactionOverride) (*types.YNABTransaction, error) {
-
 	client, err := newYNABClient(ctx)
 	if err != nil {
 		return nil, err

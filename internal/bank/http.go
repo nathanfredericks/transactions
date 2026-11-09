@@ -34,6 +34,7 @@ func NewHTTP(s *Session) *HTTP {
 	}
 	return &HTTP{Session: s, Client: &http.Client{Jar: jar, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
+
 func (h *HTTP) Request(ctx context.Context, method, endpoint string, headers map[string]string, body []byte) ([]byte, http.Header, int, error) {
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -97,6 +98,7 @@ func (h *HTTP) Request(ctx context.Context, method, endpoint string, headers map
 	}
 	return data, resp.Header, resp.StatusCode, nil
 }
+
 func (h *HTTP) JSON(ctx context.Context, method, endpoint string, headers map[string]string, body []byte, out any) error {
 	data, head, status, err := h.Request(ctx, method, endpoint, headers, body)
 	if err != nil {
@@ -146,6 +148,7 @@ func Throttle(operation, retryAfter string) error {
 	}
 	return &Failure{Kind: Throttled, Operation: operation, RetryAt: at}
 }
+
 func Headers(s Session, extra map[string]string) map[string]string {
 	h := map[string]string{}
 	for k, v := range s.Headers {
@@ -156,6 +159,7 @@ func Headers(s Session, extra map[string]string) map[string]string {
 	}
 	return h
 }
+
 func TokenTiming(s *Session) {
 	token := strings.TrimPrefix(s.Headers["authorization"], "Bearer ")
 	parts := strings.Split(token, ".")
@@ -181,6 +185,7 @@ func TokenTiming(s *Session) {
 		s.RenewAt = time.Now().Add(5 * time.Minute)
 	}
 }
+
 func Milliunits(s string) (int64, error) {
 	sign := int64(1)
 	if strings.HasPrefix(s, "-") {

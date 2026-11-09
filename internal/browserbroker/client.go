@@ -29,6 +29,7 @@ func FromEnv() (*Client, error) {
 	}
 	return &Client{URL: strings.TrimRight(u, "/"), Token: token, HTTP: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
+
 func (c *Client) call(ctx context.Context, method, path string, input, output any) error {
 	var data []byte
 	if input != nil {
@@ -54,6 +55,7 @@ func (c *Client) call(ctx context.Context, method, path string, input, output an
 	}
 	return nil
 }
+
 func (c *Client) Acquire(ctx context.Context, q Request) (Reservation, error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
@@ -87,6 +89,7 @@ func (c *Client) Acquire(ctx context.Context, q Request) (Reservation, error) {
 		}
 	}
 }
+
 func (c *Client) Release(ctx context.Context, id string) error {
 	return c.call(ctx, "DELETE", "/v1/reservations/"+id, nil, nil)
 }

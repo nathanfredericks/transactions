@@ -34,6 +34,7 @@ type Lease struct {
 func key(pk, sk string) map[string]d.AttributeValue {
 	return map[string]d.AttributeValue{"pk": &d.AttributeValueMemberS{Value: pk}, "sk": &d.AttributeValueMemberS{Value: sk}}
 }
+
 func (s *Store) Get(ctx context.Context, pk, sk string, out any) (bool, error) {
 	r, e := s.DB.GetItem(ctx, &dynamodb.GetItemInput{TableName: &s.Table, Key: key(pk, sk), ConsistentRead: aws.Bool(true)})
 	if e != nil {
@@ -48,6 +49,7 @@ func (s *Store) Get(ctx context.Context, pk, sk string, out any) (bool, error) {
 	}
 	return true, json.Unmarshal([]byte(v.Value), out)
 }
+
 func (s *Store) Create(ctx context.Context, pk, sk string, value any) (bool, error) {
 	b, e := json.Marshal(value)
 	if e != nil {
@@ -62,6 +64,7 @@ func (s *Store) Create(ctx context.Context, pk, sk string, value any) (bool, err
 	}
 	return e == nil, e
 }
+
 func (s *Store) Acquire(ctx context.Context, bank, owner string) (Lease, bool, error) {
 	l := Lease{Bank: bank, Owner: owner, Generation: uuid.NewString(), Expires: time.Now().Add(15 * time.Minute).Unix()}
 	b, _ := json.Marshal(l)
@@ -80,6 +83,7 @@ func (s *Store) Acquire(ctx context.Context, bank, owner string) (Lease, bool, e
 	}
 	return l, e == nil, e
 }
+
 func (s *Store) Assert(ctx context.Context, l Lease) error {
 	var current Lease
 	ok, e := s.Get(ctx, "BANK#"+l.Bank, "LEASE", &current)
@@ -91,6 +95,7 @@ func (s *Store) Assert(ctx context.Context, l Lease) error {
 	}
 	return nil
 }
+
 func (s *Store) Put(ctx context.Context, l Lease, sk string, value any) error {
 	return s.PutMany(ctx, l, map[string]any{sk: value})
 }
@@ -113,6 +118,7 @@ func (s *Store) PutMany(ctx context.Context, l Lease, values map[string]any) err
 		return err
 	})
 }
+
 func (s *Store) Release(ctx context.Context, l Lease) error {
 	e := retryConflict(ctx, func() error {
 		_, err := s.DB.DeleteItem(ctx, &dynamodb.DeleteItemInput{TableName: &s.Table, Key: key("BANK#"+l.Bank, "LEASE"), ConditionExpression: aws.String("generation = :g"), ExpressionAttributeValues: map[string]d.AttributeValue{":g": &d.AttributeValueMemberS{Value: l.Generation}}})
@@ -143,6 +149,7 @@ func retryConflict(ctx context.Context, operation func() error) error {
 		}
 	}
 }
+
 func transactionConflict(err error) bool {
 	var conflict *d.TransactionConflictException
 	if errors.As(err, &conflict) {
@@ -208,6 +215,7 @@ func (s *Store) Upload(ctx context.Context, prefix string, value any) (string, e
 	_, e = s.S3.PutObject(ctx, &s3.PutObjectInput{Bucket: &s.Bucket, Key: &k, Body: bytes.NewReader(b), ContentType: aws.String("application/json"), ServerSideEncryption: s3types.ServerSideEncryptionAes256})
 	return k, e
 }
+
 func (s *Store) Download(ctx context.Context, k string, out any) error {
 	r, e := s.S3.GetObject(ctx, &s3.GetObjectInput{Bucket: &s.Bucket, Key: &k})
 	if e != nil {

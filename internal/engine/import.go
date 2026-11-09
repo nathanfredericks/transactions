@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
 	"github.com/nathanfredericks/transactions/internal/learn"
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/types"
-	"log/slog"
-
-	"strings"
-	"time"
 )
 
 type Baseline struct {
@@ -84,6 +84,7 @@ func (e *Engine) mapping(ctx context.Context, s bank.Snapshot) (map[string]servi
 	}
 	return mapped, nil
 }
+
 func (e *Engine) posted(ctx context.Context, s bank.Snapshot, b Baseline) error {
 	mapping, err := e.mapping(ctx, s)
 	if err != nil {

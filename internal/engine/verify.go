@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
 )
@@ -71,7 +72,9 @@ func (e *Engine) VerifySession(ctx context.Context, bankID string, renew bool) (
 	for _, a := range snapshot.Accounts {
 		ids = append(ids, a.ID)
 	}
-	return map[string]any{"bank": bankID, "accounts": ids, "records": len(snapshot.Records), "snapshotKey": key,
+	return map[string]any{
+		"bank": bankID, "accounts": ids, "records": len(snapshot.Records), "snapshotKey": key,
 		"expiresAt": updated.ExpiresAt, "renewAt": updated.RenewAt, "maximumExpiresAt": updated.MaximumExpiresAt,
-		"durationMs": time.Since(started).Milliseconds(), "renewed": renew}, nil
+		"durationMs": time.Since(started).Milliseconds(), "renewed": renew,
+	}, nil
 }

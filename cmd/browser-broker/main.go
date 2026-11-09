@@ -3,13 +3,14 @@ package main
 
 import (
 	"context"
-	"github.com/nathanfredericks/transactions/internal/browserbroker"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/nathanfredericks/transactions/internal/browserbroker"
 )
 
 func main() {

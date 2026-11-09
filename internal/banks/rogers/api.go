@@ -5,18 +5,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/nathanfredericks/transactions/internal/bank"
 	"net/url"
 	"regexp"
 	"time"
+
+	"github.com/nathanfredericks/transactions/internal/bank"
 )
 
-type Adapter struct{ Dependencies bank.Dependencies }
-type auth struct {
-	DeviceStorage map[string]string `json:"deviceStorage,omitempty"`
-	AccountID     string            `json:"accountId"`
-	CustomerID    string            `json:"customerId"`
-}
+type (
+	Adapter struct{ Dependencies bank.Dependencies }
+	auth    struct {
+		DeviceStorage map[string]string `json:"deviceStorage,omitempty"`
+		AccountID     string            `json:"accountId"`
+		CustomerID    string            `json:"customerId"`
+	}
+)
 
 func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, error) {
 	var c auth
@@ -38,6 +41,7 @@ func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, erro
 	}
 	return s, e
 }
+
 func (a *Adapter) Fetch(ctx context.Context, s bank.Session, r bank.FetchRequest) (bank.Snapshot, bank.Session, error) {
 	out := bank.Snapshot{At: time.Now()}
 	var c auth

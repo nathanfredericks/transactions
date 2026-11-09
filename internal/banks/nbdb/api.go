@@ -6,25 +6,28 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/nathanfredericks/transactions/internal/bank"
 	"log/slog"
 	"math"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/nathanfredericks/transactions/internal/bank"
 )
 
 const summary = "https://iiroc.investments.apis.bnc.ca/orion-api/v1/1/portfolios/summary"
 
-type Adapter struct{ Dependencies bank.Dependencies }
-type auth struct {
-	TokenURL      string            `json:"tokenUrl"`
-	ClientID      string            `json:"clientId"`
-	RedirectURI   string            `json:"redirectUri"`
-	Scope         string            `json:"scope"`
-	Headers       map[string]string `json:"headers"`
-	DeviceCookies []bank.Cookie     `json:"deviceCookies,omitempty"`
-}
+type (
+	Adapter struct{ Dependencies bank.Dependencies }
+	auth    struct {
+		TokenURL      string            `json:"tokenUrl"`
+		ClientID      string            `json:"clientId"`
+		RedirectURI   string            `json:"redirectUri"`
+		Scope         string            `json:"scope"`
+		Headers       map[string]string `json:"headers"`
+		DeviceCookies []bank.Cookie     `json:"deviceCookies,omitempty"`
+	}
+)
 
 func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, error) {
 	var c auth
@@ -113,6 +116,7 @@ func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, erro
 	}
 	return s, bank.Fail(bank.Authentication, "authorization")
 }
+
 func (a *Adapter) Fetch(ctx context.Context, s bank.Session, r bank.FetchRequest) (bank.Snapshot, bank.Session, error) {
 	out := bank.Snapshot{At: time.Now()}
 	var data struct {

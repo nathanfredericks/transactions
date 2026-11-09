@@ -3,15 +3,17 @@ package nbdb
 import (
 	"context"
 	"encoding/json"
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
-	"github.com/nathanfredericks/transactions/internal/bank"
-	"github.com/nathanfredericks/transactions/internal/cloak"
 	"log/slog"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
+
+	"github.com/nathanfredericks/transactions/internal/bank"
+	"github.com/nathanfredericks/transactions/internal/cloak"
 )
 
 func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session bank.Session, err error) {

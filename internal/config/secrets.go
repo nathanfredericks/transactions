@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+
 	"github.com/nathanfredericks/transactions/internal/types"
 )
 

@@ -2,14 +2,16 @@
 package human
 
 import (
-	"github.com/go-rod/rod/lib/proto"
 	"math"
 	"math/rand/v2"
+
+	"github.com/go-rod/rod/lib/proto"
 )
 
 func (p *Page) inViewport(b Box, height float64) bool {
 	return b.Y >= height*p.cfg.ScrollTargetZone[0] && b.Y+b.Height <= height*p.cfg.ScrollTargetZone[1]
 }
+
 func (p *Page) smoothWheel(delta float64) error {
 	sent := 0.0
 	sign := 1.0
@@ -28,6 +30,7 @@ func (p *Page) smoothWheel(delta float64) error {
 	}
 	return nil
 }
+
 func (p *Page) scrollTo(el *Element) (Box, error) {
 	viewport, err := p.Evaluate("({width:innerWidth,height:innerHeight})")
 	if err != nil {

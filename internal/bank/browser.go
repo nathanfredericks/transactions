@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
-	"github.com/nathanfredericks/transactions/internal/cloak"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -18,6 +15,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
+
+	"github.com/nathanfredericks/transactions/internal/cloak"
 )
 
 type Exchange struct {
@@ -125,6 +127,7 @@ func (o *Observer) Matches(match func(Exchange) bool) []Exchange {
 	sort.Slice(result, func(i, j int) bool { return result[i].Sequence < result[j].Sequence })
 	return result
 }
+
 func (o *Observer) Wait(ctx context.Context, match func(Exchange) bool) (Exchange, error) {
 	for {
 		if latest, ok := o.Latest(match); ok {
@@ -179,6 +182,7 @@ func (o *Observer) Diagnostics(hostSuffix string) []map[string]any {
 	}
 	return result
 }
+
 func (o *Observer) Body(e Exchange, out any) error {
 	r, err := (proto.NetworkGetResponseBody{RequestID: e.ID}).Call(o.Page)
 	if err != nil {
@@ -197,6 +201,7 @@ func (o *Observer) Body(e Exchange, out any) error {
 	}
 	return nil
 }
+
 func SafeHeaders(h proto.NetworkHeaders) map[string]string {
 	out := map[string]string{}
 	for k, v := range h {
@@ -211,6 +216,7 @@ func SafeHeaders(h proto.NetworkHeaders) map[string]string {
 	}
 	return out
 }
+
 func BrowserSession(b *rod.Browser, id string, headers map[string]string, auth any) (Session, error) {
 	raw, e := json.Marshal(auth)
 	if e != nil {
@@ -234,6 +240,7 @@ func BrowserSession(b *rod.Browser, id string, headers map[string]string, auth a
 	TokenTiming(&s)
 	return s, nil
 }
+
 func Input(p *rod.Page, selector, value string) error { return enterText(p, selector, value, false) }
 func Type(p *rod.Page, selector, value string) error  { return enterText(p, selector, value, true) }
 func enterText(p *rod.Page, selector, value string, typed bool) error {
@@ -350,6 +357,7 @@ func ClickIfPresent(p *rod.Page, selector, label string, timeout time.Duration) 
 	}
 	return true, nil
 }
+
 func NewPage(ctx context.Context, b *rod.Browser) (*rod.Page, error) {
 	p, e := cloak.NewPage(ctx, b)
 	if e != nil {

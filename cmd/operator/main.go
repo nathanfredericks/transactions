@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/lambda"
-	"github.com/nathanfredericks/transactions/internal/config"
-	"github.com/nathanfredericks/transactions/internal/engine"
 	"os"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
+
+	"github.com/nathanfredericks/transactions/internal/config"
+	"github.com/nathanfredericks/transactions/internal/engine"
 )
 
 func main() {
@@ -67,6 +69,7 @@ func main() {
 	check(err)
 	fmt.Println(string(out))
 }
+
 func check(err error) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

@@ -6,16 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/input"
-	"github.com/go-rod/rod/lib/proto"
 	"math"
 	"sync"
 	"time"
+
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/input"
+	"github.com/go-rod/rod/lib/proto"
 )
 
-var ErrKey = errors.New("unsupported keyboard shortcut")
-var ErrElement = errors.New("element unavailable")
+var (
+	ErrKey     = errors.New("unsupported keyboard shortcut")
+	ErrElement = errors.New("element unavailable")
+)
 
 type cursor struct {
 	mu                      sync.Mutex
@@ -55,6 +58,7 @@ func (p *Page) ctx() context.Context { return p.Raw.GetContext() }
 func (p *Page) Context(ctx context.Context) *Page {
 	return &Page{Raw: p.Raw.Context(ctx), cfg: p.cfg, state: p.state, world: p.world}
 }
+
 func (p *Page) action(fn func() error) (err error) {
 	p.state.mu.Lock()
 	defer p.state.mu.Unlock()
@@ -68,6 +72,7 @@ func (p *Page) action(fn func() error) (err error) {
 	}()
 	return fn()
 }
+
 func (p *Page) cleanupInput() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -92,6 +97,7 @@ func (p *Page) cleanupInput() {
 		p.state.buttonDown = false
 	}
 }
+
 func (p *Page) Navigate(url string) error {
 	err := p.Raw.Navigate(url)
 	p.world.mu.Lock()
@@ -129,6 +135,7 @@ func (p *Page) Evaluate(expression string) (*proto.RuntimeRemoteObject, error) {
 	}
 	return nil, ErrElement
 }
+
 func (p *Page) query(selector, label string) (*rod.Element, error) {
 	// Keep the selected object in this isolated world. Resolving its backend
 	// node without an execution context would move later DOM reads into the
@@ -180,6 +187,7 @@ func (p *Page) query(selector, label string) (*rod.Element, error) {
 		}
 	}
 }
+
 func (p *Page) Element(selector string) (*Element, error) {
 	raw, err := p.query(selector, "")
 	if err != nil {
@@ -187,6 +195,7 @@ func (p *Page) Element(selector string) (*Element, error) {
 	}
 	return &Element{raw, p}, nil
 }
+
 func (p *Page) ElementLabel(selector, label string) (*Element, error) {
 	raw, err := p.query(selector, label)
 	if err != nil {
@@ -202,6 +211,7 @@ func (p *Page) Frame(el *rod.Element) (*Page, error) {
 	}
 	return &Page{Raw: raw, cfg: p.cfg, state: p.state, world: &worldState{}}, nil
 }
+
 func (e *Element) Element(selector string) (*Element, error) {
 	raw, err := e.Raw.Element(selector)
 	if err != nil {
@@ -209,6 +219,7 @@ func (e *Element) Element(selector string) (*Element, error) {
 	}
 	return e.page.Wrap(raw), nil
 }
+
 func (e *Element) Elements(selector string) ([]*Element, error) {
 	raw, err := e.Raw.Elements(selector)
 	if err != nil {
@@ -220,6 +231,7 @@ func (e *Element) Elements(selector string) ([]*Element, error) {
 	}
 	return result, nil
 }
+
 func (e *Element) box() (Box, error) {
 	shape, err := (proto.DOMGetBoxModel{ObjectID: e.Raw.Object.ObjectID}).Call(e.Raw)
 	if err != nil {
@@ -242,6 +254,7 @@ func (e *Element) box() (Box, error) {
 	}
 	return Box{minX, minY, maxX - minX, maxY - minY}, nil
 }
+
 func (e *Element) isInput() (bool, error) {
 	result, err := e.Raw.Eval(`()=>{const tag=this.tagName.toLowerCase();return tag==="input"||tag==="textarea"||this.getAttribute("contenteditable")==="true"}`)
 	if err != nil {
@@ -249,6 +262,7 @@ func (e *Element) isInput() (bool, error) {
 	}
 	return result.Value.Bool(), nil
 }
+
 func (e *Element) focused() (bool, error) {
 	v, err := e.Raw.Eval(`()=>this===document.activeElement`)
 	if err != nil {
@@ -256,6 +270,7 @@ func (e *Element) focused() (bool, error) {
 	}
 	return v.Value.Bool(), nil
 }
+
 func (e *Element) moveTo(scroll bool) (bool, error) {
 	p := e.page
 	if err := p.beforeMove(); err != nil {
@@ -278,6 +293,7 @@ func (e *Element) moveTo(scroll bool) (bool, error) {
 	target := p.target(box, isInput)
 	return isInput, p.move(target.X, target.Y)
 }
+
 func (e *Element) click(scroll bool) error {
 	isInput, err := e.moveTo(scroll)
 	if err != nil {
@@ -300,6 +316,7 @@ func (e *Element) DoubleClick() error {
 		return e.page.mouseUp(2)
 	})
 }
+
 func (e *Element) Hover() error {
 	return e.page.action(func() error { _, err := e.moveTo(false); return err })
 }
@@ -312,6 +329,7 @@ func (e *Element) Focus() error {
 		return e.Raw.Focus()
 	})
 }
+
 func (e *Element) typeOrFill(value string, fill bool, pageStyle bool) error {
 	p := e.page
 	if pageStyle {
@@ -341,9 +359,11 @@ func (e *Element) typeOrFill(value string, fill bool, pageStyle bool) error {
 	}
 	return p.typeText(value)
 }
+
 func (e *Element) Type(value string) error {
 	return e.page.action(func() error { return e.typeOrFill(value, false, false) })
 }
+
 func (e *Element) Fill(value string) error {
 	return e.page.action(func() error { return e.typeOrFill(value, true, false) })
 }
@@ -370,6 +390,7 @@ func (e *Element) clear() error {
 	}
 	return p.key(input.Backspace)
 }
+
 func (e *Element) Press(key string) error {
 	return e.page.action(func() error {
 		if err := sleep(e.page.ctx(), random(20, 60)); err != nil {
@@ -378,6 +399,7 @@ func (e *Element) Press(key string) error {
 		return e.page.shortcutHold(key, rangeValue(e.page.cfg.KeyHold))
 	})
 }
+
 func (e *Element) SetChecked(wanted bool) error {
 	return e.page.action(func() error {
 		v, err := e.Raw.Property("checked")
@@ -403,6 +425,7 @@ func (e *Element) SelectOption(values []string) error {
 		return e.selectValues(values)
 	})
 }
+
 func (p *Page) Click(selector, label string) error {
 	return p.action(func() error {
 		e, err := p.ElementLabel(selector, label)
@@ -412,6 +435,7 @@ func (p *Page) Click(selector, label string) error {
 		return e.click(true)
 	})
 }
+
 func (p *Page) Hover(selector string) error {
 	return p.action(func() error {
 		e, err := p.Element(selector)
@@ -422,6 +446,7 @@ func (p *Page) Hover(selector string) error {
 		return err
 	})
 }
+
 func (p *Page) Fill(selector, value string) error {
 	return p.action(func() error {
 		e, err := p.Element(selector)
@@ -431,6 +456,7 @@ func (p *Page) Fill(selector, value string) error {
 		return e.typeOrFill(value, true, true)
 	})
 }
+
 func (p *Page) Type(selector, value string) error {
 	return p.action(func() error {
 		e, err := p.Element(selector)
@@ -440,6 +466,7 @@ func (p *Page) Type(selector, value string) error {
 		return e.typeOrFill(value, false, true)
 	})
 }
+
 func (p *Page) PressSequentially(selector, value string) error {
 	return p.action(func() error {
 		e, err := p.Element(selector)
@@ -461,6 +488,7 @@ func (p *Page) PressSequentially(selector, value string) error {
 		return p.typeText(value)
 	})
 }
+
 func (p *Page) Press(selector, key string) error {
 	return p.action(func() error {
 		e, err := p.Element(selector)
@@ -482,6 +510,7 @@ func (p *Page) Press(selector, key string) error {
 		return p.shortcut(key)
 	})
 }
+
 func (p *Page) Clear(selector string) error {
 	e, err := p.Element(selector)
 	if err != nil {
@@ -489,6 +518,7 @@ func (p *Page) Clear(selector string) error {
 	}
 	return e.Clear()
 }
+
 func (p *Page) DoubleClick(selector string) error {
 	return p.action(func() error {
 		e, err := p.Element(selector)
@@ -529,6 +559,7 @@ func (p *Page) SetChecked(selector string, wanted bool) error {
 		return e.click(true)
 	})
 }
+
 func (p *Page) SelectOption(selector string, values []string) error {
 	return p.action(func() error {
 		e, err := p.Element(selector)
@@ -544,6 +575,7 @@ func (p *Page) SelectOption(selector string, values []string) error {
 		return e.selectValues(values)
 	})
 }
+
 func (p *Page) Drag(source, target string) error {
 	return p.action(func() error {
 		src, err := p.Element(source)
@@ -592,6 +624,7 @@ func (p *Page) MouseClick(x, y float64) error {
 		return p.clickMouse(false)
 	})
 }
+
 func (p *Page) KeyboardType(text string) error {
 	return p.action(func() error { return p.typeText(text) })
 }
@@ -606,6 +639,7 @@ func (e *Element) selectValues(values []string) error {
 	}
 	return e.Raw.Select(selectors, true, rod.SelectorTypeCSSSector)
 }
+
 func (e *Element) SelectLabel(labels []string) error {
 	return e.page.action(func() error {
 		if err := e.click(false); err != nil {
@@ -617,6 +651,7 @@ func (e *Element) SelectLabel(labels []string) error {
 		return e.Raw.Select(labels, true, rod.SelectorTypeText)
 	})
 }
+
 func (e *Element) SelectIndex(index int) error {
 	if index < 0 {
 		return ErrElement
@@ -644,9 +679,11 @@ func (p *Page) Elements(selector string) ([]*Element, error) {
 	}
 	return result, nil
 }
+
 func (p *Page) KeyboardPress(key string) error {
 	return p.action(func() error { return p.shortcut(key) })
 }
+
 func (p *Page) KeyboardInsertText(text string) error {
 	return p.action(func() error { return p.state.raw.InsertText(text) })
 }

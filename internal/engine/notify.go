@@ -3,9 +3,9 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"github.com/nathanfredericks/transactions/internal/notify"
-
 	"time"
+
+	"github.com/nathanfredericks/transactions/internal/notify"
 )
 
 type Notification struct {
@@ -29,6 +29,7 @@ func (e *Engine) notifyOnce(ctx context.Context, id, message, title string) erro
 	}
 	return e.put(ctx, "NOTICE#"+id, Notification{ID: id, JobID: e.Job.ID, Title: title, Message: message, Status: "pending", At: time.Now()}, e.Job.ID)
 }
+
 func (e *Engine) Deliver(ctx context.Context, r Request) (Outcome, error) {
 	e.Job = Job{ID: r.JobID, Bank: r.Bank}
 	l, ok, err := e.Store.Acquire(ctx, r.Bank, "notify#"+r.JobID)

@@ -40,6 +40,7 @@ func (s *Supervisor) Running() bool {
 		return true
 	}
 }
+
 func (s *Supervisor) Ensure(ctx context.Context, allowed func() bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -101,9 +102,11 @@ func (s *Supervisor) Ensure(ctx context.Context, allowed func() bool) error {
 		}
 	}
 }
+
 func (s *Supervisor) CloseConnections() {
 	s.connections.Range(func(k, v any) bool { _ = k.(net.Conn).Close(); s.connections.Delete(k); return true })
 }
+
 func (s *Supervisor) Stop() error {
 	s.CloseConnections()
 	s.mu.Lock()
@@ -134,18 +137,21 @@ func (s *Supervisor) Stop() error {
 	s.cmd = nil
 	return nil
 }
+
 func (s *Supervisor) begin() {
 	s.activityMu.Lock()
 	s.inflight++
 	s.lastActivity = time.Now()
 	s.activityMu.Unlock()
 }
+
 func (s *Supervisor) end() {
 	s.activityMu.Lock()
 	s.inflight--
 	s.lastActivity = time.Now()
 	s.activityMu.Unlock()
 }
+
 func (s *Supervisor) Idle(d time.Duration) bool {
 	s.activityMu.Lock()
 	defer s.activityMu.Unlock()

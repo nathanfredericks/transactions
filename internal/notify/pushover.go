@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gregdel/pushover"
+
 	"github.com/nathanfredericks/transactions/internal/config"
 )
 

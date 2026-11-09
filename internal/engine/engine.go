@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/nathanfredericks/transactions/internal/bank"
-	"github.com/nathanfredericks/transactions/internal/banks"
 	"log/slog"
 	"math"
 	"time"
+
+	"github.com/nathanfredericks/transactions/internal/bank"
+	"github.com/nathanfredericks/transactions/internal/banks"
 )
 
 func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err error) {
@@ -323,11 +324,13 @@ func (e *Engine) recovered(ctx context.Context, name string, health Health) (Out
 	}
 	return e.complete(ctx)
 }
+
 func (e *Engine) complete(ctx context.Context) (Outcome, error) {
 	e.Job.Status = "complete"
 	e.Job.CompletedAt = time.Now()
 	return e.outcome("complete", 0), e.saveJob(ctx)
 }
+
 func (e *Engine) failure(ctx context.Context, cause error) (Outcome, error) {
 	f := bank.Classify(cause)
 	var health Health
@@ -392,6 +395,7 @@ func (e *Engine) failure(ctx context.Context, cause error) (Outcome, error) {
 	}
 	return e.outcome(outcome, wait), nil
 }
+
 func (e *Engine) RecoverBrowser(ctx context.Context, r Request) (Outcome, error) {
 	if err := e.loadJob(ctx, r.JobID, r.Bank); err != nil {
 		return Outcome{}, err
@@ -415,6 +419,7 @@ func (e *Engine) RecoverBrowser(ctx context.Context, r Request) (Outcome, error)
 	e.Job.Attempt = 2 // A launch/timeout failure is infrastructure failure, not rejected credentials.
 	return e.failure(ctx, bank.Fail(bank.Temporary, "browser-task-incomplete"))
 }
+
 func decode[T any](raw json.RawMessage) (T, error) {
 	var out T
 	err := json.Unmarshal(raw, &out)

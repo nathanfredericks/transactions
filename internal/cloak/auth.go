@@ -2,11 +2,12 @@ package cloak
 
 import (
 	"context"
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
 	"net/url"
 	"sync/atomic"
 	"time"
+
+	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 )
 
 // Authentication is page-scoped, continuous, and keeps proxy credentials
@@ -79,9 +80,11 @@ func setupAuth(p *rod.Page, o Options) (*pageAuth, error) {
 	}
 	return handler, nil
 }
+
 func (a *pageAuth) enable() error {
 	return (proto.FetchEnable{HandleAuthRequests: true, Patterns: []*proto.FetchRequestPattern{{URLPattern: "*"}}}).Call(a.page)
 }
+
 func authFor(p *rod.Page) *pageAuth {
 	state, ok := p.GetContext().Value(runtimeKey{}).(*runtimeState)
 	if !ok {
@@ -106,6 +109,7 @@ func NewRequestRouter(p *rod.Page) *rod.HijackRouter {
 	}
 	return p.HijackRequests()
 }
+
 func StartRequestRouter(p *rod.Page, router *rod.HijackRouter) error {
 	if a := authFor(p); a != nil {
 		if err := router.Add("*", "", func(h *rod.Hijack) { h.ContinueRequest(&proto.FetchContinueRequest{}) }); err != nil {
@@ -118,6 +122,7 @@ func StartRequestRouter(p *rod.Page, router *rod.HijackRouter) error {
 	go router.Run()
 	return nil
 }
+
 func StopRequestRouter(p *rod.Page, router *rod.HijackRouter) {
 	_ = router.Stop()
 	if a := authFor(p); a != nil && p.GetContext().Err() == nil {

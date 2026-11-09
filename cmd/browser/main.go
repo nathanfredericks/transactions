@@ -5,12 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"math/rand/v2"
+	"os"
+	"time"
+
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	"github.com/aws/smithy-go"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/google/uuid"
+
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
 	"github.com/nathanfredericks/transactions/internal/browserbroker"
@@ -18,10 +24,6 @@ import (
 	"github.com/nathanfredericks/transactions/internal/config"
 	"github.com/nathanfredericks/transactions/internal/engine"
 	"github.com/nathanfredericks/transactions/internal/state"
-	"log/slog"
-	"math/rand/v2"
-	"os"
-	"time"
 )
 
 func run(ctx context.Context) error {
@@ -77,6 +79,7 @@ func run(ctx context.Context) error {
 	_, err = app.SFN.SendTaskSuccess(ctx, &sfn.SendTaskSuccessInput{TaskToken: &token, Output: ptr(string(payload))})
 	return err
 }
+
 func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, l state.Lease) (session bank.Session, err error) {
 	settings := app.Settings.Banks[r.ID]
 	stored, err := config.BankCredentials(ctx, r.ID)

@@ -5,20 +5,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	d "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	sfnt "github.com/aws/aws-sdk-go-v2/service/sfn/types"
 	"github.com/google/uuid"
+
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/types"
-	"os"
-	"strings"
-	"time"
 )
 
 func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
@@ -282,6 +284,7 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 		return nil, fmt.Errorf("unsupported operation")
 	}
 }
+
 func validateRule(r types.TransactionOverride) error {
 	if strings.TrimSpace(r.Name) == "" || r.Payee == "" || len(r.Memo) > 500 || len(r.Query) > 20000 {
 		return fmt.Errorf("invalid rule")
@@ -333,6 +336,7 @@ func validateRule(r types.TransactionOverride) error {
 	}
 	return walk(query, 0)
 }
+
 func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 	if err := e.loadJob(ctx, r.JobID, r.Bank); err != nil {
 		return nil, err

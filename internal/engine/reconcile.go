@@ -2,32 +2,34 @@ package engine
 
 import (
 	"context"
-
 	"fmt"
+	"log/slog"
+	"math"
+	"strings"
+	"time"
+
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
 	"github.com/nathanfredericks/transactions/internal/config"
 	"github.com/nathanfredericks/transactions/internal/override"
 	"github.com/nathanfredericks/transactions/internal/service"
 	"github.com/nathanfredericks/transactions/internal/types"
-	"log/slog"
-	"math"
-	"strings"
-	"time"
 )
 
-type Record = bank.Record
-type Entry struct {
-	Key                 string `json:"key"`
-	Record              Record `json:"record"`
-	ImportID            string `json:"importId"`
-	YNABID              string `json:"ynabId"`
-	Adopted             bool   `json:"adopted"`
-	Payee               string `json:"payee"`
-	AuthorizationAmount *int64 `json:"authorizationAmount,omitempty"`
-	AuthorizationDate   string `json:"authorizationDate,omitempty"`
-	AlertMessageID      string `json:"alertMessageId,omitempty"`
-}
+type (
+	Record = bank.Record
+	Entry  struct {
+		Key                 string `json:"key"`
+		Record              Record `json:"record"`
+		ImportID            string `json:"importId"`
+		YNABID              string `json:"ynabId"`
+		Adopted             bool   `json:"adopted"`
+		Payee               string `json:"payee"`
+		AuthorizationAmount *int64 `json:"authorizationAmount,omitempty"`
+		AuthorizationDate   string `json:"authorizationDate,omitempty"`
+		AlertMessageID      string `json:"alertMessageId,omitempty"`
+	}
+)
 
 func (s *Engine) importPrefix() string { r, _ := banks.Find(s.Job.Bank); return r.ImportPrefix }
 func identity(r Record) string {
@@ -45,6 +47,7 @@ func near(a, b string, days int) bool {
 	bb, e := time.Parse("2006-01-02", b)
 	return e == nil && math.Abs(aa.Sub(bb).Hours()) <= float64(days*24)
 }
+
 func samePurchase(a, b Record) bool {
 	if a.AccountID != b.AccountID || a.Amount == 0 || b.Amount == 0 || (a.Amount < 0) != (b.Amount < 0) || !near(a.Date, b.Date, 14) {
 		return false
@@ -59,6 +62,7 @@ func samePurchase(a, b Record) bool {
 	}
 	return sameMerchant && a.Amount == b.Amount
 }
+
 func exactMatch(a, b Record) bool {
 	if a.AccountID != b.AccountID {
 		return false
@@ -85,6 +89,7 @@ func exactMatch(a, b Record) bool {
 	return a.ProvisionalID != "" && a.ProvisionalID == b.ProvisionalID &&
 		a.Date == b.Date && a.Amount == b.Amount && merchant(a.Description) == merchant(b.Description)
 }
+
 func (s *Engine) reconcile(ctx context.Context, snapshot bank.Snapshot, baseline Baseline) (bool, error) {
 	job := s.Job
 	result := struct{ Records []Record }{snapshot.Records}
