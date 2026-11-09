@@ -2,8 +2,8 @@
 """Show or deploy the CDK stack from committed, pushed main source.
 
 `diff` prints what would change. `deploy` prints the same diff, asks for
-confirmation, then runs `cdk deploy`, which builds the Lambda package and the
-browser image from this checkout.
+confirmation, logs Docker in to the CDK asset registry, then runs `cdk deploy`,
+which builds the Lambda package and the browser image from this checkout.
 """
 import argparse
 import os
@@ -13,6 +13,8 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 CDK = ['npx', '--yes', 'aws-cdk@2.1144.0']
 STACK = 'TransactionsEngine'
+REGION = 'ca-central-1'
+REGISTRY = '187489282488.dkr.ecr.ca-central-1.amazonaws.com'
 
 
 def git(*args):
@@ -41,6 +43,10 @@ def main():
         return
     if input(f'Deploy {revision[:12]} with the changes above? [y/N] ').strip().lower() != 'y':
         raise SystemExit('Not deployed')
+    # The browser image builds on the deployed runtime in the CDK asset registry.
+    password = subprocess.check_output(['aws', '--region', REGION, 'ecr', 'get-login-password'], text=True)
+    subprocess.run(['docker', 'login', '--username', 'AWS', '--password-stdin', REGISTRY],
+                   input=password, text=True, check=True, stdout=subprocess.DEVNULL)
     subprocess.run([*CDK, 'deploy', STACK, '--require-approval', 'never'], cwd=ROOT, env=env, check=True)
 
 
