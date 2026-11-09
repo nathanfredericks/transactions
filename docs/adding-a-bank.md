@@ -10,7 +10,7 @@ type Adapter interface {
 }
 ```
 
-Choose an existing strategy (`posted`, `reconcile`, `balances`), schedule and browser. Reconciliation registrations supply an import prefix and purchase-account label. CDK iterates the registry to create one schedule per bank; it does not add a Lambda, workflow, task definition or secret per bank.
+Choose an existing strategy (`posted`, `reconcile`, `balances`) and browser. Reconciliation registrations supply an import prefix and purchase-account label. Add the bank's schedule to the `schedules` map in `cdk/cdk.go`, keyed by the same registry ID. A bank adds no Lambda, workflow, task definition or secret.
 
 Add configuration with its expected account UUIDs, exclusions, history start and MFA sender/subject. Add its login to the single `Transactions` secret: an entry under the `BANKS` map, keyed by the registry ID, with `username`, `password` and `mailToken`. All three must be non-empty. Keep `enabled` false until verification. Session renewal timing is returned in the session; ordinary fetches must return rotated tokens and cookies even when a later response fails validation.
 

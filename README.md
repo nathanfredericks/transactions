@@ -25,7 +25,6 @@ flowchart TD
   Intent --> Delivery[Separate notification delivery step]
   Delivery --> Pushover[Pushover]
   Delivery -->|Failure| Retry[Bounded notification-only retry]
-  AWS[Lambda / workflow / delivery alarms] --> SNS[Independent SNS email]
 ```
 
 ## Repository
@@ -56,9 +55,9 @@ YNAB writes have no generic retry wrapper. Transaction creation uses stable impo
 
 The one configuration document is `/transactions-engine/settings`. All runtime credentials live in one Secrets Manager secret, `Transactions`, created outside the stack and passed to CDK as the `secretArn` context. Its JSON holds the application keys (`YNAB_ACCESS_TOKEN`, `OPENAI_API_KEY`, `PUSHOVER_TOKEN`, `PUSHOVER_USER`), `CLOAKBROWSER_LICENSE_KEY`, `BROWSER_BROKER_TOKEN` and `BANKS` (one `{username, password, mailToken}` per bank ID). The Lambdas and the browser task can both read it. Do not put tokens in CDK context, workflow payloads, Git or logs. S3 objects are private and encrypted.
 
-The committed CDK context records this production deployment with schedules active. For a fresh installation or a deliberate schedule pause, synthesize/deploy with `-c activate=false`; the initial settings placeholder always has imports disabled. Complete configuration and baseline review before enabling imports. Admin hosting is enabled with the `repository` CDK context. The GitHub token and the Auth0 client and session secrets are deployment-only values in the 1Password item `Transactions` (fields `github_token`, `auth0_client_secret`, `auth0_session_secret`). They are NoEcho stack parameters: `scripts/deploy-main.py secrets` sets them, and later releases reuse the stack's values.
+The committed CDK context records this production deployment with schedules active. For a fresh installation or a deliberate schedule pause, synthesize/deploy with `-c activate=false`; the initial settings placeholder always has imports disabled. Complete configuration and baseline review before enabling imports.
 
-The admin app is gone, but `cdk/cdk.go` and `scripts/deploy-main.py` still define its Amplify and Auth0 hosting and the deploy-only secrets above; the one-deploy-path phase (P2 in [the audit roadmap](docs/audit/README.md)) removes them, so release this code together with that change. Set the `alarmEmail` context to the operator address and confirm the SNS subscription. Infrastructure email is independent of Pushover.
+`cdk/cdk.go` is the whole stack, including the three bank schedules. There are no CloudWatch alarms; the application reports failures through Pushover.
 
 Use the [local verification loop](docs/local-verification.md) to fix authentication and exercise real API calls without redeploying.
 
@@ -68,7 +67,7 @@ See [cutover and verification](docs/cutover.md) and [adding a bank](docs/adding-
 
 The repository has no tests. CI runs static checks and builds on pull requests and pushes to `main`: `golangci-lint` (with the `gofumpt` and `goimports` formatters), `govulncheck`, `go mod tidy -diff`, `go fix -diff`, `go vet`, `go build` and `cdk synth`, for the root module and the `cdk` module. Release evidence is the `cmd/evaluate` replay and live dry runs through the [local verification loop](docs/local-verification.md).
 
-The `cdk` module is separate and points at the root module with a `replace` directive, so no `go.work` is needed; delete any local one, or keep `GOWORK=off` set. The CDK app builds from `cdk/` and runs from the repository root.
+The `cdk` module is separate and does not import the application, so no `go.work` is needed; delete any local one, or keep `GOWORK=off` set. The CDK app builds from `cdk/`, runs from the repository root, and compiles the Lambda binary itself.
 
 ```sh
 export GOWORK=off
@@ -78,12 +77,12 @@ npx --yes aws-cdk@2.1144.0 synth --output dist/cdk
 docker build --platform linux/arm64 --secret id=cloak_license,src="$HOME/.cloakbrowser/license.key" -t transactions-engine-browser:verify .
 ```
 
-Production releases use committed, pushed `main` source. Run
-`python3 scripts/deploy-main.py release` from a clean `main` checkout to rebuild
-both Lambda packages and the browser image while preserving deployed settings.
-During the initial branch cutover, build the staged Amplify `main` branch, verify
-its successful build, then run `python3 scripts/deploy-main.py cutover` to switch
-the domain and retire the old hosting branch. The script refuses another branch,
+Production releases use committed, pushed `main` source. From a clean `main`
+checkout, `python3 scripts/deploy-main.py diff` shows what CDK would change.
+`python3 scripts/deploy-main.py deploy` shows the same diff, asks for
+confirmation and runs `cdk deploy`, which builds both Lambda packages and the
+browser image (from its pinned base, with the CloakBrowser licence file as a
+build secret). Docker must be running. The script refuses another branch,
 uncommitted changes, or a revision that is not the remote `main` head.
 
 ## Shared browser capacity

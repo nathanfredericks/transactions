@@ -37,7 +37,7 @@ NBDB review: action `review.balance`, payload `{"accountId":"BANK_ACCOUNT_UUID",
 
 CloudWatch structured `bank-job` records contain bank, purpose, outcome, browser use and invocation duration. `session-renewal` records contain success/failure. Compare workflow start/completion for end-to-end latency; Lambda duration alone excludes the orchestration and queueing. Track browser jobs per bank, renewal success and failures needing review. The EQ target is under 15 seconds for alert-to-completion with usable authentication; fresh-login cases are a separate population. No latency claim is valid until measured in the deployed engine.
 
-Confirm SNS email delivery independently, and inspect the delivery-failure queue and failed application notification rows. Successful scheduled retrieval and routine renewal are quiet. A lost Pushover response may duplicate a notification, but never retries a financial write.
+Inspect failed application notification rows. Successful scheduled retrieval and routine renewal are quiet. A lost Pushover response may duplicate a notification, but never retries a financial write.
 
 The user confirmed on 6 October 2026 that the webhook is no longer used. The webhook handler has since been deleted.
 
