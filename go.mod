@@ -1,6 +1,6 @@
 module github.com/nathanfredericks/transactions
 
-go 1.26.5
+go 1.26.10
 
 require (
 	github.com/aws/aws-lambda-go v1.52.0
