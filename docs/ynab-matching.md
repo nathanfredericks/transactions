@@ -1,5 +1,48 @@
 # Pending transactions and YNAB matching
 
+## How payee, category and memo are filled
+
+Every import (card alert, posted retrieval or EQ reconcile) fills payee,
+category and memo from the user's own approved YNAB history. Transactions stay
+unapproved, nothing is flagged, and rules are no longer used: the 19 JSONLogic
+rules were retired on 8 November 2026 after `cmd/evaluate rules` showed history
+reproduces them (backup: `exports/rules-export-2026-11-08.json` in the state
+bucket).
+
+- **History is read live.** Each import reads the budget from YNAB. A warm
+  Lambda keeps what it read and asks YNAB only for changes since then
+  (`last_knowledge_of_server`). Nothing is copied or stored.
+- **Payee.** If the user approved this bank text (normalized: case,
+  punctuation and digit-bearing tokens ignored) for one payee, with at least
+  75% of its recency-weighted approvals, that payee is written by ID. Otherwise
+  the model configured in settings (`openaiModel`, `openaiEffort`) chooses one
+  of the 20 most similar payees by ID, or names a new merchant. If evidence or
+  the model is unavailable, the bank text is kept as the payee.
+- **Category.** For a payee with history: its past categories, weighted by
+  recency, closeness in amount and the same bank text. A dated event category
+  moves to its newest edition ("<event> 2025" to "<event> 2026"). For a new
+  payee: the model's choice. Nothing is sent when there is no evidence, and
+  YNAB then applies the payee's default.
+- **Memo.** In order: a scheduled transaction's memo for the same payee and
+  amount; the memo every past use of the same bank text shared; the memo every
+  same-amount charge shared; for same-price subscriptions, the one that recurs
+  monthly on this day of the month; the memo every recent charge from the payee
+  shared. Otherwise no memo.
+- **Suggestion records.** Each write stores what was suggested and why
+  (DynamoDB `LEARN / TX#<transaction id>`, and in the write ledger). This keeps
+  the bank text when YNAB does not, so later imports learn from it.
+
+`cmd/evaluate` replays approved history forward in time to choose and check all
+of this (`deterministic`, `models`, `rules`). On the locked holdout (29 June to
+7 November 2026): history decided 84% of payees, all correctly; category for
+known payees was right 78% of the time (YNAB's own default: 71%); memo 76%
+(always empty: 68%). `google/gemini-3.8-flash` at medium effort chose the
+payee correctly 86% of the time on the cases history leaves open,
+significantly ahead of `claude-haiku-5.5`, `gpt-6-luna` and
+`gemini-3.1-flash-lite`.
+
+## Pending and posted transactions
+
 The old purchase-alert helpers (`CreateTransaction` and
 `CreateTransactionWithOverride`) created uncleared transactions without
 `import_id`. The replacement engine routed alerts through
@@ -11,9 +54,9 @@ user-entered.
 
 Pending creates now omit `import_id`. Posted creates retain their existing
 stable IDs, including Rogers' `YNAB:amount:date:occurrence` IDs. NBDB balance
-adjustments are unchanged. Overrides still set payee, category and rendered
-memo. Internal operation/ledger identities remain stable and are separate from
-the ID sent to YNAB.
+adjustments are unchanged. Payee, category and memo come from approved history
+(see below). Internal operation/ledger identities remain stable and are
+separate from the ID sent to YNAB.
 
 A confirmed pending response is recorded by its YNAB transaction ID. EQ can
 recover that completed write if a process exits before saving the ledger.
