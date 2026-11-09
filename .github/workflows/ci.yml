@@ -34,11 +34,11 @@ jobs:
           go vet ./...
           go build ./...
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
       - name: golangci-lint (cdk)
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
           working-directory: cdk
