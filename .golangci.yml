@@ -1,0 +1,142 @@
+version: "2"
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    # HTTP and context
+    - bodyclose
+    - noctx
+    - contextcheck
+    - containedctx
+    # Errors
+    - errorlint
+    - nilerr
+    - nilnil
+    - errname
+    # Logging and safety
+    - sloglint
+    - gosec
+    - forcetypeassert
+    - exhaustive
+    - musttag
+    # Simplicity
+    - iface
+    - unparam
+    - gocognit
+    - nestif
+    - gocritic
+    - revive
+    # Modernization
+    - modernize
+    - exptostd
+    - perfsprint
+    - unconvert
+    - misspell
+    # Dependencies
+    - depguard
+    - gomoddirectives
+  settings:
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: io/ioutil
+              desc: use io and os
+            - pkg: github.com/pkg/errors
+              desc: use errors and fmt
+            - pkg: golang.org/x/exp/slices
+              desc: use slices
+            - pkg: golang.org/x/exp/maps
+              desc: use maps
+    gomoddirectives:
+      # cdk/go.mod points at the root module. P2 removes the import that needs it.
+      replace-local: true
+    gosec:
+      excludes:
+        - G104 # Duplicates errcheck.
+        - G404 # math/rand only picks jitter and replay samples, never secrets.
+    modernize:
+      disable:
+        - omitzero # Switching omitempty to omitzero changes the stored JSON.
+    staticcheck:
+      checks:
+        - all
+        # golangci-lint's defaults:
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        - -QF1001 # De Morgan rewrites of "not (a and b)" guards read worse.
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments # No doc comment required on every exported name.
+      - std-error-handling # Unchecked Close, Remove, Setenv and print calls.
+    rules:
+      # Exclusions below are temporary. Each names the roadmap phase
+      # (docs/audit/README.md) that deletes or rewrites the code; remove the
+      # rule in that phase.
+
+      # P1 deletes the rules tool, the webhook and most admin actions.
+      - path: ^cmd/audit-rules/
+        linters: [musttag]
+      - path: ^cmd/lambda/
+        linters: [nestif]
+      - path: ^internal/engine/(admin|gateway)\.go$
+        linters: [gocritic, musttag, nilerr, nilnil]
+
+      # P3 and P5 rewrite the engine: the write path, Health, the per-job
+      # struct, state.WithLease (which releases the lease once, checked).
+      - path: ^internal/engine/
+        linters: [errcheck, gocognit, nestif]
+      # D2 replaces EQ reconcile with the posted path.
+      - path: ^internal/engine/reconcile\.go$
+        linters: [unparam]
+
+      # P4 moves cleanup onto context.WithoutCancel with a short timeout.
+      - path: ^internal/engine/
+        linters: [contextcheck]
+
+      # P5 replaces config globals and renames the typed failure.
+      - path: ^internal/config/aws\.go$
+        text: awsErr
+        linters: [errname]
+      - path: ^internal/bank/bank\.go$
+        text: Failure
+        linters: [errname]
+
+      # P6 replaces Rod with playwright-go, deletes internal/cloak and
+      # cmd/cloak-inspect, rewrites cmd/browser and the bank sign-ins, and
+      # simplifies the broker.
+      - path: ^(internal/cloak|cmd/cloak-inspect)/
+        linters: [contextcheck, errcheck, forcetypeassert, gocognit, gocritic, gosec, nestif, nilnil, noctx, revive, staticcheck]
+      - path: ^(internal/banks|internal/bank|cmd/browser)/
+        linters: [contextcheck, gocognit, gocritic, gosec, nestif]
+      - path: ^internal/browserbroker/
+        linters: [contextcheck, forcetypeassert, gocognit, gosec, noctx]
+      - path: ^cmd/browser-broker/
+        linters: [gocritic]
+
+      # P1 and P2 remove the admin hosting block and rewrite cdk.go as the
+      # only deploy path.
+      - path: ^cdk/
+        linters: [gosec, nestif, noctx, unparam]
+
+      # The offline replay harness and the learner belong to the learning
+      # work (D12); no phase restructures them.
+      - path: ^cmd/evaluate/
+        linters: [errcheck, gocognit, gosec, musttag, nestif, noctx]
+      - path: ^internal/learn/
+        linters: [gocognit, nestif]
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/nathanfredericks/transactions
