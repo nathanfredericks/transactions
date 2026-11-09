@@ -50,7 +50,7 @@ func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, erro
 	target.Path = strings.TrimSuffix(target.Path, "/token") + "/authorize"
 	target.RawQuery = url.Values{"client_id": {c.ClientID}, "redirect_uri": {c.RedirectURI}, "response_type": {"code"}, "response_mode": {"query"}, "scope": {c.Scope}, "prompt": {"none"}, "state": {state}, "nonce": {bank.Hash(verifier + "nonce")}, "code_challenge": {base64.RawURLEncoding.EncodeToString(hash[:])}, "code_challenge_method": {"S256"}}.Encode()
 	h := bank.NewHTTP(&s)
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		_, headers, status, e := h.Request(ctx, "GET", target.String(), map[string]string{"user-agent": s.Headers["user-agent"], "accept": "text/html"}, nil)
 		if e != nil {
 			return s, e

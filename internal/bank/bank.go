@@ -39,8 +39,7 @@ type Failure struct {
 func (e *Failure) Error() string             { return string(e.Kind) + ": " + e.Operation }
 func Fail(kind Kind, operation string) error { return &Failure{Kind: kind, Operation: operation} }
 func Classify(err error) *Failure {
-	var f *Failure
-	if errors.As(err, &f) {
+	if f, ok := errors.AsType[*Failure](err); ok {
 		return f
 	}
 	return &Failure{Kind: Temporary, Operation: "operation"}

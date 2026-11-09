@@ -142,10 +142,7 @@ func RenderMemo(memo, date string) (string, error) {
 			}
 			first := time.Date(d.Year(), d.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, -1, 0)
 			last := first.AddDate(0, 1, -1).Day()
-			day := d.Day()
-			if day > last {
-				day = last
-			}
+			day := min(d.Day(), last)
 			return time.Date(first.Year(), first.Month(), day, 0, 0, 0, 0, time.UTC).Format("2006-01-02"), nil
 		},
 	}

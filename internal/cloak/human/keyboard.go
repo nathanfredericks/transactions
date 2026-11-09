@@ -4,6 +4,7 @@ package human
 import (
 	"math/rand/v2"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -182,7 +183,7 @@ func (p *Page) shortcut(key string) error { return p.shortcutHold(key, 0) }
 func (p *Page) shortcutHold(key string, hold float64) error {
 	// Browser host determines select-all, as in the pinned wrapper.
 	var keys []input.Key
-	for _, part := range strings.Split(key, "+") {
+	for part := range strings.SplitSeq(key, "+") {
 		switch part {
 		case "ControlOrMeta":
 			if runtime.GOOS == "darwin" {
@@ -241,8 +242,8 @@ func (p *Page) shortcutHold(key string, hold float64) error {
 		case "ContextMenu":
 			keys = append(keys, input.ContextMenu)
 		default:
-			if strings.HasPrefix(part, "F") {
-				n, err := strconv.Atoi(strings.TrimPrefix(part, "F"))
+			if after, ok := strings.CutPrefix(part, "F"); ok {
+				n, err := strconv.Atoi(after)
 				if err == nil && n >= 1 && n <= 12 {
 					keys = append(keys, input.F1+input.Key(n-1))
 					continue
@@ -267,8 +268,8 @@ func (p *Page) shortcutHold(key string, hold float64) error {
 	if err := sleep(p.ctx(), hold); err != nil {
 		return err
 	}
-	for i := len(keys) - 1; i >= 0; i-- {
-		if err := p.up(keys[i]); err != nil {
+	for _, key := range slices.Backward(keys) {
+		if err := p.up(key); err != nil {
 			return err
 		}
 	}

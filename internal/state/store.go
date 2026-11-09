@@ -58,8 +58,7 @@ func (s *Store) Create(ctx context.Context, pk, sk string, value any) (bool, err
 	item := key(pk, sk)
 	item["data"] = &d.AttributeValueMemberS{Value: string(b)}
 	_, e = s.DB.PutItem(ctx, &dynamodb.PutItemInput{TableName: &s.Table, Item: item, ConditionExpression: aws.String("attribute_not_exists(pk)")})
-	var exists *d.ConditionalCheckFailedException
-	if errors.As(e, &exists) {
+	if _, ok := errors.AsType[*d.ConditionalCheckFailedException](e); ok {
 		return false, nil
 	}
 	return e == nil, e
@@ -124,8 +123,7 @@ func (s *Store) Release(ctx context.Context, l Lease) error {
 		_, err := s.DB.DeleteItem(ctx, &dynamodb.DeleteItemInput{TableName: &s.Table, Key: key("BANK#"+l.Bank, "LEASE"), ConditionExpression: aws.String("generation = :g"), ExpressionAttributeValues: map[string]d.AttributeValue{":g": &d.AttributeValueMemberS{Value: l.Generation}}})
 		return err
 	})
-	var missing *d.ConditionalCheckFailedException
-	if errors.As(e, &missing) {
+	if _, ok := errors.AsType[*d.ConditionalCheckFailedException](e); ok {
 		return nil
 	}
 	return e
@@ -151,8 +149,7 @@ func retryConflict(ctx context.Context, operation func() error) error {
 }
 
 func transactionConflict(err error) bool {
-	var conflict *d.TransactionConflictException
-	if errors.As(err, &conflict) {
+	if _, ok := errors.AsType[*d.TransactionConflictException](err); ok {
 		return true
 	}
 	var cancelled *d.TransactionCanceledException

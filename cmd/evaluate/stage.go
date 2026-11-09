@@ -188,9 +188,7 @@ func models(_ *learn.Mirror, _ []learn.Example, out string) {
 	queue := make(chan job)
 	var wg sync.WaitGroup
 	for w := 0; w < *workers; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for j := range queue {
 				ins, msg, schema := learn.Prompt(*j.c.Input)
 				ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -220,7 +218,7 @@ func models(_ *learn.Mirror, _ []learn.Example, out string) {
 					}
 				}
 			}
-		}()
+		})
 	}
 	for _, j := range jobs {
 		mu.Lock()

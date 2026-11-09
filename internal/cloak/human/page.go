@@ -111,7 +111,7 @@ func (p *Page) Navigate(url string) error {
 func (p *Page) Evaluate(expression string) (*proto.RuntimeRemoteObject, error) {
 	p.world.mu.Lock()
 	defer p.world.mu.Unlock()
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		if p.world.id == 0 {
 			frame := p.Raw.FrameID
 			if frame == "" {

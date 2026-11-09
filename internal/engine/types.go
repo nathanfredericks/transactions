@@ -130,8 +130,7 @@ func (e *Engine) session(ctx context.Context) (bank.Session, error) {
 	}
 	var s bank.Session
 	if err = e.Store.Download(ctx, pointer.Key, &s); err != nil {
-		var missing *s3types.NoSuchKey
-		if errors.As(err, &missing) {
+		if _, ok := errors.AsType[*s3types.NoSuchKey](err); ok {
 			return s, bank.Fail(bank.Authentication, "session-missing")
 		}
 		return s, err

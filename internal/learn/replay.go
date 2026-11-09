@@ -198,10 +198,7 @@ func McNemar(b, c int) float64 {
 	if n == 0 {
 		return 1
 	}
-	k := b
-	if c < k {
-		k = c
-	}
+	k := min(c, b)
 	// P(X <= k) for X ~ Binomial(n, 0.5), doubled.
 	var sum float64
 	logHalf := float64(n) * math.Log(0.5)

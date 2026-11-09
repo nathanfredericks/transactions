@@ -76,7 +76,7 @@ func run(ctx context.Context) error {
 	}
 	payload, _ := json.Marshal(map[string]string{"jobId": jobID, "bank": bankID, "generation": generation})
 	token := os.Getenv("TASK_TOKEN")
-	_, err = app.SFN.SendTaskSuccess(ctx, &sfn.SendTaskSuccessInput{TaskToken: &token, Output: ptr(string(payload))})
+	_, err = app.SFN.SendTaskSuccess(ctx, &sfn.SendTaskSuccessInput{TaskToken: &token, Output: new(string(payload))})
 	return err
 }
 
@@ -94,8 +94,7 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 	} else if found && pointer.Key != "" {
 		var saved bank.Session
 		if e = app.Store.Download(ctx, pointer.Key, &saved); e != nil {
-			var missing *s3types.NoSuchKey
-			if !errors.As(e, &missing) {
+			if _, ok := errors.AsType[*s3types.NoSuchKey](e); !ok {
 				return session, e
 			}
 		} else {
@@ -189,8 +188,7 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 		}
 		owned, err := cloak.LaunchContext(ctx, options)
 		if err != nil {
-			var launch *cloak.LaunchError
-			if errors.As(err, &launch) {
+			if launch, ok := errors.AsType[*cloak.LaunchError](err); ok {
 				slog.Warn("browser startup failed", "bank", r.ID, "stage", launch.Stage, "exitCode", launch.ExitCode)
 				// These are the vendor's documented license-denial exit codes.
 				switch launch.ExitCode {
@@ -270,7 +268,7 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 	slog.Info("browser authentication validated", fields...)
 	return session, nil
 }
-func ptr[T any](value T) *T { return &value }
+
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 270*time.Second)
 	defer cancel()
@@ -302,12 +300,10 @@ func main() {
 	}
 	if err := operation(ctx); err != nil {
 		fields := []any{"category", bank.Classify(err).Kind, "operation", bank.Classify(err).Operation, "type", fmt.Sprintf("%T", err)}
-		var apiError smithy.APIError
-		if errors.As(err, &apiError) {
+		if apiError, ok := errors.AsType[smithy.APIError](err); ok {
 			fields = append(fields, "awsCode", apiError.ErrorCode())
 		}
-		var operationError *smithy.OperationError
-		if errors.As(err, &operationError) {
+		if operationError, ok := errors.AsType[*smithy.OperationError](err); ok {
 			fields = append(fields, "awsService", operationError.Service(), "awsOperation", operationError.Operation())
 		}
 		slog.Error("browser failed", fields...)

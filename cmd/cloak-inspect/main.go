@@ -287,7 +287,7 @@ func inspectProfiles(ctx context.Context, url string) error {
 	}
 	defer os.RemoveAll(dir)
 	profile := filepath.Join(dir, "profile")
-	for iteration := 0; iteration < 2; iteration++ {
+	for iteration := range 2 {
 		owned, err := cloak.Launch(ctx, cloak.Options{Headless: cloak.Headed(), UserDataDir: profile, Humanize: true, HumanPreset: "careful"})
 		if err != nil {
 			return err

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -246,11 +247,11 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 			if response.Access == "" {
 				continue
 			}
-			for j := len(wealth) - 1; j >= 0; j-- {
-				headers := bank.SafeHeaders(wealth[j].Request.Headers)
+			for _, w := range slices.Backward(wealth) {
+				headers := bank.SafeHeaders(w.Request.Headers)
 				if headers["authorization"] == "Bearer "+response.Access {
 					token = candidate
-					discovery = wealth[j]
+					discovery = w
 					matched = true
 					break
 				}

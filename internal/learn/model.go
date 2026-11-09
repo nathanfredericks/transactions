@@ -2,6 +2,7 @@ package learn
 
 import (
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -315,9 +316,9 @@ func (m *Model) event(id, asOf string) bool {
 // recent category. It is the baseline any category prediction must beat.
 func (m *Model) YNABDefault(payeeID string) string {
 	h := m.byPayee[payeeID]
-	for i := len(h) - 1; i >= 0; i-- {
-		if !h[i].Split() && h[i].CategoryID != "" {
-			return h[i].CategoryID
+	for _, v := range slices.Backward(h) {
+		if !v.Split() && v.CategoryID != "" {
+			return v.CategoryID
 		}
 	}
 	return ""
@@ -344,8 +345,8 @@ func (m *Model) Category(payeeID string, q Query) (string, string) {
 	h := m.byPayee[payeeID]
 	base := ""
 	if m.opt.CategoryMode == "last" || m.opt.CategoryMode == "smart-last" {
-		for i := len(h) - 1; i >= 0; i-- {
-			e := h[i]
+		for _, e := range slices.Backward(h) {
+
 			if e.Split() || e.CategoryID == "" || m.category(e.CategoryID) == nil {
 				continue
 			}
@@ -401,7 +402,7 @@ func (m *Model) Category(payeeID string, q Query) (string, string) {
 // dated reports whether a category name carries a year, as event and trip
 // categories in this budget do ("<event> 2026").
 func dated(name string) bool {
-	for _, w := range strings.Fields(name) {
+	for w := range strings.FieldsSeq(name) {
 		if len(w) == 4 && (strings.HasPrefix(w, "19") || strings.HasPrefix(w, "20")) && strings.Trim(w, "0123456789") == "" {
 			return true
 		}
@@ -411,7 +412,7 @@ func dated(name string) bool {
 
 func year(name string) string {
 	y := ""
-	for _, w := range strings.Fields(name) {
+	for w := range strings.FieldsSeq(name) {
 		if dated(w) && w > y {
 			y = w
 		}
@@ -484,8 +485,8 @@ func (m *Model) tripCategory(base, date string) string {
 	}
 	groups := map[string]*group{}
 	all := map[string]bool{}
-	for i := len(m.catUses) - 1; i >= 0; i-- {
-		u := m.catUses[i]
+	for _, u := range slices.Backward(m.catUses) {
+
 		if u.date < from {
 			break
 		}
@@ -593,9 +594,9 @@ func (m *Model) Memo(payeeID string, q Query) (string, string) {
 				w[strings.ToLower(e.Memo)] += m.weight(e.Date, q.Date)
 			}
 			pick := best(w)
-			for i := len(same) - 1; i >= 0; i-- {
-				if strings.ToLower(same[i].Memo) == pick {
-					return same[i].Memo, "history"
+			for _, s := range slices.Backward(same) {
+				if strings.ToLower(s.Memo) == pick {
+					return s.Memo, "history"
 				}
 			}
 		}

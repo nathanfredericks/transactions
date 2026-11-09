@@ -15,7 +15,7 @@ func Normalize(s string) string {
 	s = strings.ReplaceAll(strings.ToUpper(s), "'", "")
 	s = strings.ReplaceAll(s, "’", "")
 	var words []string
-	for _, w := range strings.Fields(nonAlnum.ReplaceAllString(s, " ")) {
+	for w := range strings.FieldsSeq(nonAlnum.ReplaceAllString(s, " ")) {
 		if !strings.ContainsAny(w, "0123456789") {
 			words = append(words, w)
 		}

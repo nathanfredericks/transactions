@@ -99,9 +99,8 @@ func main() {
 	lambda.Start(func(ctx context.Context, raw json.RawMessage) (any, error) {
 		result, err := handle(ctx, raw)
 		if err != nil {
-			var api smithy.APIError
 			code := "backend-operation"
-			if errors.As(err, &api) {
+			if api, ok := errors.AsType[smithy.APIError](err); ok {
 				code = api.ErrorCode()
 			}
 			slog.Error("request failed", "category", code)

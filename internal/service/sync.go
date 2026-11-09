@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"time"
@@ -27,9 +28,7 @@ func SyncMirror(ctx context.Context, m *learn.Mirror, today string) ([]string, e
 	base := fmt.Sprintf("/budgets/%s", client.budgetID)
 	delta := func(kind, path string, extra url.Values, out any) error {
 		v := url.Values{}
-		for k, vs := range extra {
-			v[k] = vs
-		}
+		maps.Copy(v, extra)
 		if k := m.Knowledge[kind]; k > 0 {
 			v.Set("last_knowledge_of_server", fmt.Sprint(k))
 		}

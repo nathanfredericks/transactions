@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -151,12 +152,8 @@ func Throttle(operation, retryAfter string) error {
 
 func Headers(s Session, extra map[string]string) map[string]string {
 	h := map[string]string{}
-	for k, v := range s.Headers {
-		h[k] = v
-	}
-	for k, v := range extra {
-		h[k] = v
-	}
+	maps.Copy(h, s.Headers)
+	maps.Copy(h, extra)
 	return h
 }
 

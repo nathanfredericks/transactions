@@ -106,7 +106,7 @@ func BuildArgs(o Options) []string {
 	seen := map[string]string{}
 	order := []string{}
 	add := func(arg string) {
-		key := strings.SplitN(arg, "=", 2)[0]
+		key, _, _ := strings.Cut(arg, "=")
 		if _, ok := seen[key]; !ok {
 			order = append(order, key)
 		}
@@ -467,7 +467,7 @@ func (s *runtimeState) setup(p *rod.Page) (*human.Page, error) {
 		}
 	}
 	if len(o.Context.ExtraHTTPHeaders) > 0 {
-		headers := map[string]interface{}{}
+		headers := map[string]any{}
 		for k, v := range o.Context.ExtraHTTPHeaders {
 			headers[k] = v
 		}
