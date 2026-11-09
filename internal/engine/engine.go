@@ -3,7 +3,6 @@ package engine
 import (
 	"cmp"
 	"context"
-	"errors"
 	"log/slog"
 	"math"
 	"time"
@@ -40,9 +39,14 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 	}
 	hold := false
 	defer func() {
-		if !hold {
-			release := e.Store.Release(ctx, e.Lease)
-			err = errors.Join(err, release)
+		if hold {
+			return
+		}
+		// An unreleased lease expires on its own, so a failed release is only logged.
+		cleanup, cancel := cleanupContext(ctx)
+		defer cancel()
+		if release := e.Store.Release(cleanup, e.Lease); release != nil {
+			slog.Warn("lease not released", "bank", e.Job.Bank, "job", e.Job.ID, "error", release)
 		}
 	}()
 	// Reload after acquiring the lease: another job may have completed while we waited.
@@ -58,7 +62,9 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 	}
 	defer func() {
 		if err != nil {
-			out, err = e.failure(ctx, err)
+			cleanup, cancel := cleanupContext(ctx)
+			defer cancel()
+			out, err = e.failure(cleanup, err)
 		}
 	}()
 	var health Health
@@ -292,17 +298,29 @@ func (e *Engine) failure(ctx context.Context, cause error) (Outcome, error) {
 		health.RetryAt = f.RetryAt
 	}
 	health.Kind = f.Kind
-	if notify && !e.Job.DryRun {
-		registration, _ := banks.Find(e.Job.Bank)
-		name := cmp.Or(registration.Name, e.Job.Bank)
-		title, message := failureNotice(name, f)
-		e.send(ctx, title, message, false)
+	notify = notify && !e.Job.DryRun
+	if notify {
 		health.Failing = true
 	}
+	// Save first: the push is best-effort and must not use up the cleanup time.
 	if err := e.put(ctx, e.healthKey(), health, e.Job.ID); err != nil {
 		return e.outcome("failed", 0), err
 	}
-	return e.outcome(outcome, 0), e.saveJob(ctx)
+	if err := e.saveJob(ctx); err != nil {
+		return e.outcome("failed", 0), err
+	}
+	if notify {
+		registration, _ := banks.Find(e.Job.Bank)
+		title, message := failureNotice(cmp.Or(registration.Name, e.Job.Bank), f)
+		e.send(ctx, title, message, false)
+	}
+	return e.outcome(outcome, 0), nil
+}
+
+// cleanupContext outlives the job's own deadline, so failure handling and the
+// lease release still run after the work was cut off.
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 }
 
 // renew exchanges the session's tokens. A renewal whose outcome is unknown

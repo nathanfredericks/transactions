@@ -19,6 +19,13 @@ import (
 
 func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 	started := time.Now()
+	// Stop work 20 s before the Lambda deadline, leaving time to save the job
+	// and release its lease; the workflow then re-runs it.
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline.Add(-20*time.Second))
+		defer cancel()
+	}
 	settings, err := config.Load(ctx)
 	if err != nil {
 		return nil, errors.New("configuration unavailable")
