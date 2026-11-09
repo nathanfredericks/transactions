@@ -77,13 +77,6 @@ linters:
       # (docs/audit/README.md) that deletes or rewrites the code; remove the
       # rule in that phase.
 
-      # P1 deletes the rules tool, the webhook and most admin actions.
-      - path: ^cmd/audit-rules/
-        linters: [musttag]
-      - path: ^cmd/lambda/
-        linters: [nestif]
-      - path: ^internal/engine/(admin|gateway)\.go$
-        linters: [gocritic, musttag, nilerr, nilnil]
 
       # P3 and P5 rewrite the engine: the write path, Health, the per-job
       # struct, state.WithLease (which releases the lease once, checked).
@@ -117,8 +110,12 @@ linters:
       - path: ^cmd/browser-broker/
         linters: [gocritic]
 
-      # P1 and P2 remove the admin hosting block and rewrite cdk.go as the
-      # only deploy path.
+      # P3 deletes the review and baseline actions these findings sit in.
+      - path: ^internal/engine/admin\.go$
+        linters: [gocritic, musttag]
+
+      # P2 removes the admin hosting block and rewrites cdk.go as the only
+      # deploy path.
       - path: ^cdk/
         linters: [gosec, nestif, noctx, unparam]
 

@@ -41,6 +41,8 @@ values = {
     'STATE_TABLE': resource('AWS::DynamoDB::Table'),
     'STATE_BUCKET': resource('AWS::S3::Bucket'),
     'SETTINGS_PARAMETER': '/transactions-engine/settings',
+    # The deployed task gets the ARN; the secret's name resolves the same way.
+    'AWS_SECRET_ARN': 'Transactions',
 }
 if credentials.get('SessionToken'):
     values['AWS_SESSION_TOKEN'] = credentials['SessionToken']

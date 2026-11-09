@@ -47,7 +47,7 @@ func main() {
 		}
 		licenseFile = filepath.Join(homeDir, ".cloakbrowser", "license.key")
 	}
-	image := awsecrassets.NewDockerImageAsset(stack, jsii.String("BrowserImage"), &awsecrassets.DockerImageAssetProps{Directory: &root, Platform: awsecrassets.Platform_LINUX_ARM64(), BuildSecrets: &map[string]*string{"cloak_license": awscdk.DockerBuildSecret_FromSrc(&licenseFile)}, Exclude: &[]*string{jsii.String(".git"), jsii.String("admin"), jsii.String("dist"), jsii.String("cdk.out"), jsii.String("cdk"), jsii.String("**/*_test.go")}})
+	image := awsecrassets.NewDockerImageAsset(stack, jsii.String("BrowserImage"), &awsecrassets.DockerImageAssetProps{Directory: &root, Platform: awsecrassets.Platform_LINUX_ARM64(), BuildSecrets: &map[string]*string{"cloak_license": awscdk.DockerBuildSecret_FromSrc(&licenseFile)}, Exclude: &[]*string{jsii.String(".git"), jsii.String("dist"), jsii.String("cdk.out"), jsii.String("cdk")}})
 	res := func(id, kind string, p M) awscdk.CfnResource {
 		return awscdk.NewCfnResource(stack, jsii.String(id), &awscdk.CfnResourceProps{Type: &kind, Properties: &p})
 	}
