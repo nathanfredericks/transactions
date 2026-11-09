@@ -5,6 +5,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -67,7 +68,7 @@ func Call(ctx context.Context, cfg Config, instructions, input, schemaName strin
 	}
 	out := Result{Text: resp.OutputText(), InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens, Latency: time.Since(started)}
 	if out.Text == "" {
-		return out, fmt.Errorf("empty response from API")
+		return out, errors.New("empty response from API")
 	}
 	return out, nil
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"time"
 
@@ -191,7 +190,7 @@ func (e *Engine) loadJob(ctx context.Context, id, bankID string) error {
 		return err
 	}
 	if !ok || e.Job.ID != id || e.Job.Bank != bankID {
-		return fmt.Errorf("job not found")
+		return errors.New("job not found")
 	}
 	return nil
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -113,7 +112,7 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 	case "notifications.retry":
 		l, ok, err := e.Store.Acquire(ctx, r.Bank, "notification-retry")
 		if err != nil || !ok {
-			return nil, fmt.Errorf("bank busy")
+			return nil, errors.New("bank busy")
 		}
 		defer e.Store.Release(ctx, l)
 		rows, err := e.Store.List(ctx, "BANK#"+r.Bank, "NOTICE#")
@@ -138,14 +137,14 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 	case "job.retry":
 		l, ok, err := e.Store.Acquire(ctx, r.Bank, "operator-retry")
 		if err != nil || !ok {
-			return nil, fmt.Errorf("bank busy")
+			return nil, errors.New("bank busy")
 		}
 		defer e.Store.Release(ctx, l)
 		if err = e.loadJob(ctx, r.JobID, r.Bank); err != nil {
 			return nil, err
 		}
 		if e.Job.Status == "complete" {
-			return nil, fmt.Errorf("completed job cannot be retried")
+			return nil, errors.New("completed job cannot be retried")
 		}
 		execution := e.Job.Execution
 		if execution == "" {
@@ -157,7 +156,7 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 			return nil, err
 		}
 		if prior != nil && (prior.Status == sfnt.ExecutionStatusRunning || prior.Status == sfnt.ExecutionStatusPendingRedrive) {
-			return nil, fmt.Errorf("job workflow is still active")
+			return nil, errors.New("job workflow is still active")
 		}
 		e.Lease = l
 		e.Job.Status = "accepted"
@@ -183,7 +182,7 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 	case "bank.resume":
 		l, ok, err := e.Store.Acquire(ctx, r.Bank, "operator-resume")
 		if err != nil || !ok {
-			return nil, fmt.Errorf("bank busy")
+			return nil, errors.New("bank busy")
 		}
 		defer e.Store.Release(ctx, l)
 		var health Health
@@ -209,7 +208,7 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 		}
 		l, ok, err := e.Store.Acquire(ctx, r.Bank, "match-review")
 		if err != nil || !ok {
-			return nil, fmt.Errorf("bank busy")
+			return nil, errors.New("bank busy")
 		}
 		defer e.Store.Release(ctx, l)
 		var review struct {
@@ -225,7 +224,7 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 			allowed = allowed || candidate == input.EntryKey
 		}
 		if !allowed {
-			return nil, fmt.Errorf("entry is not a review candidate")
+			return nil, errors.New("entry is not a review candidate")
 		}
 		return map[string]bool{"resolved": true}, e.Store.Put(ctx, l, "RESOLUTION#"+input.ReviewID, map[string]string{"entryKey": input.EntryKey})
 	case "review.update":
@@ -235,7 +234,7 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 		}
 		l, ok, err := e.Store.Acquire(ctx, r.Bank, "update-review")
 		if err != nil || !ok {
-			return nil, fmt.Errorf("bank busy")
+			return nil, errors.New("bank busy")
 		}
 		defer e.Store.Release(ctx, l)
 		var w Write
@@ -252,7 +251,7 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 		}
 		l, ok, err := e.Store.Acquire(ctx, r.Bank, "balance-review")
 		if err != nil || !ok {
-			return nil, fmt.Errorf("bank busy")
+			return nil, errors.New("bank busy")
 		}
 		defer e.Store.Release(ctx, l)
 		var w Write
@@ -272,7 +271,7 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 				}
 			}
 			if !matched {
-				return nil, fmt.Errorf("transaction does not match uncertain adjustment")
+				return nil, errors.New("transaction does not match uncertain adjustment")
 			}
 			w.Status = "complete"
 			w.TransactionID = input.TransactionID
@@ -281,30 +280,30 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 		}
 		return w, e.Store.Put(ctx, l, "BALANCE#"+input.AccountID, w)
 	default:
-		return nil, fmt.Errorf("unsupported operation")
+		return nil, errors.New("unsupported operation")
 	}
 }
 
 func validateRule(r types.TransactionOverride) error {
 	if strings.TrimSpace(r.Name) == "" || r.Payee == "" || len(r.Memo) > 500 || len(r.Query) > 20000 {
-		return fmt.Errorf("invalid rule")
+		return errors.New("invalid rule")
 	}
 	if _, err := override.RenderMemo(r.Memo, "2026-10-06"); err != nil {
 		return err
 	}
 	var query any
 	if json.Unmarshal([]byte(r.Query), &query) != nil {
-		return fmt.Errorf("invalid query")
+		return errors.New("invalid query")
 	}
 	var walk func(any, int) error
 	walk = func(v any, depth int) error {
 		if depth > 20 {
-			return fmt.Errorf("query too deep")
+			return errors.New("query too deep")
 		}
 		switch x := v.(type) {
 		case map[string]any:
 			if len(x) != 1 {
-				return fmt.Errorf("invalid expression")
+				return errors.New("invalid expression")
 			}
 			for op, value := range x {
 				switch op {
@@ -313,15 +312,15 @@ func validateRule(r types.TransactionOverride) error {
 				case "var":
 					field, ok := value.(string)
 					if !ok || (field != "amount" && field != "merchant" && field != "day" && field != "month") {
-						return fmt.Errorf("invalid field")
+						return errors.New("invalid field")
 					}
 				default:
-					return fmt.Errorf("unsupported operator")
+					return errors.New("unsupported operator")
 				}
 			}
 		case []any:
 			if len(x) == 0 {
-				return fmt.Errorf("empty expression")
+				return errors.New("empty expression")
 			}
 			for _, child := range x {
 				if err := walk(child, depth+1); err != nil {
@@ -330,7 +329,7 @@ func validateRule(r types.TransactionOverride) error {
 			}
 		case string, float64, bool:
 		default:
-			return fmt.Errorf("invalid operand")
+			return errors.New("invalid operand")
 		}
 		return nil
 	}
@@ -342,7 +341,7 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 		return nil, err
 	}
 	if !e.Job.DryRun || e.Job.Status != "complete" || e.Job.SnapshotKey == "" {
-		return nil, fmt.Errorf("baseline requires a completed dry-run snapshot")
+		return nil, errors.New("baseline requires a completed dry-run snapshot")
 	}
 	var snapshot bank.Snapshot
 	if err := e.Store.Download(ctx, e.Job.SnapshotKey, &snapshot); err != nil {
@@ -369,7 +368,7 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 	newRecords := map[string]bool{}
 	for _, key := range input.NewRecords {
 		if key == "" || newRecords[key] || input.Links[key] != "" || input.Settlements[key] != "" {
-			return nil, fmt.Errorf("conflicting baseline decision")
+			return nil, errors.New("conflicting baseline decision")
 		}
 		newRecords[key] = true
 	}
@@ -403,7 +402,7 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 			importID = identity(record)
 		}
 		if input.Settlements[key] != "" && input.Links[key] != "" {
-			return nil, fmt.Errorf("conflicting baseline decision")
+			return nil, errors.New("conflicting baseline decision")
 		}
 		row := reviewRow{Key: key, Record: record, Candidates: []*types.YNABTransaction{}, SettlementCandidates: []*types.YNABTransaction{}}
 		linked := ""
@@ -412,7 +411,7 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 			exact := tx.ImportID != nil && *tx.ImportID == importID
 			if tx.Deleted {
 				if exact && newRecords[key] {
-					return nil, fmt.Errorf("previously deleted import requires an explicit restoration or exclusion review")
+					return nil, errors.New("previously deleted import requires an explicit restoration or exclusion review")
 				}
 				continue
 			}
@@ -436,30 +435,30 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 				row.Candidates = append(row.Candidates, tx)
 			}
 			if exact && newRecords[key] {
-				return nil, fmt.Errorf("existing import conflicts with baseline decision")
+				return nil, errors.New("existing import conflicts with baseline decision")
 			}
 			if selectable && ((exact && matches) || chosen) {
 				if linked != "" && linked != tx.ID {
-					return nil, fmt.Errorf("multiple baseline links")
+					return nil, errors.New("multiple baseline links")
 				}
 				linked = tx.ID
 			}
 		}
 		if input.Links[key] != "" && linked != input.Links[key] {
-			return nil, fmt.Errorf("invalid baseline link")
+			return nil, errors.New("invalid baseline link")
 		}
 		if input.Settlements[key] != "" && settled == nil {
-			return nil, fmt.Errorf("invalid settlement link")
+			return nil, errors.New("invalid settlement link")
 		}
 		if settled != nil {
 			if used[settled.ID] || linked != "" {
-				return nil, fmt.Errorf("YNAB transaction linked more than once")
+				return nil, errors.New("YNAB transaction linked more than once")
 			}
 			used[settled.ID] = true
 			b.Settlements[key] = Write{TransactionID: settled.ID, AccountID: account, Amount: settled.Amount, Date: settled.Date}
 		} else if linked != "" {
 			if used[linked] {
-				return nil, fmt.Errorf("YNAB transaction linked more than once")
+				return nil, errors.New("YNAB transaction linked more than once")
 			}
 			used[linked] = true
 			b.Links[key] = linked
@@ -475,31 +474,31 @@ func (e *Engine) baseline(ctx context.Context, r Request) (any, error) {
 	}
 	for key := range input.Links {
 		if !known[key] {
-			return nil, fmt.Errorf("baseline link not in snapshot")
+			return nil, errors.New("baseline link not in snapshot")
 		}
 	}
 	for key := range newRecords {
 		if !known[key] {
-			return nil, fmt.Errorf("new record not in snapshot")
+			return nil, errors.New("new record not in snapshot")
 		}
 	}
 	for key := range input.Settlements {
 		if !known[key] {
-			return nil, fmt.Errorf("settlement not in snapshot")
+			return nil, errors.New("settlement not in snapshot")
 		}
 	}
 	if r.Action == "baseline.preview" {
 		return map[string]any{"baseline": b, "unresolved": unresolved, "review": review, "snapshot": snapshot, "ynabAccounts": mapped}, nil
 	}
 	if e.Settings.ImportsEnabled {
-		return nil, fmt.Errorf("pause imports before approving a baseline")
+		return nil, errors.New("pause imports before approving a baseline")
 	}
 	if !input.Approved || len(unresolved) > 0 {
-		return nil, fmt.Errorf("baseline has unresolved records or no approval")
+		return nil, errors.New("baseline has unresolved records or no approval")
 	}
 	l, ok, err := e.Store.Acquire(ctx, r.Bank, "baseline-approval")
 	if err != nil || !ok {
-		return nil, fmt.Errorf("bank busy")
+		return nil, errors.New("bank busy")
 	}
 	defer e.Store.Release(ctx, l)
 	b.Approved = true

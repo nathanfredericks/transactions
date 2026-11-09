@@ -103,7 +103,7 @@ func (c *ynabClient) do(ctx context.Context, method string, path string, request
 	}
 
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.accessToken))
+	req.Header.Set("Authorization", "Bearer "+c.accessToken)
 	if requestBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -173,7 +173,7 @@ func createTransaction(ctx context.Context, budgetID string, payload ynabPayload
 			return nil, errDuplicateImport
 		}
 	}
-	return nil, fmt.Errorf("ynab api returned no created transaction")
+	return nil, errors.New("ynab api returned no created transaction")
 }
 
 func CheckForRecentTransaction(ctx context.Context, accountID string, amount float64, daysBack int) (bool, error) {

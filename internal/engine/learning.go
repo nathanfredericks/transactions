@@ -3,7 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log/slog"
 	"os"
 	"sync"
@@ -171,7 +171,7 @@ func (e *Engine) enrich(ctx context.Context, cache **learning, descriptor string
 				}
 			}
 			if payee.ID == "" {
-				return fallback("model", fmt.Errorf("model chose a payee outside the candidates"))
+				return fallback("model", errors.New("model chose a payee outside the candidates"))
 			}
 			d.Suggestion.PayeeSource = "model"
 		}

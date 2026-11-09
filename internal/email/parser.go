@@ -2,6 +2,7 @@ package email
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -25,7 +26,7 @@ func Parse(raw []byte) (*ParsedEmail, error) {
 	defer r.Close()
 	from, e := r.Header.AddressList("From")
 	if e != nil || len(from) != 1 {
-		return nil, fmt.Errorf("invalid email sender")
+		return nil, errors.New("invalid email sender")
 	}
 	date, e := r.Header.Date()
 	if e != nil {
@@ -54,7 +55,7 @@ func Parse(raw []byte) (*ParsedEmail, error) {
 			}
 			body, e := io.ReadAll(io.LimitReader(part.Body, 1024*1024+1))
 			if e != nil || len(body) > 1024*1024 {
-				return nil, fmt.Errorf("email part too large or unreadable")
+				return nil, errors.New("email part too large or unreadable")
 			}
 			if kind == "text/html" {
 				result.HTML = string(body)
@@ -67,7 +68,7 @@ func Parse(raw []byte) (*ParsedEmail, error) {
 		result.Text = HTMLToText(result.HTML)
 	}
 	if result.Text == "" {
-		return nil, fmt.Errorf("email has no readable body")
+		return nil, errors.New("email has no readable body")
 	}
 	return result, nil
 }

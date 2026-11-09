@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
@@ -56,7 +57,7 @@ func parseSecretPayload(secretString *string, secretBinary []byte) ([]byte, erro
 	if len(secretBinary) > 0 {
 		return secretBinary, nil
 	}
-	return nil, fmt.Errorf("secret has no usable payload")
+	return nil, errors.New("secret has no usable payload")
 }
 
 // BankCredentials returns one bank's login from the Transactions secret.

@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -33,7 +34,7 @@ func main() {
 		r.Payload, err = os.ReadFile(*payload)
 		check(err)
 		if !json.Valid(r.Payload) {
-			check(fmt.Errorf("invalid JSON"))
+			check(errors.New("invalid JSON"))
 		}
 	}
 	if *action == "submit" {
@@ -44,7 +45,7 @@ func main() {
 	}
 	if *local {
 		if *action != "baseline.preview" {
-			check(fmt.Errorf("local preview only supports baseline.preview"))
+			check(errors.New("local preview only supports baseline.preview"))
 		}
 		settings, err := config.Load(ctx)
 		check(err)
@@ -61,7 +62,7 @@ func main() {
 	result, err := lambda.NewFromConfig(cfg).Invoke(ctx, &lambda.InvokeInput{FunctionName: aws.String(*function), Payload: data})
 	check(err)
 	if result.FunctionError != nil {
-		check(fmt.Errorf("backend rejected operation; inspect job or CloudWatch logs"))
+		check(errors.New("backend rejected operation; inspect job or CloudWatch logs"))
 	}
 	var value any
 	check(json.Unmarshal(result.Payload, &value))

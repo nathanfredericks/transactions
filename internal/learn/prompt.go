@@ -2,6 +2,7 @@ package learn
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -104,13 +105,13 @@ func ParseOutput(raw string, in ModelInput) (ModelOutput, error) {
 			ok = ok || c.ID == out.PayeeID
 		}
 		if !ok {
-			return out, fmt.Errorf("model chose a payee outside the candidates")
+			return out, errors.New("model chose a payee outside the candidates")
 		}
 		out.NewPayeeName = ""
 	} else {
 		out.NewPayeeName = strings.Join(strings.Fields(out.NewPayeeName), " ")
 		if out.NewPayeeName == "" {
-			return out, fmt.Errorf("model returned no payee name")
+			return out, errors.New("model returned no payee name")
 		}
 	}
 	ok := false
@@ -118,7 +119,7 @@ func ParseOutput(raw string, in ModelInput) (ModelOutput, error) {
 		ok = ok || c.ID == out.CategoryID
 	}
 	if !ok {
-		return out, fmt.Errorf("model chose a category outside the list")
+		return out, errors.New("model chose a category outside the list")
 	}
 	return out, nil
 }

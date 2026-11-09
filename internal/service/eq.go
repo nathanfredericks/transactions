@@ -189,7 +189,7 @@ func ValidateAdjustmentPayee(ctx context.Context, id string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("invalid adjustment payee")
+	return errors.New("invalid adjustment payee")
 }
 
 func CreateBalanceAdjustment(ctx context.Context, account, date string, amount int64, payee, bankName string) (*types.YNABTransaction, error) {
@@ -227,7 +227,7 @@ func Lookups(ctx context.Context) (LookupResult, error) {
 	if e != nil {
 		return out, e
 	}
-	base := fmt.Sprintf("/budgets/%s", c.budgetID)
+	base := "/budgets/" + c.budgetID
 	var payees struct {
 		Data struct {
 			Payees []ynabPayee `json:"payees"`
@@ -275,7 +275,7 @@ func ValidateRuleReferences(ctx context.Context, payee, category string) error {
 		found = found || p.ID == payee
 	}
 	if !found {
-		return fmt.Errorf("invalid payee")
+		return errors.New("invalid payee")
 	}
 	if category != "" {
 		found = false
@@ -285,7 +285,7 @@ func ValidateRuleReferences(ctx context.Context, payee, category string) error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("invalid category")
+			return errors.New("invalid category")
 		}
 	}
 	return nil

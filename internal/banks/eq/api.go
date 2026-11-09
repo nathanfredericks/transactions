@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -181,7 +182,7 @@ func cardHistory(ctx context.Context, h *bank.HTTP, start, end string) ([]bank.R
 				Charge      *charge `json:"chargeAmount"`
 			} `json:"transactions"`
 		}
-		q := url.Values{"startDate": {start}, "endDate": {end}, "limit": {"100"}, "offset": {fmt.Sprint(page)}}
+		q := url.Values{"startDate": {start}, "endDate": {end}, "limit": {"100"}, "offset": {strconv.Itoa(page)}}
 		if e := h.JSON(ctx, "GET", api+"/transactions/v1.0.0/vs1/card-history?"+q.Encode(), bank.Headers(*h.Session, map[string]string{"accountId": card}), nil, &response); e != nil {
 			return nil, e
 		}

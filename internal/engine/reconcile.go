@@ -2,9 +2,9 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -453,7 +453,7 @@ func purchaseAccount(id string) string { r, _ := banks.Find(id); return r.Purcha
 // An update with a lost response is recovered by reading the identified transaction.
 // If its bank fields do not prove completion, subsequent jobs retain the hold.
 func (s *Engine) updateTransaction(ctx context.Context, key string, tx *types.YNABTransaction, r Record) error {
-	operation := "UPDATE#" + key + "#" + bank.Hash(r.Date+fmt.Sprint(r.Amount)+r.Status)
+	operation := "UPDATE#" + key + "#" + bank.Hash(r.Date+strconv.FormatInt(r.Amount, 10)+r.Status)
 	var previous Write
 	if _, err := s.get(ctx, operation, &previous); err != nil {
 		return err

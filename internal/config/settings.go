@@ -3,7 +3,7 @@ package config
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"os"
 	"time"
 
@@ -57,7 +57,7 @@ func Load(ctx context.Context) (*Settings, error) {
 	}
 	name := os.Getenv("SETTINGS_PARAMETER")
 	if name == "" {
-		return nil, fmt.Errorf("SETTINGS_PARAMETER is required")
+		return nil, errors.New("SETTINGS_PARAMETER is required")
 	}
 	r, e := ssm.NewFromConfig(cfg).GetParameter(ctx, &ssm.GetParameterInput{Name: &name})
 	if e != nil {
@@ -65,10 +65,10 @@ func Load(ctx context.Context) (*Settings, error) {
 	}
 	var s Settings
 	if json.Unmarshal([]byte(*r.Parameter.Value), &s) != nil {
-		return nil, fmt.Errorf("invalid settings JSON")
+		return nil, errors.New("invalid settings JSON")
 	}
 	if s.Version != 1 || s.BudgetID == "" || s.Timezone == "" || s.OpenAIEndpoint == "" || s.OpenAIModel == "" {
-		return nil, fmt.Errorf("incomplete settings")
+		return nil, errors.New("incomplete settings")
 	}
 	if _, e = time.LoadLocation(s.Timezone); e != nil {
 		return nil, e
@@ -78,18 +78,18 @@ func Load(ctx context.Context) (*Settings, error) {
 			continue
 		}
 		if len(b.ExpectedAccounts) == 0 {
-			return nil, fmt.Errorf("bank configuration incomplete")
+			return nil, errors.New("bank configuration incomplete")
 		}
 		seen := map[string]bool{}
 		for _, id := range b.ExpectedAccounts {
 			if id == "" || seen[id] {
-				return nil, fmt.Errorf("invalid expected accounts")
+				return nil, errors.New("invalid expected accounts")
 			}
 			seen[id] = true
 		}
 		for _, id := range b.ExcludedAccounts {
 			if !seen[id] {
-				return nil, fmt.Errorf("excluded account not expected")
+				return nil, errors.New("excluded account not expected")
 			}
 		}
 	}

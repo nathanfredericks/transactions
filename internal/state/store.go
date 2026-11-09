@@ -6,9 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"math/rand/v2"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -45,7 +45,7 @@ func (s *Store) Get(ctx context.Context, pk, sk string, out any) (bool, error) {
 	}
 	v, ok := r.Item["data"].(*d.AttributeValueMemberS)
 	if !ok {
-		return false, fmt.Errorf("invalid state")
+		return false, errors.New("invalid state")
 	}
 	return true, json.Unmarshal([]byte(v.Value), out)
 }
@@ -67,7 +67,7 @@ func (s *Store) Create(ctx context.Context, pk, sk string, value any) (bool, err
 func (s *Store) Acquire(ctx context.Context, bank, owner string) (Lease, bool, error) {
 	l := Lease{Bank: bank, Owner: owner, Generation: uuid.NewString(), Expires: time.Now().Add(15 * time.Minute).Unix()}
 	b, _ := json.Marshal(l)
-	_, e := s.DB.PutItem(ctx, &dynamodb.PutItemInput{TableName: &s.Table, Item: map[string]d.AttributeValue{"pk": &d.AttributeValueMemberS{Value: "BANK#" + bank}, "sk": &d.AttributeValueMemberS{Value: "LEASE"}, "data": &d.AttributeValueMemberS{Value: string(b)}, "generation": &d.AttributeValueMemberS{Value: l.Generation}, "expires": &d.AttributeValueMemberN{Value: fmt.Sprint(l.Expires)}}, ConditionExpression: aws.String("attribute_not_exists(pk) OR expires < :now"), ExpressionAttributeValues: map[string]d.AttributeValue{":now": &d.AttributeValueMemberN{Value: fmt.Sprint(time.Now().Unix())}}})
+	_, e := s.DB.PutItem(ctx, &dynamodb.PutItemInput{TableName: &s.Table, Item: map[string]d.AttributeValue{"pk": &d.AttributeValueMemberS{Value: "BANK#" + bank}, "sk": &d.AttributeValueMemberS{Value: "LEASE"}, "data": &d.AttributeValueMemberS{Value: string(b)}, "generation": &d.AttributeValueMemberS{Value: l.Generation}, "expires": &d.AttributeValueMemberN{Value: strconv.FormatInt(l.Expires, 10)}}, ConditionExpression: aws.String("attribute_not_exists(pk) OR expires < :now"), ExpressionAttributeValues: map[string]d.AttributeValue{":now": &d.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().Unix(), 10)}}})
 	var busy *d.ConditionalCheckFailedException
 	var conflict *d.TransactionConflictException
 	// A rejected lease PutItem can overlap the current owner's fenced commit.
@@ -90,7 +90,7 @@ func (s *Store) Assert(ctx context.Context, l Lease) error {
 		return e
 	}
 	if !ok || current.Generation != l.Generation || current.Owner != l.Owner || current.Expires <= time.Now().Unix() {
-		return fmt.Errorf("lease lost")
+		return errors.New("lease lost")
 	}
 	return nil
 }
@@ -101,7 +101,7 @@ func (s *Store) Put(ctx context.Context, l Lease, sk string, value any) error {
 
 // Commit related state and notification intents under the same fencing condition.
 func (s *Store) PutMany(ctx context.Context, l Lease, values map[string]any) error {
-	items := []d.TransactWriteItem{{ConditionCheck: &d.ConditionCheck{TableName: &s.Table, Key: key("BANK#"+l.Bank, "LEASE"), ConditionExpression: aws.String("generation = :g AND expires > :now"), ExpressionAttributeValues: map[string]d.AttributeValue{":g": &d.AttributeValueMemberS{Value: l.Generation}, ":now": &d.AttributeValueMemberN{Value: fmt.Sprint(time.Now().Unix())}}}}}
+	items := []d.TransactWriteItem{{ConditionCheck: &d.ConditionCheck{TableName: &s.Table, Key: key("BANK#"+l.Bank, "LEASE"), ConditionExpression: aws.String("generation = :g AND expires > :now"), ExpressionAttributeValues: map[string]d.AttributeValue{":g": &d.AttributeValueMemberS{Value: l.Generation}, ":now": &d.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().Unix(), 10)}}}}}
 	for sk, value := range values {
 		b, err := json.Marshal(value)
 		if err != nil {

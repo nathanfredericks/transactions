@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/nathanfredericks/transactions/internal/learn"
@@ -25,12 +26,12 @@ func SyncMirror(ctx context.Context, m *learn.Mirror, today string) ([]string, e
 		return nil, err
 	}
 	m.Fill()
-	base := fmt.Sprintf("/budgets/%s", client.budgetID)
+	base := "/budgets/" + client.budgetID
 	delta := func(kind, path string, extra url.Values, out any) error {
 		v := url.Values{}
 		maps.Copy(v, extra)
 		if k := m.Knowledge[kind]; k > 0 {
-			v.Set("last_knowledge_of_server", fmt.Sprint(k))
+			v.Set("last_knowledge_of_server", strconv.FormatInt(k, 10))
 		}
 		if err := client.do(ctx, http.MethodGet, base+path+"?"+v.Encode(), nil, out); err != nil {
 			return fmt.Errorf("fetching %s: %w", kind, err)

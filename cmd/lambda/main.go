@@ -21,12 +21,12 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 	started := time.Now()
 	settings, err := config.Load(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("configuration unavailable")
+		return nil, errors.New("configuration unavailable")
 	}
 	ctx = config.WithInvocationCache(config.WithSettings(ctx, settings))
 	app, err := engine.New(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("backend unavailable")
+		return nil, errors.New("backend unavailable")
 	}
 	defer func() {
 		slog.Info("invocation", "role", os.Getenv("ROLE"), "durationMs", time.Since(started).Milliseconds())
@@ -43,21 +43,21 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 		if len(envelope.RequestContext) > 0 {
 			var event events.APIGatewayV2HTTPRequest
 			if json.Unmarshal(raw, &event) != nil {
-				return nil, fmt.Errorf("invalid HTTP event")
+				return nil, errors.New("invalid HTTP event")
 			}
 			return app.Webhook(ctx, event)
 		}
 		if len(envelope.Records) > 0 {
 			var event events.S3Event
 			if json.Unmarshal(raw, &event) != nil {
-				return nil, fmt.Errorf("invalid S3 event")
+				return nil, errors.New("invalid S3 event")
 			}
 			return app.Email(ctx, event)
 		}
 	}
 	var request engine.Request
 	if json.Unmarshal(raw, &request) != nil {
-		return nil, fmt.Errorf("invalid request")
+		return nil, errors.New("invalid request")
 	}
 	if os.Getenv("ROLE") == "processor" {
 		switch request.Action {
@@ -66,7 +66,7 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 				Renew bool `json:"renew"`
 			}
 			if len(request.Payload) > 0 && json.Unmarshal(request.Payload, &options) != nil {
-				return nil, fmt.Errorf("invalid verification options")
+				return nil, errors.New("invalid verification options")
 			}
 			return app.VerifySession(ctx, request.Bank, options.Renew)
 		case "run":
@@ -76,7 +76,7 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 		case "notify":
 			return app.Deliver(ctx, request)
 		default:
-			return nil, fmt.Errorf("invalid processor action")
+			return nil, errors.New("invalid processor action")
 		}
 	}
 	switch request.Action {
@@ -84,7 +84,7 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 		return app.Maintain(ctx)
 	case "submit":
 		if request.Job == nil {
-			return nil, fmt.Errorf("job required")
+			return nil, errors.New("job required")
 		}
 		if request.Job.ID == "" {
 			request.Job.ID = fmt.Sprintf("scheduled-%s-%d", request.Job.Bank, time.Now().Unix()/60)
@@ -104,7 +104,7 @@ func main() {
 				code = api.ErrorCode()
 			}
 			slog.Error("request failed", "category", code)
-			return nil, fmt.Errorf("operation failed; inspect job status")
+			return nil, errors.New("operation failed; inspect job status")
 		}
 		return result, nil
 	})
