@@ -48,9 +48,25 @@ linters:
               desc: use slices
             - pkg: golang.org/x/exp/maps
               desc: use maps
-    gomoddirectives:
-      # cdk/go.mod points at the root module. P2 removes the import that needs it.
-      replace-local: true
+        # Only the browser task signs in; the Lambdas, operator and the
+        # packages they build on stay free of the browser stack.
+        no-browser:
+          files:
+            - "**/cmd/lambda/**"
+            - "**/cmd/operator/**"
+            - "**/internal/engine/**"
+            - "**/internal/bank/**"
+            - "**/internal/banks/**"
+            - "**/internal/state/**"
+            - "**/internal/service/**"
+            - "**/internal/config/**"
+          deny:
+            - pkg: github.com/go-rod/rod
+              desc: browser code belongs in internal/signin
+            - pkg: github.com/nathanfredericks/transactions/internal/signin
+              desc: only cmd/browser signs in
+            - pkg: github.com/nathanfredericks/transactions/internal/cloak
+              desc: only cmd/browser drives the browser
     gosec:
       excludes:
         - G104 # Duplicates errcheck.
