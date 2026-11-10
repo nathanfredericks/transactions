@@ -215,59 +215,80 @@ func (t *task) browserResult(ctx context.Context) (Outcome, bool, error) {
 // renewing it when due or rejected. It reports true when only a browser
 // sign-in can continue.
 func (t *task) retrieve(ctx context.Context, api bank.API, settings config.BankSettings) (bank.Snapshot, bool, error) {
-	session, err := t.session(ctx)
-	needsAuth := err != nil && bank.Classify(err).Kind == bank.Authentication
-	if err != nil && !needsAuth {
+	session, usable, err := t.usableSession(ctx, api)
+	if err != nil {
 		return bank.Snapshot{}, false, err
 	}
-	if !needsAuth {
-		if !session.MaximumExpiresAt.IsZero() && !session.MaximumExpiresAt.After(time.Now()) {
-			needsAuth = true
-		} else if !session.RenewAt.IsZero() && !session.RenewAt.After(time.Now()) {
-			renewed, re := t.renew(ctx, api, session)
-			if err := t.saveSession(ctx, renewed); err != nil {
-				return bank.Snapshot{}, false, err
-			}
-			session = renewed
-			if re != nil {
-				if bank.Classify(re).Kind != bank.Authentication {
-					return bank.Snapshot{}, false, re
-				}
-				needsAuth = true
-			}
-		}
-	}
-	if needsAuth {
+	if !usable {
 		if t.Job.BrowserAttempted {
 			return bank.Snapshot{}, false, bank.Fail(bank.Challenge, "fresh-login-not-usable")
 		}
 		return bank.Snapshot{}, true, nil
 	}
 	request := bank.FetchRequest{StartDate: t.historyStart(settings.StartDate)}
-	snapshot, updated, fetchErr := api.Fetch(ctx, session, request)
-	if err := t.saveSession(ctx, updated); err != nil {
-		return bank.Snapshot{}, false, err
-	}
-	if fetchErr != nil && bank.Classify(fetchErr).Kind == bank.Authentication && !t.Job.BrowserAttempted {
-		renewed, re := t.renew(ctx, api, updated)
-		if err := t.saveSession(ctx, renewed); err != nil {
-			return bank.Snapshot{}, false, err
-		}
-		fetchErr = re
-		if re == nil {
-			snapshot, updated, fetchErr = api.Fetch(ctx, renewed, request)
-			if err := t.saveSession(ctx, updated); err != nil {
-				return bank.Snapshot{}, false, err
-			}
-		}
-		if fetchErr != nil && bank.Classify(fetchErr).Kind == bank.Authentication {
+	snapshot, updated, err := t.fetch(ctx, api, session, request)
+	if err != nil && bank.Classify(err).Kind == bank.Authentication && !t.Job.BrowserAttempted {
+		// A rejected session gets one renewal and one more fetch before the browser.
+		snapshot, err = t.renewAndFetch(ctx, api, updated, request)
+		if err != nil && bank.Classify(err).Kind == bank.Authentication {
 			return bank.Snapshot{}, true, nil
 		}
 	}
-	if fetchErr != nil {
-		return bank.Snapshot{}, false, fetchErr
+	if err != nil {
+		return bank.Snapshot{}, false, err
 	}
 	return snapshot, false, snapshot.Validate(settings.ExpectedAccounts)
+}
+
+// usableSession loads the saved session and renews it when due. It reports
+// false when the session is missing, past its maximum life or not renewable.
+func (t *task) usableSession(ctx context.Context, api bank.API) (bank.Session, bool, error) {
+	session, err := t.session(ctx)
+	if err != nil {
+		if bank.Classify(err).Kind == bank.Authentication {
+			return session, false, nil
+		}
+		return session, false, err
+	}
+	if !session.MaximumExpiresAt.IsZero() && !session.MaximumExpiresAt.After(time.Now()) {
+		return session, false, nil
+	}
+	if session.RenewAt.IsZero() || session.RenewAt.After(time.Now()) {
+		return session, true, nil
+	}
+	renewed, err := t.renew(ctx, api, session)
+	if saveErr := t.saveSession(ctx, renewed); saveErr != nil {
+		return renewed, false, saveErr
+	}
+	if err != nil {
+		if bank.Classify(err).Kind == bank.Authentication {
+			return renewed, false, nil
+		}
+		return renewed, false, err
+	}
+	return renewed, true, nil
+}
+
+// fetch fetches with the session and saves the session the bank rotated.
+func (t *task) fetch(ctx context.Context, api bank.API, session bank.Session, request bank.FetchRequest) (bank.Snapshot, bank.Session, error) {
+	snapshot, updated, err := api.Fetch(ctx, session, request)
+	if saveErr := t.saveSession(ctx, updated); saveErr != nil {
+		return bank.Snapshot{}, updated, saveErr
+	}
+	return snapshot, updated, err
+}
+
+// renewAndFetch renews the session the last fetch returned, then fetches again.
+func (t *task) renewAndFetch(ctx context.Context, api bank.API, session bank.Session, request bank.FetchRequest) (bank.Snapshot, error) {
+	renewed, err := t.renew(ctx, api, session)
+	if saveErr := t.saveSession(ctx, renewed); saveErr != nil {
+		return bank.Snapshot{}, saveErr
+	}
+	if err != nil {
+		return bank.Snapshot{}, err
+	}
+	snapshot, _, err := t.fetch(ctx, api, renewed, request)
+	return snapshot, err
 }
 
 // toBrowser hands the job to the browser task for one sign-in attempt.

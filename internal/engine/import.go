@@ -98,21 +98,9 @@ func (t *task) posted(ctx context.Context, s bank.Snapshot) error {
 	if err != nil {
 		return err
 	}
-	records := s.Records
-	var legacy legacyLedger
-	if t.Job.Bank == "eq-bank" {
-		// EQ retrievals import cleared rows only. Purchase emails are written as
-		// amount-only entries that YNAB matches to the cleared import.
-		records = make([]Record, 0, len(s.Records))
-		for _, r := range s.Records {
-			if r.Status == "posted" {
-				records = append(records, r)
-			}
-		}
-		slog.Info("EQ import eligibility", "source", t.Job.Source, "posted", len(records), "pendingSkipped", len(s.Records)-len(records))
-		if legacy, err = t.legacyLedger(ctx); err != nil {
-			return err
-		}
+	records, legacy, err := t.importable(ctx, s)
+	if err != nil {
+		return err
 	}
 	// Read YNAB from a month before the oldest record, so a date the user
 	// moved back in YNAB still finds the transaction's import ID.
@@ -130,45 +118,79 @@ func (t *task) posted(ctx context.Context, s bank.Snapshot) error {
 		if target.ID == "" || legacy.covers(r) {
 			continue
 		}
-		ids, ok := imported[target.ID]
-		if !ok {
-			rows, err := t.YNAB.AccountTransactions(ctx, target.ID, since)
-			if err != nil {
+		if imported[target.ID] == nil {
+			if imported[target.ID], err = t.importIDs(ctx, target.ID, since); err != nil {
 				return err
 			}
-			ids = map[string]bool{}
-			for _, tx := range rows {
-				if tx.ImportID != nil {
-					ids[*tx.ImportID] = true
-				}
-			}
-			imported[target.ID] = ids
 		}
-		id := t.importID(r)
-		if ids[id] {
-			continue
+		if err = t.importRecord(ctx, &cache, target.ID, r, imported[target.ID]); err != nil {
+			return err
 		}
-		decision := t.enrich(ctx, &cache, r.Description, r.Amount, r.Date, target.ID)
-		slog.Info("posted transaction preview", "bank", t.Job.Bank, "date", r.Date, "amount", r.Amount, "payeeSource", decision.Source(), "categorySource", decision.Suggestion.CategorySource, "existingPayee", decision.Enrichment.Payee.ID != "", "dryRun", t.Job.DryRun)
-		if t.Job.DryRun {
-			continue
+	}
+	return nil
+}
+
+// importable is the snapshot's records to import. EQ imports cleared rows
+// only, and skips the records its earlier ledger already covered.
+func (t *task) importable(ctx context.Context, s bank.Snapshot) ([]Record, legacyLedger, error) {
+	if t.Job.Bank != "eq-bank" {
+		return s.Records, legacyLedger{}, nil
+	}
+	// Purchase emails are written as amount-only entries that YNAB matches to
+	// the cleared import.
+	records := make([]Record, 0, len(s.Records))
+	for _, r := range s.Records {
+		if r.Status == "posted" {
+			records = append(records, r)
 		}
-		tx, err := t.YNAB.CreateTransaction(ctx, target.ID, r.Date, r.Amount, decision.Enrichment, id, "posted")
-		if errors.Is(err, ynab.ErrDuplicateImport) {
-			ids[id] = true
-			continue
+	}
+	slog.Info("EQ import eligibility", "source", t.Job.Source, "posted", len(records), "pendingSkipped", len(s.Records)-len(records))
+	legacy, err := t.legacyLedger(ctx)
+	return records, legacy, err
+}
+
+// importIDs is the set of import IDs YNAB holds for the account since a date.
+func (t *task) importIDs(ctx context.Context, account, since string) (map[string]bool, error) {
+	rows, err := t.YNAB.AccountTransactions(ctx, account, since)
+	if err != nil {
+		return nil, err
+	}
+	ids := map[string]bool{}
+	for _, tx := range rows {
+		if tx.ImportID != nil {
+			ids[*tx.ImportID] = true
 		}
-		if err != nil {
-			return writeFailure(err, "transaction-write")
-		}
+	}
+	return ids, nil
+}
+
+// importRecord writes one posted record unless its import ID is among ids,
+// and adds it there once written.
+func (t *task) importRecord(ctx context.Context, cache **learning, account string, r Record, ids map[string]bool) error {
+	id := t.importID(r)
+	if ids[id] {
+		return nil
+	}
+	decision := t.enrich(ctx, cache, r.Description, r.Amount, r.Date, account)
+	slog.Info("posted transaction preview", "bank", t.Job.Bank, "date", r.Date, "amount", r.Amount, "payeeSource", decision.Source(), "categorySource", decision.Suggestion.CategorySource, "existingPayee", decision.Enrichment.Payee.ID != "", "dryRun", t.Job.DryRun)
+	if t.Job.DryRun {
+		return nil
+	}
+	tx, err := t.YNAB.CreateTransaction(ctx, account, r.Date, r.Amount, decision.Enrichment, id, "posted")
+	if errors.Is(err, ynab.ErrDuplicateImport) {
 		ids[id] = true
-		t.recordSuggestion(ctx, decision, tx, id)
-		if r.Amount > 0 {
-			// The credit is already written; a failed echo check leaves at
-			// most a visible duplicate alert, so it never fails the job.
-			if err := t.clearEchoes(ctx, target.ID, r, tx.ID); err != nil {
-				slog.Warn("echo check failed", "job", t.Job.ID, "credit", tx.ID, "error", err)
-			}
+		return nil
+	}
+	if err != nil {
+		return writeFailure(err, "transaction-write")
+	}
+	ids[id] = true
+	t.recordSuggestion(ctx, decision, tx, id)
+	if r.Amount > 0 {
+		// The credit is already written; a failed echo check leaves at most a
+		// visible duplicate alert, so it never fails the job.
+		if err := t.clearEchoes(ctx, account, r, tx.ID); err != nil {
+			slog.Warn("echo check failed", "job", t.Job.ID, "credit", tx.ID, "error", err)
 		}
 	}
 	return nil
@@ -243,31 +265,9 @@ func (t *task) notificationImport(ctx context.Context) (int, error) {
 	// arrive after the date they state; a genuine purchase alert is immediate.
 	stale := stated.Date != "" && stated.Date < received
 	if stale {
-		credit, err := t.findEchoCredit(ctx, stated, received)
-		if err != nil {
-			return 0, err
+		if wait, done, err := t.lateAlert(ctx, stated, received, date, key); done {
+			return wait, err
 		}
-		if credit != nil {
-			slog.Info("alert matched a posted credit", "job", t.Job.ID, "credit", credit.ID, "source", stated.Source)
-			if t.Job.DryRun {
-				return 0, nil
-			}
-			return 0, t.Store.PutMany(ctx, t.Lease, map[string]any{
-				"ECHO#" + credit.ID: map[string]any{"jobId": t.Job.ID, "action": "skipped-alert"},
-				key:                 Write{Status: "echo", TransactionID: credit.ID, AccountID: t.Job.AccountID, Amount: stated.Amount, Date: date, Description: stated.Descriptor, AlertDate: stated.Date, Stale: true},
-			})
-		}
-		if t.Job.MissingAttempt < len(echoWaits) {
-			if t.Job.MissingAttempt == 0 && !t.Job.DryRun {
-				if err := t.requestRetrieval(ctx); err != nil {
-					return 0, err
-				}
-			}
-			wait := echoWaits[t.Job.MissingAttempt]
-			t.Job.MissingAttempt++
-			return wait, nil
-		}
-		slog.Info("late alert has no matching credit; importing it as a purchase", "job", t.Job.ID)
 	}
 	amount := -stated.Amount
 	if _, err := time.ParseInLocation("2006-01-02", date, zone); err != nil {
@@ -287,6 +287,39 @@ func (t *task) notificationImport(ctx context.Context) (int, error) {
 	}
 	t.recordSuggestion(ctx, decision, tx, "")
 	return 0, t.completeNotification(ctx, key, intent, tx)
+}
+
+// lateAlert handles an alert that arrived after the date it states, which a
+// bank sends again when a refund or credit posts. It records the alert as an
+// echo of a matching credit, or waits for the credit to reach YNAB. It reports
+// false once the waits are spent, and the alert is imported as a purchase.
+func (t *task) lateAlert(ctx context.Context, stated alert.Alert, received, date, key string) (int, bool, error) {
+	credit, err := t.findEchoCredit(ctx, stated, received)
+	if err != nil {
+		return 0, true, err
+	}
+	if credit != nil {
+		slog.Info("alert matched a posted credit", "job", t.Job.ID, "credit", credit.ID, "source", stated.Source)
+		if t.Job.DryRun {
+			return 0, true, nil
+		}
+		return 0, true, t.Store.PutMany(ctx, t.Lease, map[string]any{
+			"ECHO#" + credit.ID: map[string]any{"jobId": t.Job.ID, "action": "skipped-alert"},
+			key:                 Write{Status: "echo", TransactionID: credit.ID, AccountID: t.Job.AccountID, Amount: stated.Amount, Date: date, Description: stated.Descriptor, AlertDate: stated.Date, Stale: true},
+		})
+	}
+	if t.Job.MissingAttempt < len(echoWaits) {
+		if t.Job.MissingAttempt == 0 && !t.Job.DryRun {
+			if err := t.requestRetrieval(ctx); err != nil {
+				return 0, true, err
+			}
+		}
+		wait := echoWaits[t.Job.MissingAttempt]
+		t.Job.MissingAttempt++
+		return wait, true, nil
+	}
+	slog.Info("late alert has no matching credit; importing it as a purchase", "job", t.Job.ID)
+	return 0, false, nil
 }
 
 // completeNotification records the created transaction exactly as YNAB returned

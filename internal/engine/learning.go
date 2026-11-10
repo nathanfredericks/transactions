@@ -141,27 +141,11 @@ func (t *task) enrich(ctx context.Context, cache **learning, descriptor string, 
 		payee = ynab.PayeeChoice{ID: r.ID, Name: r.Name}
 		d.Suggestion.PayeeSource = r.Source
 	} else {
-		candidates := l.model.Candidates(descriptor, 20)
-		out, model, err := t.chooseWithModel(ctx, l.model.Input(q, "", candidates))
-		d.Suggestion.Model = model
+		var err error
+		payee, d.Suggestion.PayeeSource, modelCategory, d.Suggestion.Model, err = t.modelPayee(ctx, l, q, descriptor)
 		if err != nil {
 			return fallback("model", err)
 		}
-		if out.PayeeID == "none" {
-			payee = ynab.PayeeChoice{Name: out.NewPayeeName}
-			d.Suggestion.PayeeSource = "model-new"
-		} else {
-			for _, c := range candidates {
-				if c.ID == out.PayeeID {
-					payee = ynab.PayeeChoice{ID: c.ID, Name: c.Name}
-				}
-			}
-			if payee.ID == "" {
-				return fallback("model", errors.New("model chose a payee outside the candidates"))
-			}
-			d.Suggestion.PayeeSource = "model"
-		}
-		modelCategory = out.CategoryID
 	}
 	d.Enrichment.Payee = payee
 	d.Suggestion.PayeeID, d.Suggestion.PayeeName = payee.ID, payee.Name
@@ -175,6 +159,28 @@ func (t *task) enrich(ctx context.Context, cache **learning, descriptor string, 
 	}
 	d.Suggestion.CategoryID, d.Suggestion.Memo = d.Enrichment.CategoryID, d.Enrichment.Memo
 	return d
+}
+
+// modelPayee asks the model to choose among lookalike payees or name a new
+// one. It returns the payee, its source, the model's category and the model.
+func (t *task) modelPayee(ctx context.Context, l *learning, q learn.Query, descriptor string) (payee ynab.PayeeChoice, source, category, model string, err error) {
+	candidates := l.model.Candidates(descriptor, 20)
+	out, model, err := t.chooseWithModel(ctx, l.model.Input(q, "", candidates))
+	if err != nil {
+		return payee, "", "", model, err
+	}
+	if out.PayeeID == "none" {
+		return ynab.PayeeChoice{Name: out.NewPayeeName}, "model-new", out.CategoryID, model, nil
+	}
+	for _, c := range candidates {
+		if c.ID == out.PayeeID {
+			payee = ynab.PayeeChoice{ID: c.ID, Name: c.Name}
+		}
+	}
+	if payee.ID == "" {
+		return payee, "", "", model, errors.New("model chose a payee outside the candidates")
+	}
+	return payee, "model", out.CategoryID, model, nil
 }
 
 // recordSuggestion stores the suggestion for a written transaction, so the

@@ -94,10 +94,6 @@ linters:
       # rule in that phase.
 
 
-      # P5 restructures the engine: Run decomposed, the per-job
-      # struct, state.WithLease (which releases the lease once, checked).
-      - path: ^internal/engine/
-        linters: [errcheck, gocognit, nestif]
 
 
       # P5 replaces config globals and renames the typed failure.
