@@ -13,40 +13,40 @@ import (
 
 // VerifySession exercises real API access in a separate process, using the normal
 // lease, renewal policy and encrypted session store. It never invokes an importer.
-func (e *Engine) VerifySession(ctx context.Context, bankID string, renew bool) (any, error) {
+func (t *task) verifySession(ctx context.Context, bankID string, renew bool) (any, error) {
 	started := time.Now()
 	r, ok := banks.Find(bankID)
 	if !ok {
 		return nil, bank.Fail(bank.Invalid, "bank")
 	}
-	settings, ok := e.Settings.Banks[bankID]
+	settings, ok := t.Settings.Banks[bankID]
 	if !ok || !settings.Enabled {
 		return nil, bank.Fail(bank.Invalid, "bank-disabled")
 	}
-	e.Job = Job{ID: "verify-" + uuid.NewString(), Bank: bankID, DryRun: true}
-	l, acquired, err := e.Store.Acquire(ctx, bankID, e.Job.ID)
+	t.Job = Job{ID: "verify-" + uuid.NewString(), Bank: bankID, DryRun: true}
+	l, acquired, err := t.Store.Acquire(ctx, bankID, t.Job.ID)
 	if err != nil {
 		return nil, err
 	}
 	if !acquired {
 		return nil, bank.Fail(bank.Temporary, "bank-busy")
 	}
-	e.Lease = l
+	t.Lease = l
 	defer func() {
 		cleanup, cancel := cleanupContext(ctx)
 		defer cancel()
-		if err := e.Store.Release(cleanup, l); err != nil {
+		if err := t.Store.Release(cleanup, l); err != nil {
 			slog.Warn("lease not released", "bank", bankID, "error", err)
 		}
 	}()
-	s, err := e.session(ctx)
+	s, err := t.session(ctx)
 	if err != nil {
 		return nil, err
 	}
 	adapter := r.API
 	if renew {
-		updated, renewalErr := e.renew(ctx, adapter, s)
-		if err = e.saveSession(ctx, updated); err != nil {
+		updated, renewalErr := t.renew(ctx, adapter, s)
+		if err = t.saveSession(ctx, updated); err != nil {
 			return nil, err
 		}
 		if renewalErr != nil {
@@ -54,8 +54,8 @@ func (e *Engine) VerifySession(ctx context.Context, bankID string, renew bool) (
 		}
 		s = updated
 	}
-	snapshot, updated, fetchErr := adapter.Fetch(ctx, s, bank.FetchRequest{StartDate: e.historyStart(settings.StartDate)})
-	if err = e.saveSession(ctx, updated); err != nil {
+	snapshot, updated, fetchErr := adapter.Fetch(ctx, s, bank.FetchRequest{StartDate: t.historyStart(settings.StartDate)})
+	if err = t.saveSession(ctx, updated); err != nil {
 		return nil, err
 	}
 	if fetchErr != nil {
@@ -64,7 +64,7 @@ func (e *Engine) VerifySession(ctx context.Context, bankID string, renew bool) (
 	if err = ValidateSnapshot(snapshot, settings.ExpectedAccounts); err != nil {
 		return nil, err
 	}
-	key, err := e.Store.Upload(ctx, "snapshots/"+bankID, snapshot)
+	key, err := t.Store.Upload(ctx, "snapshots/"+bankID, snapshot)
 	if err != nil {
 		return nil, err
 	}

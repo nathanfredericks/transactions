@@ -77,19 +77,19 @@ var live struct {
 
 // loadLearning reads the budget from YNAB, live, and the importer's own
 // suggestion records, and builds the learned model from them.
-func loadLearning(ctx context.Context, e *Engine) (*learning, error) {
+func (t *task) loadLearning(ctx context.Context) (*learning, error) {
 	live.Lock()
 	defer live.Unlock()
-	if live.mirror == nil || live.budget != e.Settings.BudgetID {
-		live.mirror, live.budget = learn.NewMirror(), e.Settings.BudgetID
+	if live.mirror == nil || live.budget != t.Settings.BudgetID {
+		live.mirror, live.budget = learn.NewMirror(), t.Settings.BudgetID
 	}
-	changed, err := e.syncMirror(ctx, live.mirror, e.today())
+	changed, err := t.syncMirror(ctx, live.mirror, t.today())
 	if err != nil {
 		live.mirror = nil
 		return nil, err
 	}
 	// The importer's own records keep the bank descriptor YNAB may not.
-	rows, err := e.Store.List(ctx, learningPK, "TX#")
+	rows, err := t.Store.List(ctx, learningPK, "TX#")
 	if err != nil {
 		slog.Warn("suggestion records unavailable", "error", err)
 	}
@@ -100,8 +100,8 @@ func loadLearning(ctx context.Context, e *Engine) (*learning, error) {
 		}
 	}
 	approved, confirmed := outcomes(live.mirror, changed)
-	slog.Info("ynab-learning", "job", e.Job.ID, "changed", len(changed), "transactions", len(live.mirror.Transactions), "approvedWithSuggestion", approved, "confirmedFields", confirmed)
-	return buildLearning(live.mirror, e.excludedPayees()), nil
+	slog.Info("ynab-learning", "job", t.Job.ID, "changed", len(changed), "transactions", len(live.mirror.Transactions), "approvedWithSuggestion", approved, "confirmedFields", confirmed)
+	return buildLearning(live.mirror, t.excludedPayees()), nil
 }
 
 // Decision is what an import writes and the record of why.
@@ -118,16 +118,16 @@ func (d Decision) Source() string { return d.Suggestion.PayeeSource }
 // lookalike payees or names a new one. Enrichment never blocks a valid import:
 // if evidence or the model is unavailable, the descriptor is kept and the
 // unapproved transaction waits for review in YNAB.
-func (e *Engine) enrich(ctx context.Context, cache **learning, descriptor string, amount int64, date, account string) Decision {
-	d := Decision{Suggestion: learn.Suggestion{Descriptor: descriptor, AccountID: account, Date: date, Amount: amount, Bank: e.Job.Bank, JobID: e.Job.ID, Version: cmp.Or(e.Env.Commit, "dev"), At: time.Now().UTC()}}
+func (t *task) enrich(ctx context.Context, cache **learning, descriptor string, amount int64, date, account string) Decision {
+	d := Decision{Suggestion: learn.Suggestion{Descriptor: descriptor, AccountID: account, Date: date, Amount: amount, Bank: t.Job.Bank, JobID: t.Job.ID, Version: cmp.Or(t.Env.Commit, "dev"), At: time.Now().UTC()}}
 	fallback := func(reason string, err error) Decision {
-		slog.Warn("enrichment unavailable", "job", e.Job.ID, "reason", reason, "error", err)
+		slog.Warn("enrichment unavailable", "job", t.Job.ID, "reason", reason, "error", err)
 		d.Enrichment = ynab.Fields{Payee: ynab.PayeeChoice{Name: descriptor}}
 		d.Suggestion.PayeeName, d.Suggestion.PayeeSource = descriptor, "fallback"
 		return d
 	}
 	if *cache == nil {
-		l, err := loadLearning(ctx, e)
+		l, err := t.loadLearning(ctx)
 		if err != nil {
 			return fallback("evidence", err)
 		}
@@ -142,7 +142,7 @@ func (e *Engine) enrich(ctx context.Context, cache **learning, descriptor string
 		d.Suggestion.PayeeSource = r.Source
 	} else {
 		candidates := l.model.Candidates(descriptor, 20)
-		out, model, err := e.chooseWithModel(ctx, l.model.Input(q, "", candidates))
+		out, model, err := t.chooseWithModel(ctx, l.model.Input(q, "", candidates))
 		d.Suggestion.Model = model
 		if err != nil {
 			return fallback("model", err)
@@ -180,13 +180,13 @@ func (e *Engine) enrich(ctx context.Context, cache **learning, descriptor string
 // recordSuggestion stores the suggestion for a written transaction, so the
 // mirror can join it to the user's final approved state. It carries no
 // financial authority and never fails the import.
-func (e *Engine) recordSuggestion(ctx context.Context, d Decision, tx *ynab.Transaction, importID string) {
-	if tx == nil || tx.ID == "" || e.Job.DryRun {
+func (t *task) recordSuggestion(ctx context.Context, d Decision, tx *ynab.Transaction, importID string) {
+	if tx == nil || tx.ID == "" || t.Job.DryRun {
 		return
 	}
 	s := d.Suggestion
 	s.TransactionID, s.ImportID = tx.ID, importID
-	if err := e.Store.PutPlain(ctx, learningPK, "TX#"+tx.ID, s); err != nil {
-		slog.Warn("suggestion record not saved", "job", e.Job.ID, "transaction", tx.ID, "error", err)
+	if err := t.Store.PutPlain(ctx, learningPK, "TX#"+tx.ID, s); err != nil {
+		slog.Warn("suggestion record not saved", "job", t.Job.ID, "transaction", tx.ID, "error", err)
 	}
 }

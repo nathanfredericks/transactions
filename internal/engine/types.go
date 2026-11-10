@@ -83,8 +83,7 @@ type Health struct {
 	Maintenance int       `json:"maintenance,omitempty"`
 }
 
-// Engine runs jobs. Its dependencies are built once per invocation by main;
-// Lease and Job are the job being run.
+// Engine runs jobs. Its dependencies are built once per invocation by main.
 type Engine struct {
 	Store    *state.Store
 	Settings *config.Settings
@@ -93,8 +92,30 @@ type Engine struct {
 	Push     notify.Pushover
 	Model    llm.Config
 	Env      Env
-	Lease    state.Lease
-	Job      Job
+}
+
+// task is one job being run: the engine's dependencies plus the job and the
+// bank lease it holds.
+type task struct {
+	*Engine
+	Job   Job
+	Lease state.Lease
+}
+
+// Run runs a job until it completes, fails, waits or needs the browser.
+func (e *Engine) Run(ctx context.Context, request Request) (Outcome, error) {
+	return (&task{Engine: e}).run(ctx, request)
+}
+
+// Admin runs an operator action.
+func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
+	return (&task{Engine: e}).admin(ctx, r)
+}
+
+// VerifySession exercises real API access in a separate process, using the
+// normal lease, renewal policy and encrypted session store. It never imports.
+func (e *Engine) VerifySession(ctx context.Context, bankID string, renew bool) (any, error) {
+	return (&task{Engine: e}).verifySession(ctx, bankID, renew)
 }
 
 // Env is the deployment the engine runs in.
@@ -119,25 +140,25 @@ func New(cfg aws.Config, env Env, settings *config.Settings, secrets *config.Sec
 	}
 }
 
-func (e *Engine) get(ctx context.Context, key string, out any) (bool, error) {
-	return e.Store.Get(ctx, "BANK#"+e.Job.Bank, key, out)
+func (t *task) get(ctx context.Context, key string, out any) (bool, error) {
+	return t.Store.Get(ctx, "BANK#"+t.Job.Bank, key, out)
 }
 
-func (e *Engine) put(ctx context.Context, key string, value any, _ string) error {
-	return e.Store.Put(ctx, e.Lease, key, value)
+func (t *task) put(ctx context.Context, key string, value any, _ string) error {
+	return t.Store.Put(ctx, t.Lease, key, value)
 }
 
-func (e *Engine) saveJob(ctx context.Context) error {
-	return e.Store.Put(ctx, e.Lease, "JOB#"+e.Job.ID, e.Job)
+func (t *task) saveJob(ctx context.Context) error {
+	return t.Store.Put(ctx, t.Lease, "JOB#"+t.Job.ID, t.Job)
 }
 
-func (e *Engine) outcome(status string, wait int) Outcome {
-	return Outcome{Outcome: status, Bank: e.Job.Bank, JobID: e.Job.ID, WaitSeconds: wait, Lease: e.Lease}
+func (t *task) outcome(status string, wait int) Outcome {
+	return Outcome{Outcome: status, Bank: t.Job.Bank, JobID: t.Job.ID, WaitSeconds: wait, Lease: t.Lease}
 }
 
-func (e *Engine) session(ctx context.Context) (bank.Session, error) {
+func (t *task) session(ctx context.Context) (bank.Session, error) {
 	var pointer SessionPointer
-	found, err := e.get(ctx, "SESSION", &pointer)
+	found, err := t.get(ctx, "SESSION", &pointer)
 	if err != nil {
 		return bank.Session{}, err
 	}
@@ -145,30 +166,30 @@ func (e *Engine) session(ctx context.Context) (bank.Session, error) {
 		return bank.Session{}, bank.Fail(bank.Authentication, "session-missing")
 	}
 	var s bank.Session
-	if err = e.Store.Download(ctx, pointer.Key, &s); err != nil {
+	if err = t.Store.Download(ctx, pointer.Key, &s); err != nil {
 		if _, ok := errors.AsType[*s3types.NoSuchKey](err); ok {
 			return s, bank.Fail(bank.Authentication, "session-missing")
 		}
 		return s, err
 	}
-	if s.Version != 1 || s.Bank != e.Job.Bank {
+	if s.Version != 1 || s.Bank != t.Job.Bank {
 		return s, bank.Fail(bank.Invalid, "session-identity")
 	}
 	return s, nil
 }
 
-func (e *Engine) saveSession(ctx context.Context, s bank.Session) error {
-	if s.Version != 1 || s.Bank != e.Job.Bank {
+func (t *task) saveSession(ctx context.Context, s bank.Session) error {
+	if s.Version != 1 || s.Bank != t.Job.Bank {
 		return bank.Fail(bank.Invalid, "session-identity")
 	}
 	if s.RenewAt.IsZero() {
 		bank.TokenTiming(&s)
 	}
-	key, err := e.Store.Upload(ctx, "sessions/"+e.Job.Bank, s)
+	key, err := t.Store.Upload(ctx, "sessions/"+t.Job.Bank, s)
 	if err != nil {
 		return err
 	}
-	return e.Store.Put(ctx, e.Lease, "SESSION", SessionPointer{Key: key, RenewAt: s.RenewAt})
+	return t.Store.Put(ctx, t.Lease, "SESSION", SessionPointer{Key: key, RenewAt: s.RenewAt})
 }
 
 func ValidateSnapshot(s bank.Snapshot, expected []string) error {
@@ -207,12 +228,12 @@ func (j Job) finished() bool {
 	return j.Status == "complete" || j.Status == "failed" || j.Status == "paused" || j.Status == "review-required"
 }
 
-func (e *Engine) loadJob(ctx context.Context, id, bankID string) error {
-	ok, err := e.Store.Get(ctx, "BANK#"+bankID, "JOB#"+id, &e.Job)
+func (t *task) loadJob(ctx context.Context, id, bankID string) error {
+	ok, err := t.Store.Get(ctx, "BANK#"+bankID, "JOB#"+id, &t.Job)
 	if err != nil {
 		return err
 	}
-	if !ok || e.Job.ID != id || e.Job.Bank != bankID {
+	if !ok || t.Job.ID != id || t.Job.Bank != bankID {
 		return errors.New("job not found")
 	}
 	return nil

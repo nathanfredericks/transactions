@@ -20,9 +20,9 @@ type legacyLedger struct {
 	linked  map[string]bool
 }
 
-func (e *Engine) legacyLedger(ctx context.Context) (legacyLedger, error) {
+func (t *task) legacyLedger(ctx context.Context) (legacyLedger, error) {
 	l := legacyLedger{linked: map[string]bool{}}
-	rows, err := e.Store.List(ctx, "BANK#"+e.Job.Bank, "tx#")
+	rows, err := t.Store.List(ctx, "BANK#"+t.Job.Bank, "tx#")
 	if err != nil {
 		return l, err
 	}
@@ -42,7 +42,7 @@ func (e *Engine) legacyLedger(ctx context.Context) (legacyLedger, error) {
 	var baseline struct {
 		Seen map[string]bool `json:"seen"`
 	}
-	if _, err = e.get(ctx, "BASELINE", &baseline); err != nil {
+	if _, err = t.get(ctx, "BASELINE", &baseline); err != nil {
 		return l, err
 	}
 	maps.Copy(l.linked, baseline.Seen)
