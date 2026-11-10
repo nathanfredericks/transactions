@@ -13,8 +13,8 @@ flowchart TD
   Workflow --> Engine[Processor Lambda: shared engine]
   Engine --> Lease[Acquire bank lease and generation]
   Lease --> Session[Load encrypted saved session]
-  Session --> Adapter[Bank adapter: renew and fetch]
-  Adapter -->|Authentication required| Browser[One Fargate task: Rod + bank-selected Chromium]
+  Session --> Adapter[Bank API: renew and fetch]
+  Adapter -->|Authentication required| Browser[One Fargate task: browser sign-in]
   Browser -->|Validate accounts, save session, clean up, callback| Workflow
   Adapter -->|Validated normalized snapshot| Strategy[Posted / balances]
   Strategy -->|Imports enabled| YNAB[Shared YNAB client]
@@ -26,11 +26,13 @@ flowchart TD
 
 ## Repository
 
-- `internal/bank`: adapter contract, typed failures, narrow HTTP/browser/MFA helpers.
-- `internal/banks`: EQ, Rogers and NBDB adapters; registry owns schedules, browser selection and import strategy.
-- `internal/engine`: one orchestration, retry, import and notification implementation.
-- `internal/state`: one DynamoDB fencing and S3 persistence implementation.
-- `internal/service`, `internal/email`, `internal/notify`: reused YNAB, AI, MIME and Pushover code.
+- `internal/bank`: the bank API contract, typed failures, sessions, snapshots and the HTTP helper. No browser code.
+- `internal/banks`: EQ, Rogers and NBDB APIs; the registry owns browser selection and import strategy.
+- `internal/signin`: browser-only bank sign-ins, page helpers and the email code reader.
+- `internal/engine`: jobs (`job.go`), runs (`run.go`), sessions, email intake, imports, learning, notifications and operator actions.
+- `internal/state`: one DynamoDB fencing and S3 persistence implementation, including `WithLease`.
+- `internal/ynab`, `internal/alert`, `internal/email`, `internal/notify`, `internal/llm`, `internal/learn`: the YNAB client, purchase-alert parsing, MIME parsing, Pushover, the model client and the learned enrichment.
+- `internal/config`: settings and secrets, loaded by each binary's `main` and passed in.
 - `cmd/lambda`: gateway and processor roles from the same Go binary.
 - `cmd/browser`: bounded Rod authentication worker; no YNAB secret permission.
 - `cmd/operator`: administrative API client; no session-reading operation.

@@ -4,7 +4,7 @@ Jev is a plausible replacement for the semantic **payee selection** step. It is 
 
 ## Where it fits
 
-The current `internal/service/ai.go` uses a structured-output language model twice: to extract a merchant and amount from an email, and to choose an existing YNAB payee or invent a new name. Exact payee matches already bypass inference; JSONLogic overrides already express user decisions deterministically.
+The engine (`internal/engine/mirror.go`) and `internal/alert` use a structured-output language model twice: to extract a merchant and amount from an email, and to choose an existing YNAB payee or invent a new name. Exact payee matches already bypass inference; JSONLogic overrides already express user decisions deterministically.
 
 Jev's Choice primitive selects from supplied options and returns their probabilities. That fits choosing an existing payee without generating an arbitrary name. Use stable payee IDs as option keys, readable names as descriptions, and a companion Noul question asking whether any supplied payee actually fits. Its Choice limit is 255 options, so larger payee sets need deterministic candidate retrieval or a hierarchy. Returning a valid option does not establish that it is the correct payee.
 

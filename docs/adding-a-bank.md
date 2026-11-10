@@ -1,14 +1,15 @@
 # Adding a bank
 
-Add `internal/banks/<bank>/auth.go`, `api.go`, and one entry in `internal/banks/registry.go`. Implement:
+Add the bank's direct API as `internal/banks/<bank>/api.go`, implementing `bank.API`, and one entry in `internal/banks/registry.go`:
 
 ```go
-type Adapter interface {
-    Authenticate(context.Context, *rod.Browser) (bank.Session, error)
+type API interface {
     Renew(context.Context, bank.Session) (bank.Session, error)
     Fetch(context.Context, bank.Session, bank.FetchRequest) (bank.Snapshot, bank.Session, error)
 }
 ```
+
+Add its browser sign-in as `internal/signin/<bank>.go` and a case in `signin.Authenticate`. Only the browser task links `signin`; a lint rule keeps the Lambda packages free of it.
 
 Choose an existing strategy (`posted` or `balances`) and browser. A bank whose import IDs need a prefix sets `ImportPrefix`; one with amount-only purchase alerts sets `PurchaseAccount`. Add the bank's schedule to the `schedules` map in `cdk/cdk.go`, keyed by the same registry ID. A bank adds no Lambda, workflow, task definition or secret.
 
