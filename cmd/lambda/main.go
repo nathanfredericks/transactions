@@ -88,6 +88,7 @@ func handle(ctx context.Context, cfg aws.Config, raw json.RawMessage) (any, erro
 }
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	cfg, err := config.AWS(context.Background())
 	if err != nil {
 		slog.Error("aws configuration unavailable", "error", err)

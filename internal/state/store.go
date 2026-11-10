@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"strconv"
 	"strings"
@@ -119,6 +120,29 @@ func (s *Store) PutMany(ctx context.Context, l Lease, values map[string]any) err
 		_, err := s.DB.TransactWriteItems(ctx, input)
 		return err
 	})
+}
+
+// ErrBusy means another holder has the bank's lease.
+var ErrBusy = errors.New("bank busy")
+
+// WithLease runs fn holding the bank's lease, then releases it on a context
+// that outlives ctx. A lease that fails to release expires on its own.
+func (s *Store) WithLease(ctx context.Context, bank, owner string, fn func(Lease) error) error {
+	l, ok, err := s.Acquire(ctx, bank, owner)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrBusy
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		if err := s.Release(cleanup, l); err != nil {
+			slog.Warn("lease not released", "bank", bank, "owner", owner, "error", err)
+		}
+	}()
+	return fn(l)
 }
 
 func (s *Store) Release(ctx context.Context, l Lease) error {

@@ -312,6 +312,8 @@ func (t *task) failure(ctx context.Context, cause error) (Outcome, error) {
 	t.Job.Error = f.Kind
 	t.Job.Operation = f.Operation
 	t.Job.Attempt++
+	// Kind and Operation are fixed codes; the cause's text never is logged.
+	slog.Warn("job error", "bank", t.Job.Bank, "job", t.Job.ID, "kind", f.Kind, "operation", f.Operation, "attempt", t.Job.Attempt)
 	retryable := f.Kind == bank.Temporary || f.Kind == bank.Throttled || f.Kind == bank.Maintenance
 	if retryable && t.Job.Attempt <= 2 {
 		wait := 60

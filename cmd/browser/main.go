@@ -274,6 +274,7 @@ func authenticate(ctx context.Context, app *engine.Engine, secrets *config.Secre
 }
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	ctx, cancel := context.WithTimeout(context.Background(), 270*time.Second)
 	defer cancel()
 	cfg, err := config.AWS(ctx)
