@@ -9,6 +9,7 @@ import (
 
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
+	"github.com/nathanfredericks/transactions/internal/config"
 )
 
 func (t *task) run(ctx context.Context, request Request) (out Outcome, err error) {
@@ -16,26 +17,8 @@ func (t *task) run(ctx context.Context, request Request) (out Outcome, err error
 	defer func() {
 		slog.Info("bank-job", "bank", t.Job.Bank, "jobId", t.Job.ID, "purpose", t.Job.Purpose, "outcome", out.Outcome, "browserUsed", t.Job.BrowserAttempted, "durationMs", time.Since(started).Milliseconds())
 	}()
-	if err = t.loadJob(ctx, request.JobID, request.Bank); err != nil {
+	if out, ok, err := t.begin(ctx, request); !ok {
 		return out, err
-	}
-	if t.Job.finished() {
-		return t.outcome(t.Job.Status, 0), nil
-	}
-	if t.Job.Status == "browser" {
-		t.Lease = t.Job.Lease
-		if err = t.Store.Assert(ctx, t.Lease); err != nil {
-			return t.outcome("failed", 0), err
-		}
-	} else {
-		var acquired bool
-		t.Lease, acquired, err = t.Store.Acquire(ctx, t.Job.Bank, t.Job.ID)
-		if err != nil {
-			return out, err
-		}
-		if !acquired {
-			return t.outcome("deferred", 5), nil
-		}
 	}
 	hold := false
 	defer func() {
@@ -49,15 +32,7 @@ func (t *task) run(ctx context.Context, request Request) (out Outcome, err error
 			slog.Warn("lease not released", "bank", t.Job.Bank, "job", t.Job.ID, "error", release)
 		}
 	}()
-	// Reload after acquiring the lease: another job may have completed while we waited.
-	if err = t.loadJob(ctx, request.JobID, request.Bank); err != nil {
-		return out, err
-	}
-	if t.Job.finished() {
-		return t.outcome(t.Job.Status, 0), nil
-	}
-	t.Job.Lease = t.Lease
-	if err = t.saveJob(ctx); err != nil {
+	if out, ok, err := t.claim(ctx, request); !ok {
 		return out, err
 	}
 	defer func() {
@@ -67,156 +42,107 @@ func (t *task) run(ctx context.Context, request Request) (out Outcome, err error
 			out, err = t.failure(cleanup, err)
 		}
 	}()
+	out, hold, err = t.work(ctx)
+	return out, err
+}
+
+// begin loads the job and takes the bank lease, or continues the lease the
+// browser task held for it. It reports false when there is nothing to run.
+func (t *task) begin(ctx context.Context, request Request) (Outcome, bool, error) {
+	if err := t.loadJob(ctx, request.JobID, request.Bank); err != nil {
+		return Outcome{}, false, err
+	}
+	if t.Job.finished() {
+		return t.outcome(t.Job.Status, 0), false, nil
+	}
+	if t.Job.Status == "browser" {
+		t.Lease = t.Job.Lease
+		if err := t.Store.Assert(ctx, t.Lease); err != nil {
+			return t.outcome("failed", 0), false, err
+		}
+		return Outcome{}, true, nil
+	}
+	var acquired bool
+	var err error
+	t.Lease, acquired, err = t.Store.Acquire(ctx, t.Job.Bank, t.Job.ID)
+	if err != nil {
+		return Outcome{}, false, err
+	}
+	if !acquired {
+		return t.outcome("deferred", 5), false, nil
+	}
+	return Outcome{}, true, nil
+}
+
+// claim reloads the job under the lease, since another run may have finished
+// it while this one waited, and records the lease on the job.
+func (t *task) claim(ctx context.Context, request Request) (Outcome, bool, error) {
+	if err := t.loadJob(ctx, request.JobID, request.Bank); err != nil {
+		return Outcome{}, false, err
+	}
+	if t.Job.finished() {
+		return t.outcome(t.Job.Status, 0), false, nil
+	}
+	t.Job.Lease = t.Lease
+	if err := t.saveJob(ctx); err != nil {
+		return Outcome{}, false, err
+	}
+	return Outcome{}, true, nil
+}
+
+// work runs the claimed job. It reports hold when the job continues in the
+// browser task, which then keeps the lease.
+func (t *task) work(ctx context.Context) (out Outcome, hold bool, err error) {
 	var health Health
 	if _, err = t.get(ctx, t.healthKey(), &health); err != nil {
-		return out, err
+		return out, false, err
 	}
-	// A bank whose credentials were rejected waits for bank.resume. A bank
-	// backing off skips scheduled runs quietly; the next one after RetryAt tries.
-	if health.Blocked || (health.RetryAt.After(time.Now()) && t.Job.Source == "scheduled") {
-		t.Job.Status = "paused"
-		t.Job.Error = health.Kind
-		err = t.saveJob(ctx)
-		return t.outcome("paused", 0), err
+	if out, stop, err := t.gate(ctx, health); stop {
+		return out, false, err
 	}
-	if health.RetryAt.After(time.Now()) {
-		return t.outcome("deferred", int(math.Ceil(time.Until(health.RetryAt).Seconds()))), nil
-	}
-	if !t.Job.DryRun && !t.Settings.ImportsEnabled {
-		t.Job.Status = "paused"
-		err = t.saveJob(ctx)
-		return t.outcome("paused", 0), err
-	}
-	if t.Job.Source == "notification" && t.Job.Purpose == "retrieve" {
-		var wait int
-		wait, err = t.notificationImport(ctx)
-		if err != nil {
-			return out, err
+	if t.Job.Purpose == "retrieve" {
+		switch t.Job.Source {
+		case "notification":
+			wait, err := t.notificationImport(ctx)
+			if err != nil {
+				return out, false, err
+			}
+			if wait > 0 {
+				t.Job.Status = "waiting"
+				return t.outcome("deferred", wait), false, t.saveJob(ctx)
+			}
+			out, err = t.recovered(ctx, "Transaction imports", health)
+			return out, false, err
+		case "alert":
+			// Amount-only purchase alerts are written directly; they never sign in
+			// to the bank or call a model. Scheduled cleared imports supply the details.
+			if err = t.alertImport(ctx); err != nil {
+				return out, false, err
+			}
+			out, err = t.recovered(ctx, "Transaction imports", health)
+			return out, false, err
 		}
-		if wait > 0 {
-			t.Job.Status = "waiting"
-			err = t.saveJob(ctx)
-			return t.outcome("deferred", wait), err
-		}
-		return t.recovered(ctx, "Transaction imports", health)
-	}
-	// Amount-only purchase alerts are written directly; they never sign in to
-	// the bank or call a model. Scheduled cleared imports supply the details.
-	if t.Job.Source == "alert" && t.Job.Purpose == "retrieve" {
-		if err = t.alertImport(ctx); err != nil {
-			return out, err
-		}
-		return t.recovered(ctx, "Transaction imports", health)
 	}
 	registration, ok := banks.Find(t.Job.Bank)
 	if !ok {
-		return out, bank.Fail(bank.Invalid, "unknown-bank")
+		return out, false, bank.Fail(bank.Invalid, "unknown-bank")
 	}
 	settings, ok := t.Settings.Banks[t.Job.Bank]
 	if !ok || !settings.Enabled {
-		return out, bank.Fail(bank.Invalid, "bank-disabled")
+		return out, false, bank.Fail(bank.Invalid, "bank-disabled")
 	}
-	adapter := registration.API
 	if t.Job.Status == "browser" {
-		var result BrowserResult
-		found, re := t.get(ctx, "BROWSER#"+t.Lease.Generation, &result)
-		if re != nil {
-			return out, re
-		}
-		if !found {
-			// The browser task failed to start, timed out or lost its callback.
-			// That is infrastructure, not a rejected login: end this job.
-			t.Job.Attempt = 2
-			return out, bank.Fail(bank.Temporary, "browser-task-incomplete")
-		}
-		if result.Generation != t.Lease.Generation {
-			return out, bank.Fail(bank.Invalid, "stale-browser")
-		}
-		if result.Error != nil {
-			if result.Error.Kind == bank.Capacity {
-				return t.deferCapacity(ctx)
-			}
-			// This job already used its one browser attempt. Re-entering the
-			// retrieval loop with no session would misclassify the same failure
-			// as a rejected fresh login. End it; later jobs respect bank backoff.
-			t.Job.Attempt = 2
-			return out, result.Error
-		}
-		t.Job.CapacityWaits = 0
-		t.Job.Status = "running"
-	}
-	session, se := t.session(ctx)
-	needsAuth := se != nil && bank.Classify(se).Kind == bank.Authentication
-	if se != nil && !needsAuth {
-		return out, se
-	}
-	if !needsAuth {
-		if !session.MaximumExpiresAt.IsZero() && !session.MaximumExpiresAt.After(time.Now()) {
-			needsAuth = true
-		} else if !session.RenewAt.IsZero() && !session.RenewAt.After(time.Now()) {
-			renewed, re := t.renew(ctx, adapter, session)
-			persist := t.saveSession(ctx, renewed)
-			if persist != nil {
-				return out, persist
-			}
-			session = renewed
-			if re != nil {
-				if bank.Classify(re).Kind == bank.Authentication {
-					needsAuth = true
-				} else {
-					return out, re
-				}
-			}
+		if out, stop, err := t.browserResult(ctx); stop {
+			return out, false, err
 		}
 	}
-	if needsAuth {
-		if t.Job.BrowserAttempted {
-			return out, bank.Fail(bank.Challenge, "fresh-login-not-usable")
-		}
-		t.Job.BrowserAttempted = true
-		t.Job.BrowserDeadline = time.Now().Add(330 * time.Second)
-		t.Job.Status = "browser"
-		if err = t.saveJob(ctx); err != nil {
-			return out, err
-		}
-		hold = true
-		return t.outcome("authentication-required", 0), nil
+	snapshot, needsBrowser, err := t.retrieve(ctx, registration.API, settings)
+	if err != nil {
+		return out, false, err
 	}
-	snapshot, updated, fetchErr := adapter.Fetch(ctx, session, bank.FetchRequest{StartDate: t.historyStart(settings.StartDate)})
-	if err = t.saveSession(ctx, updated); err != nil {
-		return out, err
-	}
-	if fetchErr != nil {
-		if bank.Classify(fetchErr).Kind == bank.Authentication && !t.Job.BrowserAttempted {
-			renewed, re := t.renew(ctx, adapter, updated)
-			if err = t.saveSession(ctx, renewed); err != nil {
-				return out, err
-			}
-			if re == nil {
-				snapshot, updated, fetchErr = adapter.Fetch(ctx, renewed, bank.FetchRequest{StartDate: t.historyStart(settings.StartDate)})
-				if err = t.saveSession(ctx, updated); err != nil {
-					return out, err
-				}
-			} else {
-				fetchErr = re
-			}
-			if fetchErr != nil && bank.Classify(fetchErr).Kind == bank.Authentication {
-				t.Job.BrowserAttempted = true
-				t.Job.BrowserDeadline = time.Now().Add(330 * time.Second)
-				t.Job.Status = "browser"
-				if err = t.saveJob(ctx); err != nil {
-					return out, err
-				}
-				hold = true
-				return t.outcome("authentication-required", 0), nil
-			}
-		}
-		if fetchErr != nil {
-			return out, fetchErr
-		}
-	}
-	if err = snapshot.Validate(settings.ExpectedAccounts); err != nil {
-		return out, err
+	if needsBrowser {
+		out, err = t.toBrowser(ctx)
+		return out, err == nil, err
 	}
 	switch registration.Strategy {
 	case "posted":
@@ -227,9 +153,132 @@ func (t *task) run(ctx context.Context, request Request) (out Outcome, err error
 		err = bank.Fail(bank.Invalid, "import-strategy")
 	}
 	if err != nil {
-		return out, err
+		return out, false, err
 	}
-	return t.recovered(ctx, registration.Name, health)
+	out, err = t.recovered(ctx, registration.Name, health)
+	return out, false, err
+}
+
+// gate stops a job its bank's health or the import switch holds back.
+func (t *task) gate(ctx context.Context, health Health) (Outcome, bool, error) {
+	// A bank whose credentials were rejected waits for bank.resume. A bank
+	// backing off skips scheduled runs quietly; the next one after RetryAt tries.
+	if health.Blocked || (health.RetryAt.After(time.Now()) && t.Job.Source == "scheduled") {
+		t.Job.Status = "paused"
+		t.Job.Error = health.Kind
+		return t.outcome("paused", 0), true, t.saveJob(ctx)
+	}
+	if health.RetryAt.After(time.Now()) {
+		return t.outcome("deferred", int(math.Ceil(time.Until(health.RetryAt).Seconds()))), true, nil
+	}
+	if !t.Job.DryRun && !t.Settings.ImportsEnabled {
+		t.Job.Status = "paused"
+		return t.outcome("paused", 0), true, t.saveJob(ctx)
+	}
+	return Outcome{}, false, nil
+}
+
+// browserResult reads what the browser task left for this job's lease. It
+// reports true when the job stops here.
+func (t *task) browserResult(ctx context.Context) (Outcome, bool, error) {
+	var result BrowserResult
+	found, err := t.get(ctx, "BROWSER#"+t.Lease.Generation, &result)
+	if err != nil {
+		return Outcome{}, true, err
+	}
+	if !found {
+		// The browser task failed to start, timed out or lost its callback.
+		// That is infrastructure, not a rejected login: end this job.
+		t.Job.Attempt = 2
+		return Outcome{}, true, bank.Fail(bank.Temporary, "browser-task-incomplete")
+	}
+	if result.Generation != t.Lease.Generation {
+		return Outcome{}, true, bank.Fail(bank.Invalid, "stale-browser")
+	}
+	if result.Error != nil {
+		if result.Error.Kind == bank.Capacity {
+			out, err := t.deferCapacity(ctx)
+			return out, true, err
+		}
+		// This job already used its one browser attempt. Re-entering the
+		// retrieval loop with no session would misclassify the same failure
+		// as a rejected fresh login. End it; later jobs respect bank backoff.
+		t.Job.Attempt = 2
+		return Outcome{}, true, result.Error
+	}
+	t.Job.CapacityWaits = 0
+	t.Job.Status = "running"
+	return Outcome{}, false, nil
+}
+
+// retrieve fetches and validates the bank's snapshot with the saved session,
+// renewing it when due or rejected. It reports true when only a browser
+// sign-in can continue.
+func (t *task) retrieve(ctx context.Context, api bank.API, settings config.BankSettings) (bank.Snapshot, bool, error) {
+	session, err := t.session(ctx)
+	needsAuth := err != nil && bank.Classify(err).Kind == bank.Authentication
+	if err != nil && !needsAuth {
+		return bank.Snapshot{}, false, err
+	}
+	if !needsAuth {
+		if !session.MaximumExpiresAt.IsZero() && !session.MaximumExpiresAt.After(time.Now()) {
+			needsAuth = true
+		} else if !session.RenewAt.IsZero() && !session.RenewAt.After(time.Now()) {
+			renewed, re := t.renew(ctx, api, session)
+			if err := t.saveSession(ctx, renewed); err != nil {
+				return bank.Snapshot{}, false, err
+			}
+			session = renewed
+			if re != nil {
+				if bank.Classify(re).Kind != bank.Authentication {
+					return bank.Snapshot{}, false, re
+				}
+				needsAuth = true
+			}
+		}
+	}
+	if needsAuth {
+		if t.Job.BrowserAttempted {
+			return bank.Snapshot{}, false, bank.Fail(bank.Challenge, "fresh-login-not-usable")
+		}
+		return bank.Snapshot{}, true, nil
+	}
+	request := bank.FetchRequest{StartDate: t.historyStart(settings.StartDate)}
+	snapshot, updated, fetchErr := api.Fetch(ctx, session, request)
+	if err := t.saveSession(ctx, updated); err != nil {
+		return bank.Snapshot{}, false, err
+	}
+	if fetchErr != nil && bank.Classify(fetchErr).Kind == bank.Authentication && !t.Job.BrowserAttempted {
+		renewed, re := t.renew(ctx, api, updated)
+		if err := t.saveSession(ctx, renewed); err != nil {
+			return bank.Snapshot{}, false, err
+		}
+		fetchErr = re
+		if re == nil {
+			snapshot, updated, fetchErr = api.Fetch(ctx, renewed, request)
+			if err := t.saveSession(ctx, updated); err != nil {
+				return bank.Snapshot{}, false, err
+			}
+		}
+		if fetchErr != nil && bank.Classify(fetchErr).Kind == bank.Authentication {
+			return bank.Snapshot{}, true, nil
+		}
+	}
+	if fetchErr != nil {
+		return bank.Snapshot{}, false, fetchErr
+	}
+	return snapshot, false, snapshot.Validate(settings.ExpectedAccounts)
+}
+
+// toBrowser hands the job to the browser task for one sign-in attempt.
+func (t *task) toBrowser(ctx context.Context) (Outcome, error) {
+	t.Job.BrowserAttempted = true
+	t.Job.BrowserDeadline = time.Now().Add(330 * time.Second)
+	t.Job.Status = "browser"
+	if err := t.saveJob(ctx); err != nil {
+		return Outcome{}, err
+	}
+	return t.outcome("authentication-required", 0), nil
 }
 
 func (t *task) recovered(ctx context.Context, name string, health Health) (Outcome, error) {
