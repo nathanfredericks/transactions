@@ -231,9 +231,58 @@ func visible(b *Browser, selector string) playwright.Locator {
 	return b.Page.Locator(selector).Filter(playwright.LocatorFilterOptions{Visible: new(true)}).First()
 }
 
-// labelled is the first visible element matching selector whose text matches label.
-func labelled(b *Browser, selector, label string) playwright.Locator {
-	return b.Page.Locator(selector).Filter(playwright.LocatorFilterOptions{Visible: new(true), HasText: regexp.MustCompile(label)}).First()
+// errNotFound means no matching control appeared in time.
+var errNotFound = errors.New("signin: control not found")
+
+// labelled waits up to the timeout for the first visible, enabled element
+// matching selector whose label matches: its aria-label, else its rendered
+// text, trimmed. Rendered text keeps line breaks between blocks, which a
+// label such as "Receive by email" followed by an address relies on. The
+// reads run in Playwright's isolated world, not the page's.
+func labelled(ctx context.Context, b *Browser, selector, label string, timeout time.Duration) (playwright.Locator, error) {
+	pattern := regexp.MustCompile(label)
+	deadline := time.Now().Add(timeout)
+	for {
+		all := b.Page.Locator(selector)
+		n, err := all.Count()
+		if err != nil {
+			return nil, err
+		}
+		for i := range n {
+			l := all.Nth(i)
+			if ok, err := matchesLabel(l, pattern); err == nil && ok {
+				return l, nil
+			}
+		}
+		if !time.Now().Before(deadline) {
+			return nil, errNotFound
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+func matchesLabel(l playwright.Locator, pattern *regexp.Regexp) (bool, error) {
+	short := new(500.0)
+	if visible, err := l.IsVisible(); err != nil || !visible {
+		return false, err
+	}
+	if enabled, err := l.IsEnabled(playwright.LocatorIsEnabledOptions{Timeout: short}); err != nil || !enabled {
+		return false, err
+	}
+	text, err := l.GetAttribute("aria-label", playwright.LocatorGetAttributeOptions{Timeout: short})
+	if err != nil {
+		return false, err
+	}
+	if text == "" {
+		if text, err = l.InnerText(playwright.LocatorInnerTextOptions{Timeout: short}); err != nil {
+			return false, err
+		}
+	}
+	return pattern.MatchString(strings.TrimSpace(text)), nil
 }
 
 // waitVisible waits up to the timeout for the locator to be visible.
@@ -288,8 +337,8 @@ func logInputs(b *Browser, selector string) {
 
 // Click clicks the first visible control whose text matches label.
 func Click(ctx context.Context, b *Browser, selector, label string) error {
-	l := labelled(b, selector, label)
-	if err := waitVisible(l, 30*time.Second); err != nil {
+	l, err := labelled(ctx, b, selector, label, 30*time.Second)
+	if err != nil {
 		LogControls(b)
 		return bank.Fail(bank.Challenge, "button-missing")
 	}
@@ -313,14 +362,13 @@ func Click(ctx context.Context, b *Browser, selector, label string) error {
 // ClickIfPresent clicks a known informational screen's control if it appears
 // within the timeout, without delaying the sign-in otherwise.
 func ClickIfPresent(ctx context.Context, b *Browser, selector, label string, timeout time.Duration) (bool, error) {
-	l := labelled(b, selector, label)
-	if err := waitVisible(l, timeout); err != nil {
-		if errors.Is(err, playwright.ErrTimeout) && ctx.Err() == nil {
+	l, err := labelled(ctx, b, selector, label, timeout)
+	if err != nil {
+		if errors.Is(err, errNotFound) && ctx.Err() == nil {
 			return false, nil
 		}
 		return false, bank.Fail(bank.Temporary, "optional-control")
 	}
-	var err error
 	if b.Human != nil {
 		err = b.Human.Click(ctx, l)
 	} else {
