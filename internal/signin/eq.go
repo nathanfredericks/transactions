@@ -9,25 +9,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-rod/rod"
+	"github.com/mxschmitt/playwright-go"
 
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks/eq"
 )
 
-func signInEQ(ctx context.Context, d Dependencies, b *rod.Browser) (bank.Session, error) {
-	p, e := NewPage(ctx, b)
-	if e != nil {
-		return bank.Session{}, e
-	}
-	o := Observe(p)
-	defer o.Close()
+func signInEQ(ctx context.Context, d Dependencies, b *Browser) (bank.Session, error) {
+	o := Record(b.Page)
 	stage := "login-email"
 	fail := func(e error) (bank.Session, error) {
 		slog.Warn("EQ browser authentication failed", "stage", stage, "kind", bank.Classify(e).Kind, "exchanges", o.Diagnostics("eqbank.ca"))
-		text, _ := p.Timeout(2 * time.Second).Element("body")
-		if text != nil {
-			value, _ := text.Text()
+		if value, err := b.Page.Locator("body").InnerText(playwright.LocatorInnerTextOptions{Timeout: playwright.Float(2000)}); err == nil {
 			lower := strings.ToLower(value)
 			if strings.Contains(lower, "scheduled maintenance") {
 				return bank.Session{}, bank.Fail(bank.Maintenance, "login")
@@ -40,24 +33,24 @@ func signInEQ(ctx context.Context, d Dependencies, b *rod.Browser) (bank.Session
 		f.Operation = stage + "/" + f.Operation
 		return bank.Session{}, f
 	}
-	if e = p.Navigate("https://secure.eqbank.ca/"); e != nil {
+	if _, e := b.Page.Goto("https://secure.eqbank.ca/", commit); e != nil {
 		return fail(bank.Fail(bank.Temporary, "navigation"))
 	}
-	if e = Input(p, `input[type="email"], input[name="username"]`, d.Credentials.Username); e != nil {
+	if e := Input(ctx, b, `input[type="email"], input[name="username"]`, d.Credentials.Username); e != nil {
 		return fail(e)
 	}
-	if e = Click(p, "button", `^(?:[Ss]ign in|[Ll]og in)$`); e != nil {
+	if e := Click(ctx, b, "button", `^(?:[Ss]ign in|[Ll]og in)$`); e != nil {
 		return fail(e)
 	}
 	stage = "login-password"
-	if e = Input(p, `input[type="password"]`, d.Credentials.Password); e != nil {
+	if e := Input(ctx, b, `input[type="password"]`, d.Credentials.Password); e != nil {
 		return fail(e)
 	}
 	after := time.Now()
-	if e = Click(p, "button", `^(?:[Ss]ign in|[Ll]og in)$`); e != nil {
+	if e := Click(ctx, b, "button", `^(?:[Ss]ign in|[Ll]og in)$`); e != nil {
 		return fail(e)
 	}
-	if _, e = p.Timeout(25 * time.Second).Element(`input[autocomplete="one-time-code"]`); e != nil {
+	if e := b.Page.Locator(`input[autocomplete="one-time-code"]`).First().WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateAttached, Timeout: playwright.Float(25000)}); e != nil {
 		return fail(bank.Fail(bank.Challenge, "verification-not-reached"))
 	}
 	stage = "verification-code"
@@ -65,10 +58,10 @@ func signInEQ(ctx context.Context, d Dependencies, b *rod.Browser) (bank.Session
 	if e != nil {
 		return fail(e)
 	}
-	if e = Input(p, `input[autocomplete="one-time-code"]`, code); e != nil {
+	if e = Input(ctx, b, `input[autocomplete="one-time-code"]`, code); e != nil {
 		return fail(e)
 	}
-	if e = Click(p, "button", `^Verify$`); e != nil {
+	if e = Click(ctx, b, "button", `^Verify$`); e != nil {
 		return fail(e)
 	}
 	stage = "account-capture"
@@ -79,7 +72,7 @@ func signInEQ(ctx context.Context, d Dependencies, b *rod.Browser) (bank.Session
 	defer cancelCapture()
 	waitResponse := func(method, endpoint string) (Exchange, error) {
 		v, err := o.Wait(captureCtx, func(v Exchange) bool {
-			return v.Request.Method == method && v.Request.URL == endpoint && (v.Failed || v.Response != nil)
+			return v.Request.Method() == method && v.Request.URL() == endpoint && (v.Failed || v.Response != nil)
 		})
 		if err != nil {
 			return v, err
@@ -87,12 +80,12 @@ func signInEQ(ctx context.Context, d Dependencies, b *rod.Browser) (bank.Session
 		if v.Failed {
 			return v, bank.Fail(bank.Temporary, "browser-network")
 		}
-		status := v.Response.Status
+		status := v.Response.Status()
 		switch {
 		case status == 200:
 			return v, nil
 		case status == 429:
-			headers := SafeHeaders(v.Response.Headers)
+			headers := SafeHeaders(v.Response.Headers())
 			return v, bank.Throttle("browser-http", headers["retry-after"])
 		case status == 401 || status == 419 || status == 440:
 			return v, bank.Fail(bank.Authentication, "browser-http")
@@ -114,7 +107,7 @@ func signInEQ(ctx context.Context, d Dependencies, b *rod.Browser) (bank.Session
 	var payload struct {
 		ClientID string `json:"client_id"`
 	}
-	data, e := o.PostData(token)
+	data, e := PostData(token)
 	if e != nil {
 		return fail(e)
 	}
@@ -127,5 +120,5 @@ func signInEQ(ctx context.Context, d Dependencies, b *rod.Browser) (bank.Session
 	if payload.ClientID == "" {
 		return fail(bank.Fail(bank.Invalid, "auth-capture"))
 	}
-	return BrowserSession(b, "eq-bank", SafeHeaders(discovery.Request.Headers), eq.Auth{ClientID: payload.ClientID})
+	return BrowserSession(b, "eq-bank", SafeHeaders(discovery.Request.Headers()), eq.Auth{ClientID: payload.ClientID})
 }

@@ -13,10 +13,7 @@ parser.add_argument('--mode', choices=['login', 'api', 'renew'], default='login'
 parser.add_argument('--region', default='ca-central-1')
 parser.add_argument('--stack', default='TransactionsEngine')
 parser.add_argument('--image', default='transactions-engine-browser:verify')
-parser.add_argument('--stock-browser', action='store_true', help='Verify NBDB using the image\'s standard Chromium without a license seat')
 args = parser.parse_args()
-if args.stock_browser and (args.bank != 'nbdb' or args.mode != 'login'):
-    parser.error('--stock-browser is only supported for an NBDB login check')
 root = Path(__file__).resolve().parent.parent
 
 def aws(*command):
@@ -50,17 +47,9 @@ if args.bank in ['nbdb', 'rogers-bank']:
     values['BROWSER_BROKER_URL'] = 'https://browser-broker.fredericks.app'
     values['BROWSER_BROKER_TOKEN'] = json.loads(aws('secretsmanager', 'get-secret-value',
         '--secret-id', 'Transactions')['SecretString'])['BROWSER_BROKER_TOKEN']
-if args.bank == 'nbdb':
-	# Explicit diagnostic override; the image selects its production platform.
-    if os.environ.get('NBDB_BROWSER_PLATFORM'):
-        values['NBDB_BROWSER_PLATFORM'] = os.environ['NBDB_BROWSER_PLATFORM']
+    # Both CloakBrowser banks run the licensed build.
     key_file = Path.home() / '.cloakbrowser/license.key'
-    if args.stock_browser:
-        version = subprocess.check_output(['docker', 'run', '--rm', '--entrypoint',
-            '/opt/browsers/chromium', args.image, '--version'], text=True).strip()
-        values.update(NBDB_CLOAK_PATH='/opt/browsers/chromium',
-                      NBDB_BROWSER_VERSION=version, NBDB_BROWSER_PLATFORM='linux')
-    elif key_file.is_file():
+    if key_file.is_file():
         values['CLOAKBROWSER_LICENSE_KEY'] = key_file.read_text().strip()
 # NamedTemporaryFile is private (0600) and removed even if Docker fails.
 with tempfile.NamedTemporaryFile(mode='w', prefix='bank-verify-', suffix='.env') as private:

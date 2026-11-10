@@ -2,10 +2,8 @@ package signin
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -16,152 +14,125 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
+	"github.com/mxschmitt/playwright-go"
 
 	"github.com/nathanfredericks/transactions/internal/bank"
-	"github.com/nathanfredericks/transactions/internal/cloak"
+	"github.com/nathanfredericks/transactions/internal/chromium"
+	"github.com/nathanfredericks/transactions/internal/human"
 )
 
-type Exchange struct {
-	Request       *proto.NetworkRequest
-	Response      *proto.NetworkResponse
-	ID            proto.NetworkRequestID
-	Sequence      int
-	Finished      bool
-	Failed        bool
-	NetworkStatus int
-	NetworkError  string
-	CorsError     proto.NetworkCorsError
+// Browser is the sign-in's browser context and page. Human is the humanized
+// input for CloakBrowser banks; without it, input is plain Playwright input.
+type Browser struct {
+	Context playwright.BrowserContext
+	Page    playwright.Page
+	Human   *human.Cursor
 }
-type Observer struct {
-	Page     *rod.Page
+
+// Exchange is one request the page made and what became of it.
+type Exchange struct {
+	Sequence     int
+	Request      playwright.Request
+	Response     playwright.Response // nil until a response arrives
+	Finished     bool
+	Failed       bool
+	NetworkError string
+}
+
+// Recorder keeps the page's requests in order. Its handlers run on
+// Playwright's event goroutine, so they only record; bodies are read later.
+type Recorder struct {
 	mu       sync.Mutex
-	items    map[proto.NetworkRequestID]*Exchange
+	items    map[playwright.Request]*Exchange
 	changed  chan struct{}
-	cancel   context.CancelFunc
 	sequence int
 }
 
-func Observe(page *rod.Page) *Observer {
-	ctx, cancel := context.WithCancel(page.GetContext())
-	o := &Observer{Page: page, items: map[proto.NetworkRequestID]*Exchange{}, changed: make(chan struct{}, 1), cancel: cancel}
-	signal := func() {
+var netError = regexp.MustCompile(`^net::ERR_[A-Z_]+$`)
+
+// Record starts recording the page's requests.
+func Record(p playwright.Page) *Recorder {
+	r := &Recorder{items: map[playwright.Request]*Exchange{}, changed: make(chan struct{}, 1)}
+	update := func(req playwright.Request, fn func(*Exchange)) {
+		r.mu.Lock()
+		if x := r.items[req]; x != nil {
+			fn(x)
+		}
+		r.mu.Unlock()
 		select {
-		case o.changed <- struct{}{}:
+		case r.changed <- struct{}{}:
 		default:
 		}
 	}
-	wait := page.Context(ctx).EachEvent(func(e *proto.NetworkRequestWillBeSent) {
-		o.mu.Lock()
-		o.sequence++
-		o.items[e.RequestID] = &Exchange{Request: e.Request, ID: e.RequestID, Sequence: o.sequence}
-		o.mu.Unlock()
-		signal()
-	}, func(e *proto.NetworkResponseReceived) {
-		o.mu.Lock()
-		if v := o.items[e.RequestID]; v != nil {
-			v.Response = e.Response
-		}
-		o.mu.Unlock()
-		signal()
-	}, func(e *proto.NetworkLoadingFinished) {
-		o.mu.Lock()
-		if v := o.items[e.RequestID]; v != nil {
-			v.Finished = true
-		}
-		o.mu.Unlock()
-		signal()
-	}, func(e *proto.NetworkLoadingFailed) {
-		o.mu.Lock()
-		if v := o.items[e.RequestID]; v != nil {
-			v.Failed = true
-			if regexp.MustCompile(`^net::ERR_[A-Z_]+$`).MatchString(e.ErrorText) {
-				v.NetworkError = e.ErrorText
-			}
-			if e.CorsErrorStatus != nil {
-				v.CorsError = e.CorsErrorStatus.CorsError
-			}
-		}
-		o.mu.Unlock()
-		signal()
-	}, func(e *proto.NetworkResponseReceivedExtraInfo) {
-		o.mu.Lock()
-		if v := o.items[e.RequestID]; v != nil {
-			v.NetworkStatus = e.StatusCode
-		}
-		o.mu.Unlock()
-		signal()
+	p.OnRequest(func(req playwright.Request) {
+		r.mu.Lock()
+		r.sequence++
+		r.items[req] = &Exchange{Request: req, Sequence: r.sequence}
+		r.mu.Unlock()
 	})
-	go wait()
-	return o
-}
-func (o *Observer) Close() { o.cancel() }
-func (o *Observer) Latest(match func(Exchange) bool) (Exchange, bool) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	var latest *Exchange
-	for _, v := range o.items {
-		exchange := *v
-		if match(exchange) && (latest == nil || exchange.Sequence > latest.Sequence) {
-			latest = &exchange
-		}
-	}
-	if latest != nil {
-		return *latest, true
-	}
-	return Exchange{}, false
+	p.OnResponse(func(resp playwright.Response) {
+		update(resp.Request(), func(x *Exchange) { x.Response = resp })
+	})
+	p.OnRequestFinished(func(req playwright.Request) {
+		update(req, func(x *Exchange) { x.Finished = true })
+	})
+	p.OnRequestFailed(func(req playwright.Request) {
+		update(req, func(x *Exchange) {
+			x.Failed = true
+			if err := req.Failure(); err != nil && netError.MatchString(err.Error()) {
+				x.NetworkError = err.Error()
+			}
+		})
+	})
+	return r
 }
 
-// Matches snapshots observed exchanges in request order. Callers can inspect
-// response bodies after the observer lock is released, without blocking events.
-func (o *Observer) Matches(match func(Exchange) bool) []Exchange {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+// Latest is the most recent exchange that matches.
+func (r *Recorder) Latest(match func(Exchange) bool) (Exchange, bool) {
+	matches := r.Matches(match)
+	if len(matches) == 0 {
+		return Exchange{}, false
+	}
+	return matches[len(matches)-1], true
+}
+
+// Matches is every exchange that matches, in request order.
+func (r *Recorder) Matches(match func(Exchange) bool) []Exchange {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var result []Exchange
-	for _, value := range o.items {
-		exchange := *value
-		if match(exchange) {
-			result = append(result, exchange)
+	for _, x := range r.items {
+		if match(*x) {
+			result = append(result, *x)
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Sequence < result[j].Sequence })
 	return result
 }
 
-func (o *Observer) Wait(ctx context.Context, match func(Exchange) bool) (Exchange, error) {
+// Wait returns the latest matching exchange once there is one.
+func (r *Recorder) Wait(ctx context.Context, match func(Exchange) bool) (Exchange, error) {
 	for {
-		if latest, ok := o.Latest(match); ok {
-			return latest, nil
+		if x, ok := r.Latest(match); ok {
+			return x, nil
 		}
 		select {
 		case <-ctx.Done():
 			// Silence from an endpoint is not evidence of an unsupported challenge.
 			return Exchange{}, bank.Fail(bank.Temporary, "browser-response-timeout")
-		case <-o.changed:
+		case <-r.changed:
+		case <-time.After(250 * time.Millisecond):
 		}
 	}
 }
 
-// PostData retrieves bodies omitted by CDP's request event. Never log this value.
-func (o *Observer) PostData(e Exchange) (string, error) {
-	if e.Request.PostData != "" {
-		return e.Request.PostData, nil
-	}
-	r, err := (proto.NetworkGetRequestPostData{RequestID: e.ID}).Call(o.Page)
-	if err != nil {
-		return "", bank.Fail(bank.Invalid, "request-body-capture")
-	}
-	return r.PostData, nil
-}
-
 // Diagnostics reports endpoint names and status only, never URLs, tokens or bodies.
-func (o *Observer) Diagnostics(hostSuffix string) []map[string]any {
-	o.mu.Lock()
-	defer o.mu.Unlock()
+func (r *Recorder) Diagnostics(hostSuffix string) []map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var result []map[string]any
-	for _, x := range o.items {
-		u, err := url.Parse(x.Request.URL)
+	for _, x := range r.items {
+		u, err := url.Parse(x.Request.URL())
 		if err != nil || !strings.HasSuffix(u.Hostname(), hostSuffix) {
 			continue
 		}
@@ -172,30 +143,35 @@ func (o *Observer) Diagnostics(hostSuffix string) []map[string]any {
 				operation = "wealth-session"
 			}
 		}
-		if operation != "wealth-session" && operation != "wealth-api" && operation != "summary" && operation != "token" && operation != "authn" && operation != "verify" && !(hostSuffix == "eqbank.ca" && (operation == "accounts" || operation == "access-token")) {
+		if operation != "wealth-session" && operation != "wealth-api" && operation != "summary" && operation != "token" && operation != "authn" && operation != "verify" && (hostSuffix != "eqbank.ca" || (operation != "accounts" && operation != "access-token")) {
 			continue
 		}
-		status := x.NetworkStatus
+		status := 0
 		if x.Response != nil {
-			status = x.Response.Status
+			status = x.Response.Status()
 		}
-		result = append(result, map[string]any{"operation": operation, "method": x.Request.Method, "status": status, "finished": x.Finished, "networkFailed": x.Failed, "networkError": x.NetworkError, "corsError": x.CorsError})
+		result = append(result, map[string]any{"operation": operation, "method": x.Request.Method(), "status": status, "finished": x.Finished, "networkFailed": x.Failed, "networkError": x.NetworkError})
 	}
 	return result
 }
 
-func (o *Observer) Body(e Exchange, out any) error {
-	r, err := (proto.NetworkGetResponseBody{RequestID: e.ID}).Call(o.Page)
+// PostData is the request's body. Never log it.
+func PostData(x Exchange) (string, error) {
+	data, err := x.Request.PostData()
 	if err != nil {
+		return "", bank.Fail(bank.Invalid, "request-body-capture")
+	}
+	return data, nil
+}
+
+// Body decodes the response's JSON body.
+func Body(x Exchange, out any) error {
+	if x.Response == nil {
 		return bank.Fail(bank.Invalid, "browser-response")
 	}
-	data := []byte(r.Body)
-	if r.Base64Encoded {
-		var err error
-		data, err = base64.StdEncoding.DecodeString(r.Body)
-		if err != nil {
-			return bank.Fail(bank.Invalid, "browser-base64")
-		}
+	data, err := x.Response.Body()
+	if err != nil {
+		return bank.Fail(bank.Invalid, "browser-response")
 	}
 	if json.Unmarshal(data, out) != nil {
 		return bank.Fail(bank.Invalid, "browser-json")
@@ -203,7 +179,9 @@ func (o *Observer) Body(e Exchange, out any) error {
 	return nil
 }
 
-func SafeHeaders(h proto.NetworkHeaders) map[string]string {
+// SafeHeaders keeps the headers a session replays from the Lambda, without
+// cookies and transport headers.
+func SafeHeaders(h map[string]string) map[string]string {
 	out := map[string]string{}
 	for k, v := range h {
 		k = strings.ToLower(k)
@@ -212,28 +190,30 @@ func SafeHeaders(h proto.NetworkHeaders) map[string]string {
 			continue
 		}
 		if !strings.HasPrefix(k, ":") {
-			out[k] = v.Str()
+			out[k] = v
 		}
 	}
 	return out
 }
 
-func BrowserSession(b *rod.Browser, id string, headers map[string]string, auth any) (bank.Session, error) {
-	raw, e := json.Marshal(auth)
-	if e != nil {
-		return bank.Session{}, e
+// BrowserSession captures the session's headers, auth state and cookies.
+func BrowserSession(b *Browser, id string, headers map[string]string, auth any) (bank.Session, error) {
+	raw, err := json.Marshal(auth)
+	if err != nil {
+		return bank.Session{}, err
 	}
 	s := bank.Session{Version: 1, Bank: id, Headers: headers, Auth: raw}
-	cookies, e := b.GetCookies()
-	if e != nil {
+	cookies, err := b.Context.Cookies()
+	if err != nil {
 		return s, bank.Fail(bank.Temporary, "cookies")
 	}
 	for _, c := range cookies {
-		cookie := http.Cookie{Name: c.Name, Value: c.Value, Path: c.Path, Secure: c.Secure, HttpOnly: c.HTTPOnly}
+		cookie := http.Cookie{Name: c.Name, Value: c.Value, Path: c.Path, Secure: c.Secure, HttpOnly: c.HttpOnly}
 		if strings.HasPrefix(c.Domain, ".") {
 			cookie.Domain = c.Domain
 		}
-		if !c.Session {
+		// Playwright gives a session cookie an expiry of -1.
+		if c.Expires > 0 {
 			cookie.Expires = time.Unix(int64(c.Expires), 0)
 		}
 		s.Cookies = append(s.Cookies, bank.Cookie{URL: "https://" + strings.TrimPrefix(c.Domain, ".") + c.Path, Value: cookie})
@@ -242,84 +222,87 @@ func BrowserSession(b *rod.Browser, id string, headers map[string]string, auth a
 	return s, nil
 }
 
-func Input(p *rod.Page, selector, value string) error { return enterText(p, selector, value, false) }
-func Type(p *rod.Page, selector, value string) error  { return enterText(p, selector, value, true) }
-func enterText(p *rod.Page, selector, value string, typed bool) error {
-	human, err := cloak.Humanizer(p)
-	if err != nil {
-		return bank.Fail(bank.Temporary, "humanizer")
+// commit returns from Goto once the server answers, as Rod's Navigate did;
+// the next locator wait covers the rest of the load.
+var commit = playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateCommit}
+
+// visible is the first visible element matching selector.
+func visible(b *Browser, selector string) playwright.Locator {
+	return b.Page.Locator(selector).Filter(playwright.LocatorFilterOptions{Visible: new(true)}).First()
+}
+
+// labelled is the first visible element matching selector whose text matches label.
+func labelled(b *Browser, selector, label string) playwright.Locator {
+	return b.Page.Locator(selector).Filter(playwright.LocatorFilterOptions{Visible: new(true), HasText: regexp.MustCompile(label)}).First()
+}
+
+// waitVisible waits up to the timeout for the locator to be visible.
+func waitVisible(l playwright.Locator, timeout time.Duration) error {
+	return l.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateVisible, Timeout: new(float64(timeout.Milliseconds()))})
+}
+
+// Input fills a field, clearing it first.
+func Input(ctx context.Context, b *Browser, selector, value string) error {
+	return enterText(ctx, b, selector, value, false)
+}
+
+// Type types into a field without clearing it.
+func Type(ctx context.Context, b *Browser, selector, value string) error {
+	return enterText(ctx, b, selector, value, true)
+}
+
+func enterText(ctx context.Context, b *Browser, selector, value string, typed bool) error {
+	l := visible(b, selector)
+	if err := waitVisible(l, 30*time.Second); err != nil {
+		logInputs(b, selector)
+		return bank.Fail(bank.Challenge, "input-missing")
 	}
-	if human != nil {
-		// Original fill() and pressSequentially() compose different focus/clear paths.
+	if b.Human != nil {
 		var err error
 		if typed {
-			err = human.PressSequentially(selector, value)
+			err = b.Human.PressSequentially(ctx, l, value)
 		} else {
-			err = human.Fill(selector, value)
+			err = b.Human.Fill(ctx, l, value)
 		}
 		if err != nil {
 			return bank.Fail(bank.Temporary, "input-events")
 		}
-		el, err := human.Element(selector)
-		if err != nil {
-			return bank.Fail(bank.Challenge, "input-missing")
-		}
-		entered, err := el.Raw.Property("value")
-		if err != nil || entered.Str() != value {
-			return bank.Fail(bank.Challenge, "input-value")
-		}
-		return nil
-	}
-
-	el, e := p.Timeout(30 * time.Second).ElementByJS(rod.Eval(`(selector)=>Array.from(document.querySelectorAll(selector)).find(el=>el.getClientRects().length && getComputedStyle(el).visibility!=="hidden")||null`, selector))
-	if e != nil {
-		// Field structure only: no input values, page bodies, URLs or screenshots.
-		controls, err := p.Timeout(2 * time.Second).Eval(`()=>Array.from(document.querySelectorAll("input")).map(e=>({type:e.type,id:e.id,name:e.name,autocomplete:e.autocomplete,visible:!!e.getClientRects().length}))`)
-		if err == nil {
-			slog.Warn("browser input missing", "selector", selector, "controls", controls.Value)
-		}
-		return bank.Fail(bank.Challenge, "input-missing")
-	}
-	if e = el.WaitVisible(); e != nil {
-		return bank.Fail(bank.Challenge, "input-hidden")
-	}
-	if e = el.SelectAllText(); e != nil {
-		return bank.Fail(bank.Challenge, "input-selection")
-	}
-	if e = el.Input(value); e != nil {
+	} else if err := l.Fill(value); err != nil {
 		return bank.Fail(bank.Challenge, "input")
 	}
-
-	entered, e := el.Property("value")
-	if e != nil || entered.Str() != value {
+	entered, err := l.InputValue()
+	if err != nil || entered != value {
 		return bank.Fail(bank.Challenge, "input-value")
 	}
 	return nil
 }
 
-const visibleButtonJS = `(selector,label)=>Array.from(document.querySelectorAll(selector)).find(el=>el.getClientRects().length && getComputedStyle(el).visibility!=="hidden" && getComputedStyle(el).pointerEvents!=="none" && !el.disabled && el.getAttribute("aria-disabled")!=="true" && new RegExp(label).test((el.getAttribute("aria-label")||el.innerText||el.textContent).trim()))||null`
-
-func Click(p *rod.Page, selector, label string) error {
-	human, err := cloak.Humanizer(p)
-	if err != nil {
-		return bank.Fail(bank.Temporary, "humanizer")
+// logInputs records the page's input fields by type, id and name only: no
+// values, page bodies, URLs or screenshots.
+func logInputs(b *Browser, selector string) {
+	controls, err := b.Page.Evaluate(`()=>Array.from(document.querySelectorAll("input")).map(e=>({type:e.type,id:e.id,name:e.name,autocomplete:e.autocomplete,visible:!!e.getClientRects().length}))`)
+	if err == nil {
+		slog.Warn("browser input missing", "selector", selector, "controls", controls)
 	}
-	if human != nil {
-		if err := human.Click(selector, label); err != nil {
+}
+
+// Click clicks the first visible control whose text matches label.
+func Click(ctx context.Context, b *Browser, selector, label string) error {
+	l := labelled(b, selector, label)
+	if err := waitVisible(l, 30*time.Second); err != nil {
+		LogControls(b)
+		return bank.Fail(bank.Challenge, "button-missing")
+	}
+	if b.Human != nil {
+		if err := b.Human.Click(ctx, l); err != nil {
 			return bank.Fail(bank.Temporary, "button-events")
 		}
 		return nil
 	}
-
-	el, e := p.Timeout(30 * time.Second).ElementByJS(rod.Eval(visibleButtonJS, selector, label))
-	if e != nil {
-		LogControls(p)
-		return bank.Fail(bank.Challenge, "button-missing")
-	}
-	if e = el.Click(proto.InputMouseButtonLeft, 1); e != nil {
-		slog.Warn("browser control failed", "operation", "click", "errorType", fmt.Sprintf("%T", e))
-		LogControls(p)
-		if errors.Is(e, context.DeadlineExceeded) || errors.Is(e, context.Canceled) {
+	if err := l.Click(); err != nil {
+		slog.Warn("browser control failed", "operation", "click", "errorKind", chromium.ErrorKind(err))
+		LogControls(b)
+		if errors.Is(err, playwright.ErrTimeout) {
 			return bank.Fail(bank.Temporary, "button-timeout")
 		}
 		return bank.Fail(bank.Challenge, "button")
@@ -327,66 +310,40 @@ func Click(p *rod.Page, selector, label string) error {
 	return nil
 }
 
-// LogControls records visible control labels without input values or page bodies.
-func LogControls(p *rod.Page) {
-	controls, err := p.Timeout(2 * time.Second).Eval(`()=>Array.from(document.querySelectorAll("a,button,[role=link]")).filter(e=>e.getClientRects().length).map(e=>({tag:e.tagName,label:(e.getAttribute("aria-label")||e.innerText||"").replace(/[^\s@]+@[^\s@]+/g,"[email]").replace(/[0-9]{4,}/g,"[number]").trim().slice(0,100)}))`)
-	if err == nil {
-		slog.Warn("browser visible controls", "controls", controls.Value)
-	}
-}
-
-// ClickIfPresent handles known informational screens without delaying normal API access.
-func ClickIfPresent(p *rod.Page, selector, label string, timeout time.Duration) (bool, error) {
-	human, err := cloak.Humanizer(p)
-	if err != nil {
-		return false, bank.Fail(bank.Temporary, "humanizer")
-	}
-	if human != nil {
-		ctx, cancel := context.WithTimeout(p.GetContext(), timeout)
-		_, err := human.Context(ctx).ElementLabel(selector, label)
-		cancel()
-		if err != nil {
-			if p.GetContext().Err() == nil && errors.Is(err, context.DeadlineExceeded) {
-				return false, nil
-			}
-			return false, bank.Fail(bank.Temporary, "optional-control")
-		}
-		// Lookup deadline must not expire the click's context.
-		if err = human.Click(selector, label); err != nil {
-			return false, bank.Fail(bank.Temporary, "optional-control")
-		}
-		return true, nil
-	}
-
-	el, err := p.Timeout(timeout).ElementByJS(rod.Eval(visibleButtonJS, selector, label))
-	if err != nil {
-		if p.GetContext().Err() == nil && errors.Is(err, context.DeadlineExceeded) {
+// ClickIfPresent clicks a known informational screen's control if it appears
+// within the timeout, without delaying the sign-in otherwise.
+func ClickIfPresent(ctx context.Context, b *Browser, selector, label string, timeout time.Duration) (bool, error) {
+	l := labelled(b, selector, label)
+	if err := waitVisible(l, timeout); err != nil {
+		if errors.Is(err, playwright.ErrTimeout) && ctx.Err() == nil {
 			return false, nil
 		}
-		return false, bank.Fail(bank.Challenge, "optional-control")
+		return false, bank.Fail(bank.Temporary, "optional-control")
 	}
-	if err = el.Context(p.GetContext()).Timeout(15*time.Second).Click(proto.InputMouseButtonLeft, 1); err != nil {
-		return false, bank.Fail(bank.Challenge, "optional-control")
+	var err error
+	if b.Human != nil {
+		err = b.Human.Click(ctx, l)
+	} else {
+		err = l.Click()
+	}
+	if err != nil {
+		return false, bank.Fail(bank.Temporary, "optional-control")
 	}
 	return true, nil
 }
 
-func NewPage(ctx context.Context, b *rod.Browser) (*rod.Page, error) {
-	p, e := cloak.NewPage(ctx, b)
-	if e != nil {
-		return nil, bank.Fail(bank.Temporary, "browser-page")
+// ClickLocator clicks a control the caller found, where it is.
+func ClickLocator(ctx context.Context, b *Browser, l playwright.Locator) error {
+	if b.Human != nil {
+		return b.Human.ClickInPlace(ctx, l)
 	}
-	return p, nil
+	return l.Click()
 }
 
-// ClickElement ensures handle-level operations follow the same behavior layer.
-func ClickElement(p *rod.Page, el *rod.Element) error {
-	human, err := cloak.Humanizer(p)
-	if err != nil {
-		return bank.Fail(bank.Temporary, "humanizer")
+// LogControls records visible control labels without input values or page bodies.
+func LogControls(b *Browser) {
+	controls, err := b.Page.Evaluate(`()=>Array.from(document.querySelectorAll("a,button,[role=link]")).filter(e=>e.getClientRects().length).map(e=>({tag:e.tagName,label:(e.getAttribute("aria-label")||e.innerText||"").replace(/[^\s@]+@[^\s@]+/g,"[email]").replace(/[0-9]{4,}/g,"[number]").trim().slice(0,100)}))`)
+	if err == nil {
+		slog.Warn("browser visible controls", "controls", controls)
 	}
-	if human != nil {
-		return human.Wrap(el).Click()
-	}
-	return el.Click(proto.InputMouseButtonLeft, 1)
 }

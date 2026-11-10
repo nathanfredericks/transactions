@@ -8,6 +8,9 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -17,16 +20,15 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	"github.com/aws/smithy-go"
-	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/launcher"
 	"github.com/google/uuid"
 
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/banks"
 	"github.com/nathanfredericks/transactions/internal/browserbroker"
-	"github.com/nathanfredericks/transactions/internal/cloak"
+	"github.com/nathanfredericks/transactions/internal/chromium"
 	"github.com/nathanfredericks/transactions/internal/config"
 	"github.com/nathanfredericks/transactions/internal/engine"
+	"github.com/nathanfredericks/transactions/internal/human"
 	"github.com/nathanfredericks/transactions/internal/signin"
 	"github.com/nathanfredericks/transactions/internal/state"
 )
@@ -110,15 +112,16 @@ func authenticate(ctx context.Context, app *engine.Engine, secrets *config.Secre
 		}
 	}
 	binary := os.Getenv("CHROMIUM_PATH")
+	options := chromium.Options{Timeout: 30 * time.Second}
 	if r.Browser == "cloak" {
 		binary = os.Getenv("CLOAK_PATH")
-		if r.ID == "nbdb" && os.Getenv("NBDB_CLOAK_PATH") != "" {
-			binary = os.Getenv("NBDB_CLOAK_PATH")
-		}
+		options.Cloak, options.Platform, options.Timezone, options.Locale = true, "windows", "America/Halifax", "en-CA"
 	}
 	if binary == "" {
 		return session, bank.Fail(bank.Invalid, "browser-binary")
 	}
+	options.Executable = binary
+	options.Env = browserEnv(r.Browser == "cloak")
 
 	// The bank lease remains authoritative for bank data; this reservation only
 	// serializes CloakBrowser capacity across independent applications.
@@ -131,128 +134,55 @@ func authenticate(ctx context.Context, app *engine.Engine, secrets *config.Secre
 		if err != nil {
 			return session, bank.Fail(bank.Capacity, "browser-broker-busy")
 		}
-		// Registered before owned.Close so shutdown finishes before releasing capacity.
+		// Registered before the browser closes, so it runs after: capacity is
+		// released only once the browser is gone.
 		defer func() {
-			clean, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+			clean, cancel := context.WithTimeout(context.WithoutCancel(ctx), 12*time.Second)
 			defer cancel()
 			if client.Release(clean, reservation.ID) != nil {
 				slog.Warn("browser reservation release unconfirmed", "bank", r.ID)
 			}
 		}()
 	}
-	var browser *rod.Browser
-	browserSeed := 0
-	browserVersion := ""
-	browserPlatform := "windows"
+	version := ""
 	if r.Browser == "cloak" {
-		options := cloak.Options{Binary: binary, Headless: cloak.Headed(), Humanize: true, HumanPreset: "careful", Timezone: "America/Halifax"}
-		if r.ID == "nbdb" {
-			if v := os.Getenv("NBDB_BROWSER_PLATFORM"); v != "" {
-				if v != "windows" && v != "linux" && v != "macos" {
-					return session, bank.Fail(bank.Invalid, "browser-platform")
-				}
-				browserPlatform = v
-			}
-			browserVersion = os.Getenv("NBDB_BROWSER_VERSION")
-			if browserVersion == "" {
-				browserVersion = "146.0.7680.177.3"
-			}
-			previousVersion := "146.0.7680.177.3"
-			if previous != nil && previous.BrowserVersion != "" {
-				previousVersion = previous.BrowserVersion
-			}
-			previousPlatform := "windows"
-			if previous != nil && previous.BrowserPlatform != "" {
-				previousPlatform = previous.BrowserPlatform
-			}
-			if previousVersion != browserVersion || previousPlatform != browserPlatform {
-				// Native fingerprint profiles change between builds. Establish a
-				// new device instead of pairing old cookies with a different one.
-				previous = nil
-			}
-			// Retain the fingerprint belonging to the validated browser cookies.
-			// Older sessions have no recorded seed and establish a fresh device once.
-			browserSeed = 10000 + rand.IntN(90000)
-			if previous != nil && previous.BrowserSeed >= 10000 && previous.BrowserSeed <= 99999 {
-				browserSeed = previous.BrowserSeed
-			}
-			options.Args = []string{fmt.Sprintf("--fingerprint=%d", browserSeed), "--fingerprint-platform=" + browserPlatform}
-			if os.Getenv("NBDB_CLOAK_PATH") != "" {
-				// Current CloakBrowser's headed defaults use the actual display
-				// and a normal browser context rather than CDP viewport emulation.
-				profile, e := os.MkdirTemp("", "nbdb-browser-")
-				if e != nil {
-					return session, bank.Fail(bank.Temporary, "browser-profile")
-				}
-				defer os.RemoveAll(profile)
-				options.UserDataDir, options.NoViewport = profile, true
-				options.Locale = "en-CA"
-				options.Pipe = true
-			}
-			slog.Info("NBDB browser build", "version", browserVersion)
+		version = os.Getenv("CLOAK_VERSION")
+		if version == "" {
+			return session, bank.Fail(bank.Invalid, "browser-version")
 		}
-		owned, err := cloak.LaunchContext(ctx, options)
-		if err != nil {
-			if launch, ok := errors.AsType[*cloak.LaunchError](err); ok {
-				slog.Warn("browser startup failed", "bank", r.ID, "stage", launch.Stage, "exitCode", launch.ExitCode)
-				// These are the vendor's documented license-denial exit codes.
-				switch launch.ExitCode {
-				case 76:
-					return session, bank.Fail(bank.Temporary, "browser-license-session-limit")
-				case 77:
-					return session, bank.Fail(bank.Invalid, "browser-license-invalid")
-				case 78:
-					return session, bank.Fail(bank.Temporary, "browser-license-unavailable")
-				case 79:
-					return session, bank.Fail(bank.Invalid, "browser-license-config")
-				}
-			}
-			return session, bank.Fail(bank.Temporary, "browser-start")
+		// A remembered device belongs to the build and seed it was validated
+		// with. A different build establishes a new device instead of pairing
+		// old cookies with a different fingerprint.
+		if previous != nil && (previous.BrowserVersion != version || previous.BrowserPlatform != options.Platform) {
+			previous = nil
 		}
-		defer owned.Close()
-		browser = owned.Raw
-		slog.Info("CloakBrowser wrapper enabled", "wrapper", cloak.WrapperVersion, "preset", "careful")
-	} else {
-		launch := launcher.New().Context(ctx).Bin(binary).Headless(false).NoSandbox(true).Set("disable-dev-shm-usage")
-		control, err := launch.Launch()
-		if err != nil {
-			return session, bank.Fail(bank.Temporary, "browser-start")
+		options.Seed = 10000 + rand.IntN(90000)
+		if previous != nil && previous.BrowserSeed >= 10000 && previous.BrowserSeed <= 99999 {
+			options.Seed = previous.BrowserSeed
 		}
-		defer launch.Cleanup()
-		// Rod defaults to a Chrome 114 Mac device; preserve the actual Chromium identity.
-		browser = rod.New().NoDefaultDevice().ControlURL(control).Context(ctx)
-		if err = browser.Connect(); err != nil {
-			launch.Kill()
-			return session, bank.Fail(bank.Temporary, "browser-connect")
-		}
-		defer func() {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-			defer cancel()
-			closed := make(chan error, 1)
-			go func() { closed <- browser.Context(cleanupCtx).Close() }()
-			select {
-			case closeErr := <-closed:
-				if closeErr != nil {
-					// Cleanup waits for process exit. A failed Close must not leave
-					// it waiting forever on an expired authentication context.
-					launch.Kill()
-					slog.Warn("browser force-stopped after close failure", "errorType", fmt.Sprintf("%T", closeErr))
-				}
-			case <-cleanupCtx.Done():
-				launch.Kill()
-				slog.Warn("browser force-stopped after cleanup deadline")
-			}
-		}()
-
+		slog.Info("CloakBrowser build", "bank", r.ID, "version", version)
 	}
-	session, err = signin.Authenticate(ctx, r.ID, signin.Dependencies{Previous: previous, Credentials: credentials, EmailSender: settings.EmailSender, EmailSubject: settings.EmailSubject, EmailCodeLength: settings.EmailCodeLength}, browser)
+	instance, err := chromium.Launch(ctx, options)
 	if err != nil {
+		return session, launchFailure(r.ID, err)
+	}
+	defer instance.Close()
+	b := &signin.Browser{Context: instance.Context, Page: instance.Page}
+	if r.Browser == "cloak" {
+		if b.Human, err = human.New(instance.Context, instance.Page); err != nil {
+			return session, bank.Fail(bank.Temporary, "humanizer")
+		}
+	}
+	session, err = signin.Authenticate(ctx, r.ID, signin.Dependencies{Previous: previous, Credentials: credentials, EmailSender: settings.EmailSender, EmailSubject: settings.EmailSubject, EmailCodeLength: settings.EmailCodeLength}, b)
+	if err != nil {
+		// CloakBrowser can refuse its licence after starting, on first use.
+		if code, ok := instance.LicenceCode(); ok {
+			return session, licenceFailure(code)
+		}
 		return session, err
 	}
-	if r.ID == "nbdb" {
-		session.BrowserSeed = browserSeed
-		session.BrowserVersion = browserVersion
-		session.BrowserPlatform = browserPlatform
+	if r.Browser == "cloak" {
+		session.BrowserSeed, session.BrowserVersion, session.BrowserPlatform = options.Seed, version, options.Platform
 	}
 	snapshot, updated, err := r.API.Fetch(ctx, session, bank.FetchRequest{AccountsOnly: true})
 	session = updated
@@ -275,7 +205,11 @@ func authenticate(ctx context.Context, app *engine.Engine, secrets *config.Secre
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-	ctx, cancel := context.WithTimeout(context.Background(), 270*time.Second)
+	// An ECS stop sends SIGTERM: end the work so the browser closes and the
+	// broker reservation is released at once, not when it expires.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, 270*time.Second)
 	defer cancel()
 	cfg, err := config.AWS(ctx)
 	if err != nil {
@@ -309,7 +243,7 @@ func main() {
 		}
 	}
 	if err := operation(ctx); err != nil {
-		fields := []any{"category", bank.Classify(err).Kind, "operation", bank.Classify(err).Operation, "type", fmt.Sprintf("%T", err)}
+		fields := []any{"category", bank.Classify(err).Kind, "operation", bank.Classify(err).Operation, "errorKind", chromium.ErrorKind(err)}
 		if apiError, ok := errors.AsType[smithy.APIError](err); ok {
 			fields = append(fields, "awsCode", apiError.ErrorCode())
 		}
@@ -373,4 +307,48 @@ func open(ctx context.Context, cfg aws.Config) (*engine.Engine, *config.Secrets,
 	}
 	env := engine.Env{Table: os.Getenv("STATE_TABLE"), Bucket: os.Getenv("STATE_BUCKET"), Workflow: os.Getenv("WORKFLOW_ARN"), Commit: os.Getenv("DEPLOYMENT_COMMIT")}
 	return engine.New(cfg, env, settings, secrets), secrets, nil
+}
+
+// browserEnv is the browser's environment: this process's, without the task
+// token, the broker token or AWS credentials. Only CloakBrowser gets its
+// licence key.
+func browserEnv(cloak bool) map[string]string {
+	env := map[string]string{"GOOGLE_API_KEY": "no"}
+	for _, kv := range os.Environ() {
+		k, v, _ := strings.Cut(kv, "=")
+		switch {
+		case k == "TASK_TOKEN", k == "BROWSER_BROKER_TOKEN", strings.HasPrefix(k, "AWS_"), strings.HasPrefix(k, "ECS_"):
+			continue
+		case k == "CLOAKBROWSER_LICENSE_KEY" && !cloak:
+			continue
+		}
+		env[k] = v
+	}
+	return env
+}
+
+// launchFailure maps a browser that did not start to a failure, using the
+// licence code CloakBrowser wrote when it refused its licence.
+func launchFailure(bankID string, err error) error {
+	if launch, ok := errors.AsType[*chromium.LaunchError](err); ok && launch.Licence != 0 {
+		slog.Warn("browser startup failed", "bank", bankID, "licenceCode", launch.Licence)
+		return licenceFailure(launch.Licence)
+	}
+	slog.Warn("browser startup failed", "bank", bankID, "errorKind", chromium.ErrorKind(err))
+	return bank.Fail(bank.Temporary, "browser-start")
+}
+
+// licenceFailure maps the vendor's documented licence exit codes.
+func licenceFailure(code int) error {
+	switch code {
+	case 76:
+		return bank.Fail(bank.Temporary, "browser-license-session-limit")
+	case 77:
+		return bank.Fail(bank.Invalid, "browser-license-invalid")
+	case 78:
+		return bank.Fail(bank.Temporary, "browser-license-unavailable")
+	case 79:
+		return bank.Fail(bank.Invalid, "browser-license-config")
+	}
+	return bank.Fail(bank.Temporary, "browser-start")
 }

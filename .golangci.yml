@@ -61,11 +61,13 @@ linters:
             - "**/internal/service/**"
             - "**/internal/config/**"
           deny:
-            - pkg: github.com/go-rod/rod
-              desc: browser code belongs in internal/signin
             - pkg: github.com/nathanfredericks/transactions/internal/signin
               desc: only cmd/browser signs in
-            - pkg: github.com/nathanfredericks/transactions/internal/cloak
+            - pkg: github.com/mxschmitt/playwright-go
+              desc: browser code belongs in internal/signin
+            - pkg: github.com/nathanfredericks/transactions/internal/chromium
+              desc: only cmd/browser drives the browser
+            - pkg: github.com/nathanfredericks/transactions/internal/human
               desc: only cmd/browser drives the browser
     gosec:
       excludes:
@@ -104,13 +106,12 @@ linters:
         text: Failure
         linters: [errname]
 
-      # P6 replaces Rod with playwright-go, deletes internal/cloak and
-      # cmd/cloak-inspect, rewrites cmd/browser and the bank sign-ins, and
-      # simplifies the broker.
-      - path: ^(internal/cloak|cmd/cloak-inspect)/
-        linters: [contextcheck, errcheck, forcetypeassert, gocognit, gocritic, gosec, nestif, nilnil, noctx, revive, staticcheck]
+      # Bank sign-ins and protocols are long, linear flows verified by live
+      # sign-ins; splitting them would change what was verified.
       - path: ^(internal/banks|internal/bank|internal/signin|cmd/browser)/
         linters: [contextcheck, gocognit, gocritic, gosec, nestif]
+
+      # P6 simplifies the broker.
       - path: ^internal/browserbroker/
         linters: [contextcheck, forcetypeassert, gocognit, gosec, noctx]
       - path: ^cmd/browser-broker/

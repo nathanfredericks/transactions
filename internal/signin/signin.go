@@ -5,8 +5,6 @@ package signin
 import (
 	"context"
 
-	"github.com/go-rod/rod"
-
 	"github.com/nathanfredericks/transactions/internal/bank"
 )
 
@@ -26,7 +24,7 @@ type Dependencies struct {
 }
 
 // Authenticate signs in to the bank in the browser and returns its session.
-func Authenticate(ctx context.Context, bankID string, d Dependencies, b *rod.Browser) (bank.Session, error) {
+func Authenticate(ctx context.Context, bankID string, d Dependencies, b *Browser) (bank.Session, error) {
 	switch bankID {
 	case "eq-bank":
 		return signInEQ(ctx, d, b)

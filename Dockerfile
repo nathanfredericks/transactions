@@ -5,33 +5,26 @@ RUN go mod download
 COPY internal ./internal
 COPY cmd/browser ./cmd/browser
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -p=2 -trimpath -ldflags='-s -w' -o /browser ./cmd/browser
+# The driver is playwright-core plus the Node.js release playwright-go expects.
+# Node is fetched here, pinned by checksum, because the installer's own fetch
+# has no timeout and nodejs.org's .tar.gz stalls; the installer then adds
+# playwright-core. No browsers are downloaded.
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends xz-utils >/dev/null && \
+    mkdir -p /opt/playwright-driver && \
+    curl -fsSL --retry 3 --max-time 300 -o /tmp/node.tar.xz https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.xz && \
+    echo '6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2  /tmp/node.tar.xz' | sha256sum -c - && \
+    tar -xJf /tmp/node.tar.xz -O node-v24.21.0-linux-arm64/bin/node > /opt/playwright-driver/node && \
+    chmod 755 /opt/playwright-driver/node && rm /tmp/node.tar.xz && \
+    PLAYWRIGHT_DRIVER_PATH=/opt/playwright-driver PLAYWRIGHT_NODEJS_PATH=/opt/playwright-driver/node \
+    go run github.com/mxschmitt/playwright-go/cmd/playwright --version
 
-FROM mcr.microsoft.com/playwright:v1.59.1-noble@sha256:040190be07ce081a025d95f2aeab57b588bed4f19165c1c93cb765372d368463 AS browsers
-ENV CLOAKBROWSER_CACHE_DIR=/opt/cloakbrowser CLOAKBROWSER_AUTO_UPDATE=false
-WORKDIR /tmp/browser-install
-RUN npm install --ignore-scripts --save-exact cloakbrowser@0.3.25 playwright-core@1.59.1 && node --input-type=module -e 'import {ensureBinary} from "cloakbrowser"; import {writeFileSync} from "node:fs"; writeFileSync("/opt/cloak-path",await ensureBinary())'
-# Pin the actual ARM64 executable as well as the npm wrapper/version.
-RUN printf '%s  %s\n' '3cf5231598c4fd44be1ed10c58cab4a1d59cd18b05a4800c73b946e0bfc4d34f' "$(cat /opt/cloak-path)" | sha256sum -c -
-RUN mkdir /opt/browsers && ln -s "$(cat /opt/cloak-path)" /opt/browsers/cloak && ln -s "$(find /ms-playwright -name chrome -type f | head -1)" /opt/browsers/chromium
-# The key is available only to this build step; it never enters image layers.
-# The official downloader verifies the signed manifest and archive checksum.
-RUN --mount=type=secret,id=cloak_license,required=true npm install --ignore-scripts --save-exact --prefix /tmp/nbdb-browser-install cloakbrowser@0.6.0 playwright-core@1.59.1 && CLOAKBROWSER_LICENSE_KEY="$(cat /run/secrets/cloak_license)" CLOAKBROWSER_CACHE_DIR=/opt/cloakbrowser-nbdb node --input-type=module -e 'import {ensureBinary} from "/tmp/nbdb-browser-install/node_modules/cloakbrowser/dist/index.js"; import {writeFileSync} from "node:fs"; const p=await ensureBinary(); if(!p.includes("154.0.8037.57.1")) throw new Error("Unexpected NBDB browser version"); writeFileSync("/opt/nbdb-cloak-path",p)'
-RUN printf '%s  %s\n' '8eba2a336aac8e48dd573c2cdc34e6619b223f2f32aeecea4ac70bc97c9321d0' "$(cat /opt/nbdb-cloak-path)" | sha256sum -c - && ln -s "$(cat /opt/nbdb-cloak-path)" /opt/browsers/nbdb-cloak && rm -f /opt/cloakbrowser-nbdb/.license_cache
-
-# A full runtime: the browsers above plus licences, without Node. Build this
-# target only to refresh browser binaries deliberately, verify it with real
-# sign-ins, push it, and pin its digest in the release stage below.
-FROM browsers AS runtime
-COPY third_party/cloakbrowser-0.3.25/LICENSE /usr/share/licenses/cloakbrowser/LICENSE
-COPY third_party/cloakbrowser-0.3.25/PLAYWRIGHT-LICENSE /usr/share/licenses/cloakbrowser/PLAYWRIGHT-LICENSE
-COPY third_party/cloakbrowser-0.6.0/LICENSE /usr/share/licenses/cloakbrowser/LICENSE-0.6.0
-RUN rm -rf /tmp/browser-install /tmp/nbdb-browser-install /usr/local/lib/node_modules /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx /usr/bin/node /usr/bin/npm /usr/bin/npx
-ENV CHROMIUM_PATH=/opt/browsers/chromium CLOAK_PATH=/opt/browsers/cloak NBDB_CLOAK_PATH=/opt/browsers/nbdb-cloak NBDB_BROWSER_VERSION=154.0.8037.57.1 TZ=America/Halifax
-USER pwuser
-ENTRYPOINT ["timeout","--signal=TERM","--kill-after=15s","300s","xvfb-run","-a","/usr/local/bin/bank-browser"]
-
-# Releases add only the worker binary to the verified, deployed runtime, pinned
-# by digest. The NBDB and Rogers browser builds never change by accident, and
-# the licensed browser download does not run on release.
+# Releases build on the verified browser runtime, pinned by digest: stock
+# Chromium for EQ, CloakBrowser 154.0.8037.57.1 for Rogers and NBDB, and the
+# fonts and Xvfb they run with. Changing a browser build is a deliberate step:
+# build a new runtime, verify real sign-ins with it, push it and pin it here.
 FROM 187489282488.dkr.ecr.ca-central-1.amazonaws.com/cdk-hnb659fds-container-assets-187489282488-ca-central-1@sha256:9b5af1b89670a128757a7b56c1bb39a3d995beab53ba715570a7ff354ffd7ee3 AS release
+COPY --from=build /opt/playwright-driver /opt/playwright-driver
 COPY --from=build /browser /usr/local/bin/bank-browser
+ENV PLAYWRIGHT_DRIVER_PATH=/opt/playwright-driver \
+    CLOAK_PATH=/opt/browsers/nbdb-cloak \
+    CLOAK_VERSION=154.0.8037.57.1
