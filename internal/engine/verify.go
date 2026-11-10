@@ -51,7 +51,7 @@ func (e *Engine) VerifySession(ctx context.Context, bankID string, renew bool) (
 		}
 		s = updated
 	}
-	snapshot, updated, fetchErr := adapter.Fetch(ctx, s, bank.FetchRequest{StartDate: settings.StartDate})
+	snapshot, updated, fetchErr := adapter.Fetch(ctx, s, bank.FetchRequest{StartDate: e.historyStart(settings.StartDate)})
 	if err = e.saveSession(ctx, updated); err != nil {
 		return nil, err
 	}

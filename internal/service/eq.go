@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/nathanfredericks/transactions/internal/types"
 )
@@ -32,7 +33,9 @@ func GetAccounts(ctx context.Context) ([]YNABAccount, error) {
 	return response.Data.Accounts, err
 }
 
-func GetAccountTransactions(ctx context.Context, account string) ([]*types.YNABTransaction, error) {
+// GetAccountTransactions reads an account's transactions dated on or after
+// since (YYYY-MM-DD), deleted ones included.
+func GetAccountTransactions(ctx context.Context, account, since string) ([]*types.YNABTransaction, error) {
 	client, err := newYNABClient(ctx)
 	if err != nil {
 		return nil, err
@@ -42,7 +45,7 @@ func GetAccountTransactions(ctx context.Context, account string) ([]*types.YNABT
 			Transactions []*types.YNABTransaction `json:"transactions"`
 		} `json:"data"`
 	}
-	err = client.do(ctx, http.MethodGet, fmt.Sprintf("/budgets/%s/accounts/%s/transactions?last_knowledge_of_server=0", client.budgetID, account), nil, &response)
+	err = client.do(ctx, http.MethodGet, "/budgets/"+client.budgetID+"/accounts/"+account+"/transactions?last_knowledge_of_server=0&since_date="+url.QueryEscape(since), nil, &response)
 	return response.Data.Transactions, err
 }
 

@@ -182,7 +182,7 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 		hold = true
 		return e.outcome("authentication-required", 0), nil
 	}
-	snapshot, updated, fetchErr := adapter.Fetch(ctx, session, bank.FetchRequest{StartDate: settings.StartDate})
+	snapshot, updated, fetchErr := adapter.Fetch(ctx, session, bank.FetchRequest{StartDate: e.historyStart(settings.StartDate)})
 	if err = e.saveSession(ctx, updated); err != nil {
 		return out, err
 	}
@@ -193,7 +193,7 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 				return out, err
 			}
 			if re == nil {
-				snapshot, updated, fetchErr = adapter.Fetch(ctx, renewed, bank.FetchRequest{StartDate: settings.StartDate})
+				snapshot, updated, fetchErr = adapter.Fetch(ctx, renewed, bank.FetchRequest{StartDate: e.historyStart(settings.StartDate)})
 				if err = e.saveSession(ctx, updated); err != nil {
 					return out, err
 				}
@@ -364,4 +364,10 @@ func (e *Engine) deferCapacity(ctx context.Context) (Outcome, error) {
 	e.Job.Error = ""
 	e.Job.Operation = ""
 	return e.outcome("deferred", 120), e.saveJob(ctx)
+}
+
+// historyStart is the first day a retrieval fetches: the last 60 days, never
+// before the bank's configured start.
+func (e *Engine) historyStart(configured string) string {
+	return max(configured, e.Settings.Today().AddDate(0, 0, -60).Format("2006-01-02"))
 }

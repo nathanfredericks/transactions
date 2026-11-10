@@ -100,8 +100,7 @@ func (e *Engine) Email(ctx context.Context, event events.S3Event) (any, error) {
 			j.Bank = "eq-bank"
 			j.Source = "alert"
 			j.AlertAmount = amount
-			zone, _ := time.LoadLocation(e.Settings.Timezone)
-			j.AlertDate = parsed.Date.In(zone).Format("2006-01-02")
+			j.AlertDate = parsed.Date.In(e.Settings.Location()).Format("2006-01-02")
 		} else {
 			for _, entry := range e.Settings.Email {
 				if !strings.EqualFold(entry.EmailAddress, parsed.From) || entry.EmailSubject != parsed.Subject {

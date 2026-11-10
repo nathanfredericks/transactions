@@ -17,13 +17,7 @@ import (
 // learningPK holds the importer's suggestion records by YNAB transaction ID.
 const learningPK = "LEARN"
 
-func (e *Engine) today() string {
-	zone, err := time.LoadLocation(e.Settings.Timezone)
-	if err != nil {
-		zone = time.UTC
-	}
-	return time.Now().In(zone).Format("2006-01-02")
-}
+func (e *Engine) today() string { return e.Settings.Today().Format("2006-01-02") }
 
 // outcomes counts, among changed transactions the user has approved, those the
 // importer suggested and how many suggested fields the user kept.

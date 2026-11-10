@@ -7,6 +7,9 @@ import (
 	"os"
 	"time"
 
+	// Embeds the zone database, so time zones load in any runtime image.
+	_ "time/tzdata"
+
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 
 	"github.com/nathanfredericks/transactions/internal/types"
@@ -36,7 +39,23 @@ type Settings struct {
 	ImportsEnabled bool                    `json:"importsEnabled"`
 	Banks          map[string]BankSettings `json:"banks"`
 	Email          []types.EmailConfig     `json:"email"`
+	location       *time.Location
 }
+
+// Location is the budget's time zone, which dates transactions and alerts.
+func (s *Settings) Location() *time.Location {
+	if s.location == nil {
+		return time.UTC
+	}
+	return s.location
+}
+
+// Today is the current date in the budget's time zone.
+func (s *Settings) Today() time.Time {
+	now := time.Now().In(s.Location())
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, s.Location())
+}
+
 type settingsKey struct{}
 
 func WithSettings(ctx context.Context, s *Settings) context.Context {
@@ -66,7 +85,7 @@ func Load(ctx context.Context) (*Settings, error) {
 	if s.Version != 1 || s.BudgetID == "" || s.Timezone == "" || s.OpenAIEndpoint == "" || s.OpenAIModel == "" {
 		return nil, errors.New("incomplete settings")
 	}
-	if _, e = time.LoadLocation(s.Timezone); e != nil {
+	if s.location, e = time.LoadLocation(s.Timezone); e != nil {
 		return nil, e
 	}
 	for _, b := range s.Banks {

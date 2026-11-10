@@ -114,6 +114,15 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot) error {
 			return err
 		}
 	}
+	// Read YNAB from a month before the oldest record, so a date the user
+	// moved back in YNAB still finds the transaction's import ID.
+	since := ""
+	for _, r := range records {
+		if since == "" || r.Date < since {
+			since = r.Date
+		}
+	}
+	since = addDays(since, -30)
 	imported := map[string]map[string]bool{}
 	var cache *learning
 	for _, r := range records {
@@ -123,7 +132,7 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot) error {
 		}
 		ids, ok := imported[target.ID]
 		if !ok {
-			rows, err := service.GetAccountTransactions(ctx, target.ID)
+			rows, err := service.GetAccountTransactions(ctx, target.ID, since)
 			if err != nil {
 				return err
 			}
@@ -181,8 +190,7 @@ func (e *Engine) balances(ctx context.Context, s bank.Snapshot) error {
 	if err = service.ValidateAdjustmentPayee(ctx, e.Settings.AdjustmentPayeeID); err != nil {
 		return err
 	}
-	zone, _ := time.LoadLocation(e.Settings.Timezone)
-	day := time.Now().In(zone).Format("2006-01-02")
+	day := e.today()
 	for _, a := range s.Accounts {
 		target := mapping[a.ID]
 		if target.ID == "" {
@@ -223,7 +231,7 @@ func (e *Engine) notificationImport(ctx context.Context) (int, error) {
 		slog.Warn("notification extraction failed", "job", e.Job.ID, "error", err)
 		return 0, bank.Fail(bank.Temporary, "notification-extract")
 	}
-	zone, _ := time.LoadLocation(e.Settings.Timezone)
+	zone := e.Settings.Location()
 	received := e.Job.OccurredAt.In(zone).Format("2006-01-02")
 	date := received
 	if alert.Date != "" {
@@ -307,7 +315,7 @@ func deref(s *string) string {
 // inflow of the same amount, from the same descriptor, posted between the date
 // the alert states and the day it arrived, not already claimed by another alert.
 func (e *Engine) findEchoCredit(ctx context.Context, alert service.Alert, received string) (*types.YNABTransaction, error) {
-	rows, err := service.GetAccountTransactions(ctx, e.Job.AccountID)
+	rows, err := service.GetAccountTransactions(ctx, e.Job.AccountID, alert.Date)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +389,7 @@ func (e *Engine) clearEchoes(ctx context.Context, account string, credit Record,
 	if len(matches) == 0 {
 		return nil
 	}
-	rows, err := service.GetAccountTransactions(ctx, account)
+	rows, err := service.GetAccountTransactions(ctx, account, addDays(credit.Date, -5))
 	if err != nil {
 		return err
 	}
