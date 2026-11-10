@@ -1,4 +1,4 @@
-package bank
+package signin
 
 import (
 	"context"
@@ -19,6 +19,7 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 
+	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/cloak"
 )
 
@@ -136,7 +137,7 @@ func (o *Observer) Wait(ctx context.Context, match func(Exchange) bool) (Exchang
 		select {
 		case <-ctx.Done():
 			// Silence from an endpoint is not evidence of an unsupported challenge.
-			return Exchange{}, Fail(Temporary, "browser-response-timeout")
+			return Exchange{}, bank.Fail(bank.Temporary, "browser-response-timeout")
 		case <-o.changed:
 		}
 	}
@@ -149,7 +150,7 @@ func (o *Observer) PostData(e Exchange) (string, error) {
 	}
 	r, err := (proto.NetworkGetRequestPostData{RequestID: e.ID}).Call(o.Page)
 	if err != nil {
-		return "", Fail(Invalid, "request-body-capture")
+		return "", bank.Fail(bank.Invalid, "request-body-capture")
 	}
 	return r.PostData, nil
 }
@@ -186,18 +187,18 @@ func (o *Observer) Diagnostics(hostSuffix string) []map[string]any {
 func (o *Observer) Body(e Exchange, out any) error {
 	r, err := (proto.NetworkGetResponseBody{RequestID: e.ID}).Call(o.Page)
 	if err != nil {
-		return Fail(Invalid, "browser-response")
+		return bank.Fail(bank.Invalid, "browser-response")
 	}
 	data := []byte(r.Body)
 	if r.Base64Encoded {
 		var err error
 		data, err = base64.StdEncoding.DecodeString(r.Body)
 		if err != nil {
-			return Fail(Invalid, "browser-base64")
+			return bank.Fail(bank.Invalid, "browser-base64")
 		}
 	}
 	if json.Unmarshal(data, out) != nil {
-		return Fail(Invalid, "browser-json")
+		return bank.Fail(bank.Invalid, "browser-json")
 	}
 	return nil
 }
@@ -217,15 +218,15 @@ func SafeHeaders(h proto.NetworkHeaders) map[string]string {
 	return out
 }
 
-func BrowserSession(b *rod.Browser, id string, headers map[string]string, auth any) (Session, error) {
+func BrowserSession(b *rod.Browser, id string, headers map[string]string, auth any) (bank.Session, error) {
 	raw, e := json.Marshal(auth)
 	if e != nil {
-		return Session{}, e
+		return bank.Session{}, e
 	}
-	s := Session{Version: 1, Bank: id, Headers: headers, Auth: raw}
+	s := bank.Session{Version: 1, Bank: id, Headers: headers, Auth: raw}
 	cookies, e := b.GetCookies()
 	if e != nil {
-		return s, Fail(Temporary, "cookies")
+		return s, bank.Fail(bank.Temporary, "cookies")
 	}
 	for _, c := range cookies {
 		cookie := http.Cookie{Name: c.Name, Value: c.Value, Path: c.Path, Secure: c.Secure, HttpOnly: c.HTTPOnly}
@@ -235,9 +236,9 @@ func BrowserSession(b *rod.Browser, id string, headers map[string]string, auth a
 		if !c.Session {
 			cookie.Expires = time.Unix(int64(c.Expires), 0)
 		}
-		s.Cookies = append(s.Cookies, Cookie{URL: "https://" + strings.TrimPrefix(c.Domain, ".") + c.Path, Value: cookie})
+		s.Cookies = append(s.Cookies, bank.Cookie{URL: "https://" + strings.TrimPrefix(c.Domain, ".") + c.Path, Value: cookie})
 	}
-	TokenTiming(&s)
+	bank.TokenTiming(&s)
 	return s, nil
 }
 
@@ -246,7 +247,7 @@ func Type(p *rod.Page, selector, value string) error  { return enterText(p, sele
 func enterText(p *rod.Page, selector, value string, typed bool) error {
 	human, err := cloak.Humanizer(p)
 	if err != nil {
-		return Fail(Temporary, "humanizer")
+		return bank.Fail(bank.Temporary, "humanizer")
 	}
 	if human != nil {
 		// Original fill() and pressSequentially() compose different focus/clear paths.
@@ -257,15 +258,15 @@ func enterText(p *rod.Page, selector, value string, typed bool) error {
 			err = human.Fill(selector, value)
 		}
 		if err != nil {
-			return Fail(Temporary, "input-events")
+			return bank.Fail(bank.Temporary, "input-events")
 		}
 		el, err := human.Element(selector)
 		if err != nil {
-			return Fail(Challenge, "input-missing")
+			return bank.Fail(bank.Challenge, "input-missing")
 		}
 		entered, err := el.Raw.Property("value")
 		if err != nil || entered.Str() != value {
-			return Fail(Challenge, "input-value")
+			return bank.Fail(bank.Challenge, "input-value")
 		}
 		return nil
 	}
@@ -277,21 +278,21 @@ func enterText(p *rod.Page, selector, value string, typed bool) error {
 		if err == nil {
 			slog.Warn("browser input missing", "selector", selector, "controls", controls.Value)
 		}
-		return Fail(Challenge, "input-missing")
+		return bank.Fail(bank.Challenge, "input-missing")
 	}
 	if e = el.WaitVisible(); e != nil {
-		return Fail(Challenge, "input-hidden")
+		return bank.Fail(bank.Challenge, "input-hidden")
 	}
 	if e = el.SelectAllText(); e != nil {
-		return Fail(Challenge, "input-selection")
+		return bank.Fail(bank.Challenge, "input-selection")
 	}
 	if e = el.Input(value); e != nil {
-		return Fail(Challenge, "input")
+		return bank.Fail(bank.Challenge, "input")
 	}
 
 	entered, e := el.Property("value")
 	if e != nil || entered.Str() != value {
-		return Fail(Challenge, "input-value")
+		return bank.Fail(bank.Challenge, "input-value")
 	}
 	return nil
 }
@@ -301,11 +302,11 @@ const visibleButtonJS = `(selector,label)=>Array.from(document.querySelectorAll(
 func Click(p *rod.Page, selector, label string) error {
 	human, err := cloak.Humanizer(p)
 	if err != nil {
-		return Fail(Temporary, "humanizer")
+		return bank.Fail(bank.Temporary, "humanizer")
 	}
 	if human != nil {
 		if err := human.Click(selector, label); err != nil {
-			return Fail(Temporary, "button-events")
+			return bank.Fail(bank.Temporary, "button-events")
 		}
 		return nil
 	}
@@ -313,15 +314,15 @@ func Click(p *rod.Page, selector, label string) error {
 	el, e := p.Timeout(30 * time.Second).ElementByJS(rod.Eval(visibleButtonJS, selector, label))
 	if e != nil {
 		LogControls(p)
-		return Fail(Challenge, "button-missing")
+		return bank.Fail(bank.Challenge, "button-missing")
 	}
 	if e = el.Click(proto.InputMouseButtonLeft, 1); e != nil {
 		slog.Warn("browser control failed", "operation", "click", "errorType", fmt.Sprintf("%T", e))
 		LogControls(p)
 		if errors.Is(e, context.DeadlineExceeded) || errors.Is(e, context.Canceled) {
-			return Fail(Temporary, "button-timeout")
+			return bank.Fail(bank.Temporary, "button-timeout")
 		}
-		return Fail(Challenge, "button")
+		return bank.Fail(bank.Challenge, "button")
 	}
 	return nil
 }
@@ -338,7 +339,7 @@ func LogControls(p *rod.Page) {
 func ClickIfPresent(p *rod.Page, selector, label string, timeout time.Duration) (bool, error) {
 	human, err := cloak.Humanizer(p)
 	if err != nil {
-		return false, Fail(Temporary, "humanizer")
+		return false, bank.Fail(bank.Temporary, "humanizer")
 	}
 	if human != nil {
 		ctx, cancel := context.WithTimeout(p.GetContext(), timeout)
@@ -348,11 +349,11 @@ func ClickIfPresent(p *rod.Page, selector, label string, timeout time.Duration) 
 			if p.GetContext().Err() == nil && errors.Is(err, context.DeadlineExceeded) {
 				return false, nil
 			}
-			return false, Fail(Temporary, "optional-control")
+			return false, bank.Fail(bank.Temporary, "optional-control")
 		}
 		// Lookup deadline must not expire the click's context.
 		if err = human.Click(selector, label); err != nil {
-			return false, Fail(Temporary, "optional-control")
+			return false, bank.Fail(bank.Temporary, "optional-control")
 		}
 		return true, nil
 	}
@@ -362,10 +363,10 @@ func ClickIfPresent(p *rod.Page, selector, label string, timeout time.Duration) 
 		if p.GetContext().Err() == nil && errors.Is(err, context.DeadlineExceeded) {
 			return false, nil
 		}
-		return false, Fail(Challenge, "optional-control")
+		return false, bank.Fail(bank.Challenge, "optional-control")
 	}
 	if err = el.Context(p.GetContext()).Timeout(15*time.Second).Click(proto.InputMouseButtonLeft, 1); err != nil {
-		return false, Fail(Challenge, "optional-control")
+		return false, bank.Fail(bank.Challenge, "optional-control")
 	}
 	return true, nil
 }
@@ -373,7 +374,7 @@ func ClickIfPresent(p *rod.Page, selector, label string, timeout time.Duration) 
 func NewPage(ctx context.Context, b *rod.Browser) (*rod.Page, error) {
 	p, e := cloak.NewPage(ctx, b)
 	if e != nil {
-		return nil, Fail(Temporary, "browser-page")
+		return nil, bank.Fail(bank.Temporary, "browser-page")
 	}
 	return p, nil
 }
@@ -382,7 +383,7 @@ func NewPage(ctx context.Context, b *rod.Browser) (*rod.Page, error) {
 func ClickElement(p *rod.Page, el *rod.Element) error {
 	human, err := cloak.Humanizer(p)
 	if err != nil {
-		return Fail(Temporary, "humanizer")
+		return bank.Fail(bank.Temporary, "humanizer")
 	}
 	if human != nil {
 		return human.Wrap(el).Click()

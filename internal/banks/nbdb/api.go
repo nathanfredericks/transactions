@@ -18,8 +18,8 @@ import (
 const summary = "https://iiroc.investments.apis.bnc.ca/orion-api/v1/1/portfolios/summary"
 
 type (
-	Adapter struct{ Dependencies bank.Dependencies }
-	auth    struct {
+	API  struct{}
+	Auth struct {
 		TokenURL      string            `json:"tokenUrl"`
 		ClientID      string            `json:"clientId"`
 		RedirectURI   string            `json:"redirectUri"`
@@ -29,8 +29,8 @@ type (
 	}
 )
 
-func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, error) {
-	var c auth
+func (API) Renew(ctx context.Context, s bank.Session) (bank.Session, error) {
+	var c Auth
 	if json.Unmarshal(s.Auth, &c) != nil {
 		return s, bank.Fail(bank.Authentication, "renew")
 	}
@@ -117,7 +117,7 @@ func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, erro
 	return s, bank.Fail(bank.Authentication, "authorization")
 }
 
-func (a *Adapter) Fetch(ctx context.Context, s bank.Session, _ bank.FetchRequest) (bank.Snapshot, bank.Session, error) {
+func (API) Fetch(ctx context.Context, s bank.Session, _ bank.FetchRequest) (bank.Snapshot, bank.Session, error) {
 	out := bank.Snapshot{At: time.Now()}
 	var data struct {
 		Data struct {

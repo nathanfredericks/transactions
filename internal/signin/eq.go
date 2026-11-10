@@ -1,4 +1,4 @@
-package eq
+package signin
 
 import (
 	"context"
@@ -12,14 +12,15 @@ import (
 	"github.com/go-rod/rod"
 
 	"github.com/nathanfredericks/transactions/internal/bank"
+	"github.com/nathanfredericks/transactions/internal/banks/eq"
 )
 
-func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (bank.Session, error) {
-	p, e := bank.NewPage(ctx, b)
+func signInEQ(ctx context.Context, d Dependencies, b *rod.Browser) (bank.Session, error) {
+	p, e := NewPage(ctx, b)
 	if e != nil {
 		return bank.Session{}, e
 	}
-	o := bank.Observe(p)
+	o := Observe(p)
 	defer o.Close()
 	stage := "login-email"
 	fail := func(e error) (bank.Session, error) {
@@ -42,32 +43,32 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (bank.Sessio
 	if e = p.Navigate("https://secure.eqbank.ca/"); e != nil {
 		return fail(bank.Fail(bank.Temporary, "navigation"))
 	}
-	if e = bank.Input(p, `input[type="email"], input[name="username"]`, a.Dependencies.Credentials.Username); e != nil {
+	if e = Input(p, `input[type="email"], input[name="username"]`, d.Credentials.Username); e != nil {
 		return fail(e)
 	}
-	if e = bank.Click(p, "button", `^(?:[Ss]ign in|[Ll]og in)$`); e != nil {
+	if e = Click(p, "button", `^(?:[Ss]ign in|[Ll]og in)$`); e != nil {
 		return fail(e)
 	}
 	stage = "login-password"
-	if e = bank.Input(p, `input[type="password"]`, a.Dependencies.Credentials.Password); e != nil {
+	if e = Input(p, `input[type="password"]`, d.Credentials.Password); e != nil {
 		return fail(e)
 	}
 	after := time.Now()
-	if e = bank.Click(p, "button", `^(?:[Ss]ign in|[Ll]og in)$`); e != nil {
+	if e = Click(p, "button", `^(?:[Ss]ign in|[Ll]og in)$`); e != nil {
 		return fail(e)
 	}
 	if _, e = p.Timeout(25 * time.Second).Element(`input[autocomplete="one-time-code"]`); e != nil {
 		return fail(bank.Fail(bank.Challenge, "verification-not-reached"))
 	}
 	stage = "verification-code"
-	code, e := bank.ReadCode(ctx, a.Dependencies.Credentials.MailToken, bank.MailChallenge{After: after, Sender: "alert@eqbank.ca", Subject: "EQ Bank One Time Passcode - ", Prefix: true, Length: 6})
+	code, e := ReadCode(ctx, d.Credentials.MailToken, MailChallenge{After: after, Sender: "alert@eqbank.ca", Subject: "EQ Bank One Time Passcode - ", Prefix: true, Length: 6})
 	if e != nil {
 		return fail(e)
 	}
-	if e = bank.Input(p, `input[autocomplete="one-time-code"]`, code); e != nil {
+	if e = Input(p, `input[autocomplete="one-time-code"]`, code); e != nil {
 		return fail(e)
 	}
-	if e = bank.Click(p, "button", `^Verify$`); e != nil {
+	if e = Click(p, "button", `^Verify$`); e != nil {
 		return fail(e)
 	}
 	stage = "account-capture"
@@ -76,8 +77,8 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (bank.Sessio
 	// from inspecting the page and disguises maintenance as an ordinary timeout.
 	captureCtx, cancelCapture := context.WithTimeout(ctx, 60*time.Second)
 	defer cancelCapture()
-	waitResponse := func(method, endpoint string) (bank.Exchange, error) {
-		v, err := o.Wait(captureCtx, func(v bank.Exchange) bool {
+	waitResponse := func(method, endpoint string) (Exchange, error) {
+		v, err := o.Wait(captureCtx, func(v Exchange) bool {
 			return v.Request.Method == method && v.Request.URL == endpoint && (v.Failed || v.Response != nil)
 		})
 		if err != nil {
@@ -91,7 +92,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (bank.Sessio
 		case status == 200:
 			return v, nil
 		case status == 429:
-			headers := bank.SafeHeaders(v.Response.Headers)
+			headers := SafeHeaders(v.Response.Headers)
 			return v, bank.Throttle("browser-http", headers["retry-after"])
 		case status == 401 || status == 419 || status == 440:
 			return v, bank.Fail(bank.Authentication, "browser-http")
@@ -101,7 +102,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (bank.Sessio
 			return v, bank.Fail(bank.Invalid, "browser-http-status-"+strconv.Itoa(status))
 		}
 	}
-	discovery, e := waitResponse("GET", api+"/accounts/v2/accounts")
+	discovery, e := waitResponse("GET", eq.Endpoint+"/accounts/v2/accounts")
 	if e != nil {
 		return fail(e)
 	}
@@ -126,5 +127,5 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (bank.Sessio
 	if payload.ClientID == "" {
 		return fail(bank.Fail(bank.Invalid, "auth-capture"))
 	}
-	return bank.BrowserSession(b, "eq-bank", bank.SafeHeaders(discovery.Request.Headers), auth{ClientID: payload.ClientID})
+	return BrowserSession(b, "eq-bank", SafeHeaders(discovery.Request.Headers), eq.Auth{ClientID: payload.ClientID})
 }

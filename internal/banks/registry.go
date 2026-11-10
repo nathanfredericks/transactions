@@ -9,9 +9,9 @@ import (
 )
 
 var All = []bank.Registration{
-	{ID: "eq-bank", ImportPrefix: "EQ", PurchaseAccount: "EQ Bank Card", Name: "EQ Bank", Strategy: "posted", Browser: "chromium", New: func(d bank.Dependencies) bank.Adapter { return &eq.Adapter{Dependencies: d} }},
-	{ID: "rogers-bank", Name: "Rogers Bank", Strategy: "posted", Browser: "cloak", New: func(d bank.Dependencies) bank.Adapter { return &rogers.Adapter{Dependencies: d} }},
-	{ID: "nbdb", Name: "NBDB", Strategy: "balances", Browser: "cloak", New: func(d bank.Dependencies) bank.Adapter { return &nbdb.Adapter{Dependencies: d} }},
+	{ID: "eq-bank", ImportPrefix: "EQ", PurchaseAccount: "EQ Bank Card", Name: "EQ Bank", Strategy: "posted", Browser: "chromium", API: eq.API{}},
+	{ID: "rogers-bank", Name: "Rogers Bank", Strategy: "posted", Browser: "cloak", API: rogers.API{}},
+	{ID: "nbdb", Name: "NBDB", Strategy: "balances", Browser: "cloak", API: nbdb.API{}},
 }
 
 func Find(id string) (bank.Registration, bool) {

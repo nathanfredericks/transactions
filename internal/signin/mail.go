@@ -1,4 +1,4 @@
-package bank
+package signin
 
 import (
 	"bytes"
@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/k3a/html2text"
+
+	"github.com/nathanfredericks/transactions/internal/bank"
 )
 
 type MailChallenge struct {
@@ -35,7 +37,7 @@ func ReadCode(ctx context.Context, token string, c MailChallenge) (string, error
 	request := func(endpoint string, body any, out any) error {
 		u, e := url.Parse(endpoint)
 		if e != nil || u.Scheme != "https" || (u.Host != "api.fastmail.com" && !strings.HasSuffix(u.Host, ".api.fastmail.com")) {
-			return Fail(Invalid, "mail-origin")
+			return bank.Fail(bank.Invalid, "mail-origin")
 		}
 		var r io.Reader
 		method := "GET"
@@ -52,11 +54,11 @@ func ReadCode(ctx context.Context, token string, c MailChallenge) (string, error
 		req.Header.Set("Content-Type", "application/json")
 		resp, e := client.Do(req)
 		if e != nil {
-			return Fail(Temporary, "mail")
+			return bank.Fail(bank.Temporary, "mail")
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			return Fail(Temporary, "mail")
+			return bank.Fail(bank.Temporary, "mail")
 		}
 		return json.NewDecoder(io.LimitReader(resp.Body, 2*1024*1024)).Decode(out)
 	}
@@ -69,7 +71,7 @@ func ReadCode(ctx context.Context, token string, c MailChallenge) (string, error
 	}
 	account := session.Accounts["urn:ietf:params:jmap:mail"]
 	if account == "" || c.Length < 4 || c.Length > 12 {
-		return "", Fail(Invalid, "mail-config")
+		return "", bank.Fail(bank.Invalid, "mail-config")
 	}
 	call := func(method string, args map[string]any, out any) error {
 		args["accountId"] = account
@@ -81,12 +83,12 @@ func ReadCode(ctx context.Context, token string, c MailChallenge) (string, error
 			return e
 		}
 		if len(response.Methods) != 1 || len(response.Methods[0]) < 2 {
-			return Fail(Invalid, "mail-response")
+			return bank.Fail(bank.Invalid, "mail-response")
 		}
 		var got string
 		_ = json.Unmarshal(response.Methods[0][0], &got)
 		if got != method {
-			return Fail(Temporary, "mail-method")
+			return bank.Fail(bank.Temporary, "mail-method")
 		}
 		return json.Unmarshal(response.Methods[0][1], out)
 	}
@@ -164,7 +166,7 @@ func ReadCode(ctx context.Context, token string, c MailChallenge) (string, error
 		}
 		select {
 		case <-ctx.Done():
-			return "", Fail(Temporary, "email-code-timeout")
+			return "", bank.Fail(bank.Temporary, "email-code-timeout")
 		case <-ticker.C:
 		}
 	}

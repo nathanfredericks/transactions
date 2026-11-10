@@ -116,7 +116,7 @@ func (e *Engine) Run(ctx context.Context, request Request) (out Outcome, err err
 	if !ok || !settings.Enabled {
 		return out, bank.Fail(bank.Invalid, "bank-disabled")
 	}
-	adapter := registration.New(bank.Dependencies{})
+	adapter := registration.API
 	if e.Job.Status == "browser" {
 		var result BrowserResult
 		found, re := e.get(ctx, "BROWSER#"+e.Lease.Generation, &result)
@@ -325,7 +325,7 @@ func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
 
 // renew exchanges the session's tokens. A renewal whose outcome is unknown
 // counts as expired authentication, so the job signs in through the browser.
-func (e *Engine) renew(ctx context.Context, adapter bank.Adapter, session bank.Session) (bank.Session, error) {
+func (e *Engine) renew(ctx context.Context, adapter bank.API, session bank.Session) (bank.Session, error) {
 	oldAccess, oldRefresh, oldExpiry := session.Headers["authorization"], session.Headers["refreshtoken"], session.ExpiresAt
 	renewed, err := adapter.Renew(ctx, session)
 	slog.Info("session-renewal", "bank", e.Job.Bank, "success", err == nil,

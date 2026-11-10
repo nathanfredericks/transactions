@@ -82,9 +82,6 @@ linters:
       # struct, state.WithLease (which releases the lease once, checked).
       - path: ^internal/engine/
         linters: [errcheck, gocognit, nestif]
-      # D2 replaces EQ reconcile with the posted path.
-      - path: ^internal/engine/reconcile\.go$
-        linters: [unparam]
 
 
       # P5 replaces config globals and renames the typed failure.
@@ -100,7 +97,7 @@ linters:
       # simplifies the broker.
       - path: ^(internal/cloak|cmd/cloak-inspect)/
         linters: [contextcheck, errcheck, forcetypeassert, gocognit, gocritic, gosec, nestif, nilnil, noctx, revive, staticcheck]
-      - path: ^(internal/banks|internal/bank|cmd/browser)/
+      - path: ^(internal/banks|internal/bank|internal/signin|cmd/browser)/
         linters: [contextcheck, gocognit, gocritic, gosec, nestif]
       - path: ^internal/browserbroker/
         linters: [contextcheck, forcetypeassert, gocognit, gosec, noctx]

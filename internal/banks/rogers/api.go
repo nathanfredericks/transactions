@@ -13,16 +13,16 @@ import (
 )
 
 type (
-	Adapter struct{ Dependencies bank.Dependencies }
-	auth    struct {
+	API  struct{}
+	Auth struct {
 		DeviceStorage map[string]string `json:"deviceStorage,omitempty"`
 		AccountID     string            `json:"accountId"`
 		CustomerID    string            `json:"customerId"`
 	}
 )
 
-func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, error) {
-	var c auth
+func (API) Renew(ctx context.Context, s bank.Session) (bank.Session, error) {
+	var c Auth
 	_ = json.Unmarshal(s.Auth, &c)
 	if c.AccountID == "" || c.CustomerID == "" || s.Headers["accesstoken"] == "" || s.Headers["refreshtoken"] == "" || s.Headers["deviceid"] == "" {
 		return s, bank.Fail(bank.Authentication, "renew")
@@ -42,9 +42,9 @@ func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, erro
 	return s, e
 }
 
-func (a *Adapter) Fetch(ctx context.Context, s bank.Session, r bank.FetchRequest) (bank.Snapshot, bank.Session, error) {
+func (API) Fetch(ctx context.Context, s bank.Session, r bank.FetchRequest) (bank.Snapshot, bank.Session, error) {
 	out := bank.Snapshot{At: time.Now()}
-	var c auth
+	var c Auth
 	if json.Unmarshal(s.Auth, &c) != nil || !regexp.MustCompile(`^\d+$`).MatchString(c.AccountID) || !regexp.MustCompile(`^\d+$`).MatchString(c.CustomerID) {
 		return out, s, bank.Fail(bank.Invalid, "account-identity")
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/nathanfredericks/transactions/internal/cloak"
 	"github.com/nathanfredericks/transactions/internal/config"
 	"github.com/nathanfredericks/transactions/internal/engine"
+	"github.com/nathanfredericks/transactions/internal/signin"
 	"github.com/nathanfredericks/transactions/internal/state"
 )
 
@@ -86,7 +87,7 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 	if err != nil {
 		return session, bank.Fail(bank.Invalid, "credentials-config")
 	}
-	credentials := bank.CredentialsData{Username: stored.Username, Password: stored.Password, MailToken: stored.MailToken}
+	credentials := signin.Credentials{Username: stored.Username, Password: stored.Password, MailToken: stored.MailToken}
 	var previous *bank.Session
 	var pointer engine.SessionPointer
 	if found, e := app.Store.Get(ctx, "BANK#"+r.ID, "SESSION", &pointer); e != nil {
@@ -240,8 +241,7 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 		}()
 
 	}
-	adapter := r.New(bank.Dependencies{Previous: previous, Credentials: credentials, EmailSender: settings.EmailSender, EmailSubject: settings.EmailSubject, EmailCodeLength: settings.EmailCodeLength})
-	session, err = adapter.Authenticate(ctx, browser)
+	session, err = signin.Authenticate(ctx, r.ID, signin.Dependencies{Previous: previous, Credentials: credentials, EmailSender: settings.EmailSender, EmailSubject: settings.EmailSubject, EmailCodeLength: settings.EmailCodeLength}, browser)
 	if err != nil {
 		return session, err
 	}
@@ -250,7 +250,7 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 		session.BrowserVersion = browserVersion
 		session.BrowserPlatform = browserPlatform
 	}
-	snapshot, updated, err := adapter.Fetch(ctx, session, bank.FetchRequest{AccountsOnly: true})
+	snapshot, updated, err := r.API.Fetch(ctx, session, bank.FetchRequest{AccountsOnly: true})
 	session = updated
 	if err != nil {
 		return session, err

@@ -1,4 +1,4 @@
-package nbdb
+package signin
 
 import (
 	"context"
@@ -14,9 +14,10 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 
 	"github.com/nathanfredericks/transactions/internal/bank"
+	"github.com/nathanfredericks/transactions/internal/banks/nbdb"
 )
 
-func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session bank.Session, err error) {
+func signInNBDB(ctx context.Context, d Dependencies, b *rod.Browser) (session bank.Session, err error) {
 	stage := "login"
 	defer func() {
 		if err != nil {
@@ -25,12 +26,12 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 			err = f
 		}
 	}()
-	p, e := bank.NewPage(ctx, b)
+	p, e := NewPage(ctx, b)
 	if e != nil {
 		return bank.Session{}, e
 	}
-	if previous := a.Dependencies.Previous; previous != nil {
-		var saved auth
+	if previous := d.Previous; previous != nil {
+		var saved nbdb.Auth
 		if json.Unmarshal(previous.Auth, &saved) != nil {
 			return bank.Session{}, bank.Fail(bank.Invalid, "device-state")
 		}
@@ -62,12 +63,12 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	}
 	go router.Run()
 	defer func() { _ = router.Stop() }()
-	o := bank.Observe(p)
+	o := Observe(p)
 	defer o.Close()
 	defer func() {
 		if err != nil {
 			slog.Info("NBDB authentication exchanges", "requests", o.Diagnostics("bnc.ca"))
-			bank.LogControls(p)
+			LogControls(p)
 		}
 	}()
 	if e = p.Navigate("https://client.bnc.ca/nbdb/login"); e != nil {
@@ -79,25 +80,25 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		return bank.Session{}, bank.Fail(bank.Temporary, "navigation-ready")
 	}
 	slog.Info("NBDB login page loaded")
-	if _, e = bank.ClickIfPresent(p, "button,a", `Ignore the update`, 5*time.Second); e != nil {
+	if _, e = ClickIfPresent(p, "button,a", `Ignore the update`, 5*time.Second); e != nil {
 		return bank.Session{}, e
 	}
-	if e = enterCredentials(p, "#username", a.Dependencies.Credentials.Username, bank.Type); e != nil {
+	if e = enterCredentials(p, "#username", d.Credentials.Username, Type); e != nil {
 		return bank.Session{}, e
 	}
-	if e = enterCredentials(p, "#password-hidden", a.Dependencies.Credentials.Password, bank.Input); e != nil {
+	if e = enterCredentials(p, "#password-hidden", d.Credentials.Password, Input); e != nil {
 		return bank.Session{}, e
 	}
 	// The update notice can arrive while the credentials are being entered,
 	// especially on a cold browser. It must be dismissed before Sign in.
-	if _, e = bank.ClickIfPresent(p, "button,a", `Ignore the update`, 5*time.Second); e != nil {
+	if _, e = ClickIfPresent(p, "button,a", `Ignore the update`, 5*time.Second); e != nil {
 		return bank.Session{}, e
 	}
-	if e = bank.Click(p, "button", `^Sign in$`); e != nil {
+	if e = Click(p, "button", `^Sign in$`); e != nil {
 		return bank.Session{}, e
 	}
 	stage = "login-response"
-	login, e := o.Wait(ctx, func(v bank.Exchange) bool {
+	login, e := o.Wait(ctx, func(v Exchange) bool {
 		return v.Request.Method == "POST" && v.Request.URL == "https://api.bnc.ca/bnc/prod-okta/sso/api/v1/authn" && v.Response != nil && v.Finished
 	})
 	if e != nil {
@@ -117,7 +118,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		return bank.Session{}, bank.Fail(bank.Credentials, "login")
 	}
 	if login.Response.Status == 429 {
-		return bank.Session{}, bank.Throttle("login", bank.SafeHeaders(login.Response.Headers)["retry-after"])
+		return bank.Session{}, bank.Throttle("login", SafeHeaders(login.Response.Headers)["retry-after"])
 	}
 	if login.Response.Status != 200 {
 		code := "unrecognized"
@@ -139,19 +140,19 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	if state.Status == "MFA_REQUIRED" {
 		stage = "email-option"
 		after := time.Now()
-		if e = bank.Click(p, `a,button,[role="link"]`, `^(?:Receive by email|Email)(?:\s|$)`); e != nil {
+		if e = Click(p, `a,button,[role="link"]`, `^(?:Receive by email|Email)(?:\s|$)`); e != nil {
 			return bank.Session{}, e
 		}
 		stage = "email-code"
-		code, e := bank.ReadCode(ctx, a.Dependencies.Credentials.MailToken, bank.MailChallenge{After: after, Sender: "noreply@appbnc.ca", Subject: "Here’s your verification code", Length: 6})
+		code, e := ReadCode(ctx, d.Credentials.MailToken, MailChallenge{After: after, Sender: "noreply@appbnc.ca", Subject: "Here’s your verification code", Length: 6})
 		if e != nil {
 			return bank.Session{}, e
 		}
-		if e = bank.Input(p, `input[id="validation-code"], input[autocomplete="one-time-code"], input[name="passCode"]`, code); e != nil {
+		if e = Input(p, `input[id="validation-code"], input[autocomplete="one-time-code"], input[name="passCode"]`, code); e != nil {
 			return bank.Session{}, e
 		}
 		stage = "email-confirm"
-		if e = bank.Click(p, "button", `^(?:Confirm|Verify|Continue)$`); e != nil {
+		if e = Click(p, "button", `^(?:Confirm|Verify|Continue)$`); e != nil {
 			return bank.Session{}, e
 		}
 	}
@@ -163,11 +164,11 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	defer cancelCapture()
 	labels := []string{`^Start using online trading$`, `^Continue to my portfolio$`}
 	clicked := map[string]bool{}
-	var discovery bank.Exchange
+	var discovery Exchange
 	captured := false
 	for !captured {
 		for _, label := range labels {
-			discovery, captured = o.Latest(func(v bank.Exchange) bool {
+			discovery, captured = o.Latest(func(v Exchange) bool {
 				// Native Fetch validates the expected accounts before saving the session,
 				// even if the web app's own portfolio request fails.
 				if v.Request.Method != "GET" || !strings.HasPrefix(v.Request.URL, "https://iiroc.investments.apis.bnc.ca/orion-api/") {
@@ -190,7 +191,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 				return bank.Session{}, bank.Fail(bank.Temporary, "browser-response-timeout")
 			}
 			if !clicked[label] {
-				clicked[label], e = bank.ClickIfPresent(p.Context(captureCtx), "button,a", label, time.Second)
+				clicked[label], e = ClickIfPresent(p.Context(captureCtx), "button,a", label, time.Second)
 				if captureCtx.Err() != nil {
 					return bank.Session{}, bank.Fail(bank.Temporary, "browser-response-timeout")
 				}
@@ -215,17 +216,17 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	// a finished authorization-code response to the bearer actually used by a
 	// wealth request; the first completed token can belong to the login client.
 	stage = "token-capture"
-	var token bank.Exchange
+	var token Exchange
 	var response struct {
 		Scope  string `json:"scope"`
 		Access string `json:"access_token"`
 	}
 	matched := false
 	for !matched {
-		wealth := o.Matches(func(v bank.Exchange) bool {
+		wealth := o.Matches(func(v Exchange) bool {
 			return v.Request.Method == "GET" && strings.HasPrefix(v.Request.URL, "https://iiroc.investments.apis.bnc.ca/orion-api/")
 		})
-		tokens := o.Matches(func(v bank.Exchange) bool {
+		tokens := o.Matches(func(v Exchange) bool {
 			return v.Sequence > login.Sequence && v.Request.Method == "POST" && strings.HasPrefix(v.Request.URL, "https://api.bnc.ca/bnc/prod-okta/sso/oauth2/") && strings.HasSuffix(v.Request.URL, "/v1/token") && v.Response != nil && v.Response.Status == 200 && v.Finished
 		})
 		for i := len(tokens) - 1; i >= 0 && !matched; i-- {
@@ -245,7 +246,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 				continue
 			}
 			for _, w := range slices.Backward(wealth) {
-				headers := bank.SafeHeaders(w.Request.Headers)
+				headers := SafeHeaders(w.Request.Headers)
 				if headers["authorization"] == "Bearer "+response.Access {
 					token = candidate
 					discovery = w
@@ -266,7 +267,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	// The first portfolio GET can be aborted while the session POST is still
 	// setting context cookies; do not snapshot cookies or validate the API yet.
 	stage = "wealth-session"
-	if _, e = o.Wait(captureCtx, func(v bank.Exchange) bool {
+	if _, e = o.Wait(captureCtx, func(v Exchange) bool {
 		u, err := url.Parse(v.Request.URL)
 		return err == nil && v.Sequence > login.Sequence && v.Request.Method == "POST" && u.Scheme == "https" && u.Host == "iiroc.investments.apis.bnc.ca" && u.Path == "/orion-api/v1/1/users/session" && v.Response != nil && v.Response.Status == 200 && v.Finished
 	}); e != nil {
@@ -282,13 +283,13 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		return bank.Session{}, bank.Fail(bank.Invalid, "token-capture")
 	}
 	// Both API metadata and the completed response now refer to the same token.
-	headers := bank.SafeHeaders(discovery.Request.Headers)
+	headers := SafeHeaders(discovery.Request.Headers)
 	headers["authorization"] = "Bearer " + response.Access
-	session, e = bank.BrowserSession(b, "nbdb", headers, nil)
+	session, e = BrowserSession(b, "nbdb", headers, nil)
 	if e != nil {
 		return bank.Session{}, e
 	}
-	session.Auth, e = json.Marshal(auth{TokenURL: token.Request.URL, ClientID: form.Get("client_id"), RedirectURI: form.Get("redirect_uri"), Scope: response.Scope, Headers: bank.SafeHeaders(token.Request.Headers), DeviceCookies: deviceCookies(session.Cookies)})
+	session.Auth, e = json.Marshal(nbdb.Auth{TokenURL: token.Request.URL, ClientID: form.Get("client_id"), RedirectURI: form.Get("redirect_uri"), Scope: response.Scope, Headers: SafeHeaders(token.Request.Headers), DeviceCookies: deviceCookies(session.Cookies)})
 	return session, e
 }
 
@@ -333,7 +334,7 @@ func enterCredentials(p *rod.Page, selector, value string, enter func(*rod.Page,
 	if failure.Operation != "input-value" && failure.Operation != "input-events" {
 		return err
 	}
-	dismissed, noticeErr := bank.ClickIfPresent(p, "button,a", `Ignore the update`, 2*time.Second)
+	dismissed, noticeErr := ClickIfPresent(p, "button,a", `Ignore the update`, 2*time.Second)
 	if noticeErr != nil {
 		return noticeErr
 	}

@@ -1,4 +1,4 @@
-package rogers
+package signin
 
 import (
 	"context"
@@ -11,9 +11,10 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 
 	"github.com/nathanfredericks/transactions/internal/bank"
+	"github.com/nathanfredericks/transactions/internal/banks/rogers"
 )
 
-func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session bank.Session, err error) {
+func signInRogers(ctx context.Context, d Dependencies, b *rod.Browser) (session bank.Session, err error) {
 	stage := "login"
 	defer func() {
 		if err != nil {
@@ -22,12 +23,12 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 			err = f
 		}
 	}()
-	p, e := bank.NewPage(ctx, b)
+	p, e := NewPage(ctx, b)
 	if e != nil {
 		return bank.Session{}, e
 	}
-	if previous := a.Dependencies.Previous; previous != nil {
-		var saved auth
+	if previous := d.Previous; previous != nil {
+		var saved rogers.Auth
 		if json.Unmarshal(previous.Auth, &saved) != nil {
 			return bank.Session{}, bank.Fail(bank.Invalid, "device-state")
 		}
@@ -38,7 +39,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 			return bank.Session{}, e
 		}
 	}
-	o := bank.Observe(p)
+	o := Observe(p)
 	defer o.Close()
 	router := p.HijackRequests()
 	e = router.Add("https://selfserve.apis.rogersbank.com/*", "", func(h *rod.Hijack) {
@@ -69,10 +70,10 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	if e = p.Navigate("https://selfserve.rogersbank.com/home"); e != nil {
 		return bank.Session{}, bank.Fail(bank.Temporary, "navigation")
 	}
-	if e = bank.Input(p, `input[aria-label="Username"], input[formcontrolname="username"], input[name="username"]`, a.Dependencies.Credentials.Username); e != nil {
+	if e = Input(p, `input[aria-label="Username"], input[formcontrolname="username"], input[name="username"]`, d.Credentials.Username); e != nil {
 		return bank.Session{}, e
 	}
-	if e = bank.Input(p, `input[type="password"]`, a.Dependencies.Credentials.Password); e != nil {
+	if e = Input(p, `input[type="password"]`, d.Credentials.Password); e != nil {
 		return bank.Session{}, e
 	}
 	remember, e := p.Timeout(10 * time.Second).Element(`input[name="rememberMe"]`)
@@ -84,15 +85,15 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		return bank.Session{}, e
 	}
 	if !checked.Bool() {
-		if e = bank.ClickElement(p, remember); e != nil {
+		if e = ClickElement(p, remember); e != nil {
 			return bank.Session{}, bank.Fail(bank.Challenge, "remember-device")
 		}
 	}
-	if e = bank.Click(p, "button", `^[Ss]ign in$`); e != nil {
+	if e = Click(p, "button", `^[Ss]ign in$`); e != nil {
 		return bank.Session{}, e
 	}
 	stage = "login-response"
-	login, e := o.Wait(ctx, func(v bank.Exchange) bool {
+	login, e := o.Wait(ctx, func(v Exchange) bool {
 		return v.Request.Method == "POST" && strings.HasPrefix(v.Request.URL, "https://selfserve.apis.rogersbank.com/v1/authenticate/user/") && v.Response != nil
 	})
 	if e != nil {
@@ -103,7 +104,7 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		return bank.Session{}, bank.Fail(bank.Credentials, "login")
 	}
 	if status == 429 {
-		return bank.Session{}, bank.Throttle("login", bank.SafeHeaders(login.Response.Headers)["retry-after"])
+		return bank.Session{}, bank.Throttle("login", SafeHeaders(login.Response.Headers)["retry-after"])
 	}
 	if status == 403 {
 		return bank.Session{}, bank.Fail(bank.Challenge, "login")
@@ -117,41 +118,41 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 		if e != nil {
 			return bank.Session{}, bank.Fail(bank.Challenge, "email-option")
 		}
-		if e = bank.ClickElement(p, email); e != nil {
+		if e = ClickElement(p, email); e != nil {
 			return bank.Session{}, e
 		}
 		after := time.Now()
-		if e = bank.Click(p, "button", `^[Ss]end code$`); e != nil {
+		if e = Click(p, "button", `^[Ss]end code$`); e != nil {
 			return bank.Session{}, e
 		}
-		code, e := bank.ReadCode(ctx, a.Dependencies.Credentials.MailToken, bank.MailChallenge{After: after, Sender: a.Dependencies.EmailSender, Subject: a.Dependencies.EmailSubject, Length: a.Dependencies.EmailCodeLength})
+		code, e := ReadCode(ctx, d.Credentials.MailToken, MailChallenge{After: after, Sender: d.EmailSender, Subject: d.EmailSubject, Length: d.EmailCodeLength})
 		if e != nil {
 			return bank.Session{}, e
 		}
-		if e = bank.Input(p, `input[id="verificationCode"], input[name="verificationCode"], input[autocomplete="one-time-code"]`, code); e != nil {
+		if e = Input(p, `input[id="verificationCode"], input[name="verificationCode"], input[autocomplete="one-time-code"]`, code); e != nil {
 			return bank.Session{}, e
 		}
-		if e = bank.Click(p, "button", `^Continue$`); e != nil {
+		if e = Click(p, "button", `^Continue$`); e != nil {
 			return bank.Session{}, e
 		}
 	}
 	pattern := regexp.MustCompile(`^https://selfserve\.apis\.rogersbank\.com/corebank/v1/account/(\d+)/customer/(\d+)/detail$`)
 	stage = "account-capture"
-	discovery, e := o.Wait(ctx, func(v bank.Exchange) bool {
+	discovery, e := o.Wait(ctx, func(v Exchange) bool {
 		return v.Request.Method == "GET" && pattern.MatchString(v.Request.URL) && v.Response != nil && v.Response.Status == 200
 	})
 	if e != nil {
 		return bank.Session{}, e
 	}
 	parts := pattern.FindStringSubmatch(discovery.Request.URL)
-	tokens, e := o.Wait(ctx, func(v bank.Exchange) bool {
-		return v.Request.Method != "OPTIONS" && strings.HasPrefix(v.Request.URL, "https://selfserve.apis.rogersbank.com/v1/authenticate/") && v.Response != nil && bank.SafeHeaders(v.Response.Headers)["refreshtoken"] != ""
+	tokens, e := o.Wait(ctx, func(v Exchange) bool {
+		return v.Request.Method != "OPTIONS" && strings.HasPrefix(v.Request.URL, "https://selfserve.apis.rogersbank.com/v1/authenticate/") && v.Response != nil && SafeHeaders(v.Response.Headers)["refreshtoken"] != ""
 	})
 	if e != nil {
 		return bank.Session{}, e
 	}
-	headers := bank.SafeHeaders(discovery.Request.Headers)
-	rotated := bank.SafeHeaders(tokens.Response.Headers)
+	headers := SafeHeaders(discovery.Request.Headers)
+	rotated := SafeHeaders(tokens.Response.Headers)
 	for _, k := range []string{"accesstoken", "refreshtoken"} {
 		if rotated[k] != "" {
 			headers[k] = rotated[k]
@@ -167,5 +168,5 @@ func (a *Adapter) Authenticate(ctx context.Context, b *rod.Browser) (session ban
 	if e = storage.Value.Unmarshal(&deviceStorage); e != nil {
 		return bank.Session{}, bank.Fail(bank.Invalid, "device-capture")
 	}
-	return bank.BrowserSession(b, "rogers-bank", headers, auth{AccountID: parts[1], CustomerID: parts[2], DeviceStorage: deviceStorage})
+	return BrowserSession(b, "rogers-bank", headers, rogers.Auth{AccountID: parts[1], CustomerID: parts[2], DeviceStorage: deviceStorage})
 }

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-rod/rod"
 	"github.com/google/uuid"
 )
 
@@ -89,25 +88,17 @@ type FetchRequest struct {
 	AccountsOnly bool
 	StartDate    string
 }
-type Adapter interface {
-	Authenticate(context.Context, *rod.Browser) (Session, error)
+
+// API is a bank's direct protocol: renewing a saved session and fetching
+// accounts and transactions with it. Signing in is browser-only, in signin.
+type API interface {
 	Renew(context.Context, Session) (Session, error)
 	Fetch(context.Context, Session, FetchRequest) (Snapshot, Session, error)
 }
-type CredentialsData struct {
-	Username  string `json:"username"`
-	Password  string `json:"password"`
-	MailToken string `json:"mailToken"`
-}
-type Dependencies struct {
-	Previous                  *Session
-	Credentials               CredentialsData
-	EmailSender, EmailSubject string
-	EmailCodeLength           int
-}
+
 type Registration struct {
 	ID, Name, Strategy, Browser, ImportPrefix, PurchaseAccount string
-	New                                                        func(Dependencies) Adapter
+	API                                                        API
 }
 
 const Namespace = "f47ac10b-58cc-4372-a567-0e02b2c3d479"

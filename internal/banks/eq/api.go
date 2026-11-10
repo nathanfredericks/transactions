@@ -14,19 +14,20 @@ import (
 )
 
 const (
-	api      = "https://web-api.eqbank.ca/web/v1.1"
+	// Endpoint is EQ's web API, which the browser sign-in also watches.
+	Endpoint = "https://web-api.eqbank.ca/web/v1.1"
 	personal = "130742998"
 	card     = "302911525"
 )
 
 type (
-	Adapter struct{ Dependencies bank.Dependencies }
-	auth    struct {
+	API  struct{}
+	Auth struct {
 		ClientID string `json:"clientId"`
 	}
 )
 
-func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, error) {
+func (API) Renew(ctx context.Context, s bank.Session) (bank.Session, error) {
 	// EQ's observed renewal flow extends a still-valid access token. Once it
 	// expires, start a fresh browser session instead of sending an expired
 	// bearer to the exchange and turning a normal expiry into a review hold.
@@ -34,7 +35,7 @@ func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, erro
 		(!s.MaximumExpiresAt.IsZero() && !s.MaximumExpiresAt.After(time.Now())) {
 		return s, bank.Fail(bank.Authentication, "renew")
 	}
-	var c auth
+	var c Auth
 	if json.Unmarshal(s.Auth, &c) != nil || c.ClientID == "" {
 		return s, bank.Fail(bank.Authentication, "renew")
 	}
@@ -53,14 +54,14 @@ func (a *Adapter) Renew(ctx context.Context, s bank.Session) (bank.Session, erro
 	return s, err
 }
 
-func (a *Adapter) Fetch(ctx context.Context, s bank.Session, r bank.FetchRequest) (bank.Snapshot, bank.Session, error) {
+func (API) Fetch(ctx context.Context, s bank.Session, r bank.FetchRequest) (bank.Snapshot, bank.Session, error) {
 	out := bank.Snapshot{At: time.Now()}
 	h := newHTTP(&s)
 	var accounts []struct {
 		Number string `json:"accountNumber"`
 		Name   string `json:"accountType"`
 	}
-	if e := h.JSON(ctx, "GET", api+"/accounts/v2/accounts", s.Headers, nil, &accounts); e != nil {
+	if e := h.JSON(ctx, "GET", Endpoint+"/accounts/v2/accounts", s.Headers, nil, &accounts); e != nil {
 		return out, s, e
 	}
 	for _, n := range []string{personal, card} {
@@ -113,7 +114,7 @@ func personalHistory(ctx context.Context, h *bank.HTTP, start, end string) ([]ba
 		} `json:"Meta"`
 	}
 	q := url.Values{"fromBookingDate": {start}, "toBookingDate": {end}}
-	e := h.JSON(ctx, "GET", api+"/accounts/"+personal+"/transactions?"+q.Encode(), bank.Headers(*h.Session, map[string]string{"size": "1000"}), nil, &response)
+	e := h.JSON(ctx, "GET", Endpoint+"/accounts/"+personal+"/transactions?"+q.Encode(), bank.Headers(*h.Session, map[string]string{"size": "1000"}), nil, &response)
 	if e != nil {
 		return nil, e
 	}
@@ -183,7 +184,7 @@ func cardHistory(ctx context.Context, h *bank.HTTP, start, end string) ([]bank.R
 			} `json:"transactions"`
 		}
 		q := url.Values{"startDate": {start}, "endDate": {end}, "limit": {"100"}, "offset": {strconv.Itoa(page)}}
-		if e := h.JSON(ctx, "GET", api+"/transactions/v1.0.0/vs1/card-history?"+q.Encode(), bank.Headers(*h.Session, map[string]string{"accountId": card}), nil, &response); e != nil {
+		if e := h.JSON(ctx, "GET", Endpoint+"/transactions/v1.0.0/vs1/card-history?"+q.Encode(), bank.Headers(*h.Session, map[string]string{"accountId": card}), nil, &response); e != nil {
 			return nil, e
 		}
 		if response.Page != page || response.Pages > 1000 || response.Pages < 0 || (page > 1 && pages != response.Pages) || (page < response.Pages && len(response.Rows) != 100) {

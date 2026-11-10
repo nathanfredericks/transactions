@@ -43,7 +43,7 @@ func (e *Engine) VerifySession(ctx context.Context, bankID string, renew bool) (
 	if err != nil {
 		return nil, err
 	}
-	adapter := r.New(bank.Dependencies{})
+	adapter := r.API
 	if renew {
 		updated, renewalErr := e.renew(ctx, adapter, s)
 		if err = e.saveSession(ctx, updated); err != nil {
