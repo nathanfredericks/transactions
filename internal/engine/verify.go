@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,9 +33,11 @@ func (e *Engine) VerifySession(ctx context.Context, bankID string, renew bool) (
 	}
 	e.Lease = l
 	defer func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		cleanup, cancel := cleanupContext(ctx)
 		defer cancel()
-		_ = e.Store.Release(cleanup, l)
+		if err := e.Store.Release(cleanup, l); err != nil {
+			slog.Warn("lease not released", "bank", bankID, "error", err)
+		}
 	}()
 	s, err := e.session(ctx)
 	if err != nil {

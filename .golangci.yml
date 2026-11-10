@@ -86,9 +86,6 @@ linters:
       - path: ^internal/engine/reconcile\.go$
         linters: [unparam]
 
-      # P4 moves cleanup onto context.WithoutCancel with a short timeout.
-      - path: ^internal/engine/
-        linters: [contextcheck]
 
       # P5 replaces config globals and renames the typed failure.
       - path: ^internal/config/aws\.go$
