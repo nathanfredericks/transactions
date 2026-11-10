@@ -16,7 +16,29 @@ import (
 
 type ParsedEmail struct {
 	MessageID, From, Subject, HTML, Text string
-	Date                                 time.Time
+	// Authentication is the topmost Authentication-Results header, which SES
+	// adds on receipt; any copies a sender supplied come below it.
+	Authentication string
+	Date           time.Time
+}
+
+// SenderVerified reports whether SES found the message passes DMARC for the
+// domain in its From address, so that address can be trusted.
+func (p *ParsedEmail) SenderVerified() bool {
+	_, domain, ok := strings.Cut(p.From, "@")
+	if !ok {
+		return false
+	}
+	fields := strings.FieldsFunc(strings.ToLower(p.Authentication), func(r rune) bool { return r == ';' || r == ' ' || r == '\t' || r == '\n' || r == '\r' })
+	if len(fields) == 0 || fields[0] != "amazonses.com" {
+		return false
+	}
+	for i, field := range fields {
+		if field == "dmarc=pass" && i+1 < len(fields) && fields[i+1] == "header.from="+strings.ToLower(domain) {
+			return true
+		}
+	}
+	return false
 }
 
 func Parse(raw []byte) (*ParsedEmail, error) {
@@ -37,7 +59,7 @@ func Parse(raw []byte) (*ParsedEmail, error) {
 	if e != nil {
 		return nil, e
 	}
-	result := &ParsedEmail{MessageID: strings.Trim(r.Header.Get("Message-ID"), "<> \t"), From: from[0].Address, Subject: subject, Date: date}
+	result := &ParsedEmail{MessageID: strings.Trim(r.Header.Get("Message-ID"), "<> \t"), From: from[0].Address, Subject: subject, Authentication: r.Header.Get("Authentication-Results"), Date: date}
 	for {
 		part, e := r.NextPart()
 		if errors.Is(e, io.EOF) {

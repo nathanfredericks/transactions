@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/url"
 	"os"
 	"regexp"
@@ -76,6 +77,12 @@ func (e *Engine) Email(ctx context.Context, event events.S3Event) (any, error) {
 		parsed, err := email.Parse(raw)
 		if err != nil {
 			return nil, err
+		}
+		// Anyone can send to the intake address; act only on mail whose sender
+		// SES verified, so a forged alert cannot create a transaction.
+		if !parsed.SenderVerified() {
+			slog.Warn("mail ignored: sender not verified", "key", key)
+			continue
 		}
 		j := Job{Version: 1, ID: "mail-" + bank.Hash(parsed.MessageID), Source: "notification", Purpose: "retrieve", ReceivedAt: time.Now(), OccurredAt: parsed.Date, Text: parsed.Text, MessageID: parsed.MessageID}
 		if strings.EqualFold(parsed.From, "alert@eqbank.ca") {
