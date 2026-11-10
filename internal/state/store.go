@@ -9,6 +9,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -57,6 +58,7 @@ func (s *Store) Create(ctx context.Context, pk, sk string, value any) (bool, err
 	}
 	item := key(pk, sk)
 	item["data"] = &d.AttributeValueMemberS{Value: string(b)}
+	expire(item, sk)
 	_, e = s.DB.PutItem(ctx, &dynamodb.PutItemInput{TableName: &s.Table, Item: item, ConditionExpression: aws.String("attribute_not_exists(pk)")})
 	if _, ok := errors.AsType[*d.ConditionalCheckFailedException](e); ok {
 		return false, nil
@@ -109,6 +111,7 @@ func (s *Store) PutMany(ctx context.Context, l Lease, values map[string]any) err
 		}
 		item := key("BANK#"+l.Bank, sk)
 		item["data"] = &d.AttributeValueMemberS{Value: string(b)}
+		expire(item, sk)
 		items = append(items, d.TransactWriteItem{Put: &d.Put{TableName: &s.Table, Item: item}})
 	}
 	input := &dynamodb.TransactWriteItemsInput{ClientRequestToken: aws.String(uuid.NewString()), TransactItems: items}
@@ -220,4 +223,12 @@ func (s *Store) Download(ctx context.Context, k string, out any) error {
 	}
 	defer r.Body.Close()
 	return json.NewDecoder(io.LimitReader(r.Body, 20*1024*1024)).Decode(out)
+}
+
+// expire marks job and browser-result rows, which nothing reads once their job
+// has ended, for DynamoDB to delete 90 days after their last write.
+func expire(item map[string]d.AttributeValue, sk string) {
+	if strings.HasPrefix(sk, "JOB#") || strings.HasPrefix(sk, "BROWSER#") {
+		item["ttl"] = &d.AttributeValueMemberN{Value: strconv.FormatInt(time.Now().AddDate(0, 0, 90).Unix(), 10)}
+	}
 }

@@ -164,8 +164,10 @@ func (e *Engine) posted(ctx context.Context, s bank.Snapshot) error {
 		ids[id] = true
 		e.recordSuggestion(ctx, decision, tx, id)
 		if r.Amount > 0 {
-			if err = e.clearEchoes(ctx, target.ID, r, tx.ID); err != nil {
-				return err
+			// The credit is already written; a failed echo check leaves at
+			// most a visible duplicate alert, so it never fails the job.
+			if err := e.clearEchoes(ctx, target.ID, r, tx.ID); err != nil {
+				slog.Warn("echo check failed", "job", e.Job.ID, "credit", tx.ID, "error", err)
 			}
 		}
 	}
