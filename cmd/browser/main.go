@@ -46,7 +46,7 @@ func run(ctx context.Context, cfg aws.Config) error {
 	if err != nil {
 		return err
 	}
-	if !ok || job.Lease.Generation != generation || job.Status != "browser" || !job.BrowserDeadline.After(time.Now().Add(15*time.Second)) {
+	if !ok || job.Lease.Generation != generation || job.Status != engine.StatusBrowser || !job.BrowserDeadline.After(time.Now().Add(15*time.Second)) {
 		return bank.Fail(bank.Invalid, "browser-job")
 	}
 	lease := job.Lease

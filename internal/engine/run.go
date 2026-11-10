@@ -53,12 +53,12 @@ func (t *task) begin(ctx context.Context, request Request) (Outcome, bool, error
 		return Outcome{}, false, err
 	}
 	if t.Job.finished() {
-		return t.outcome(t.Job.Status, 0), false, nil
+		return t.outcome(Next(t.Job.Status), 0), false, nil
 	}
-	if t.Job.Status == "browser" {
+	if t.Job.Status == StatusBrowser {
 		t.Lease = t.Job.Lease
 		if err := t.Store.Assert(ctx, t.Lease); err != nil {
-			return t.outcome("failed", 0), false, err
+			return t.outcome(NextFailed, 0), false, err
 		}
 		return Outcome{}, true, nil
 	}
@@ -69,7 +69,7 @@ func (t *task) begin(ctx context.Context, request Request) (Outcome, bool, error
 		return Outcome{}, false, err
 	}
 	if !acquired {
-		return t.outcome("deferred", 5), false, nil
+		return t.outcome(NextDeferred, 5), false, nil
 	}
 	return Outcome{}, true, nil
 }
@@ -81,7 +81,7 @@ func (t *task) claim(ctx context.Context, request Request) (Outcome, bool, error
 		return Outcome{}, false, err
 	}
 	if t.Job.finished() {
-		return t.outcome(t.Job.Status, 0), false, nil
+		return t.outcome(Next(t.Job.Status), 0), false, nil
 	}
 	t.Job.Lease = t.Lease
 	if err := t.saveJob(ctx); err != nil {
@@ -108,8 +108,8 @@ func (t *task) work(ctx context.Context) (out Outcome, hold bool, err error) {
 				return out, false, err
 			}
 			if wait > 0 {
-				t.Job.Status = "waiting"
-				return t.outcome("deferred", wait), false, t.saveJob(ctx)
+				t.Job.Status = StatusWaiting
+				return t.outcome(NextDeferred, wait), false, t.saveJob(ctx)
 			}
 			out, err = t.recovered(ctx, "Transaction imports", health)
 			return out, false, err
@@ -131,7 +131,7 @@ func (t *task) work(ctx context.Context) (out Outcome, hold bool, err error) {
 	if !ok || !settings.Enabled {
 		return out, false, bank.Fail(bank.Invalid, "bank-disabled")
 	}
-	if t.Job.Status == "browser" {
+	if t.Job.Status == StatusBrowser {
 		if out, stop, err := t.browserResult(ctx); stop {
 			return out, false, err
 		}
@@ -164,16 +164,16 @@ func (t *task) gate(ctx context.Context, health Health) (Outcome, bool, error) {
 	// A bank whose credentials were rejected waits for bank.resume. A bank
 	// backing off skips scheduled runs quietly; the next one after RetryAt tries.
 	if health.Blocked || (health.RetryAt.After(time.Now()) && t.Job.Source == "scheduled") {
-		t.Job.Status = "paused"
+		t.Job.Status = StatusPaused
 		t.Job.Error = health.Kind
-		return t.outcome("paused", 0), true, t.saveJob(ctx)
+		return t.outcome(NextPaused, 0), true, t.saveJob(ctx)
 	}
 	if health.RetryAt.After(time.Now()) {
-		return t.outcome("deferred", int(math.Ceil(time.Until(health.RetryAt).Seconds()))), true, nil
+		return t.outcome(NextDeferred, int(math.Ceil(time.Until(health.RetryAt).Seconds()))), true, nil
 	}
 	if !t.Job.DryRun && !t.Settings.ImportsEnabled {
-		t.Job.Status = "paused"
-		return t.outcome("paused", 0), true, t.saveJob(ctx)
+		t.Job.Status = StatusPaused
+		return t.outcome(NextPaused, 0), true, t.saveJob(ctx)
 	}
 	return Outcome{}, false, nil
 }
@@ -207,7 +207,7 @@ func (t *task) browserResult(ctx context.Context) (Outcome, bool, error) {
 		return Outcome{}, true, result.Error
 	}
 	t.Job.CapacityWaits = 0
-	t.Job.Status = "running"
+	t.Job.Status = StatusRunning
 	return Outcome{}, false, nil
 }
 
@@ -274,11 +274,11 @@ func (t *task) retrieve(ctx context.Context, api bank.API, settings config.BankS
 func (t *task) toBrowser(ctx context.Context) (Outcome, error) {
 	t.Job.BrowserAttempted = true
 	t.Job.BrowserDeadline = time.Now().Add(330 * time.Second)
-	t.Job.Status = "browser"
+	t.Job.Status = StatusBrowser
 	if err := t.saveJob(ctx); err != nil {
 		return Outcome{}, err
 	}
-	return t.outcome("authentication-required", 0), nil
+	return t.outcome(NextBrowser, 0), nil
 }
 
 func (t *task) recovered(ctx context.Context, name string, health Health) (Outcome, error) {
@@ -298,9 +298,9 @@ func (t *task) recovered(ctx context.Context, name string, health Health) (Outco
 }
 
 func (t *task) complete(ctx context.Context) (Outcome, error) {
-	t.Job.Status = "complete"
+	t.Job.Status = StatusComplete
 	t.Job.CompletedAt = time.Now()
-	return t.outcome("complete", 0), t.saveJob(ctx)
+	return t.outcome(NextComplete, 0), t.saveJob(ctx)
 }
 
 // failure retries a temporary failure once within the job, then records the
@@ -318,15 +318,15 @@ func (t *task) failure(ctx context.Context, cause error) (Outcome, error) {
 		if !f.RetryAt.IsZero() {
 			wait = max(wait, int(math.Ceil(time.Until(f.RetryAt).Seconds())))
 		}
-		t.Job.Status = "waiting"
-		return t.outcome("deferred", wait), t.saveJob(ctx)
+		t.Job.Status = StatusWaiting
+		return t.outcome(NextDeferred, wait), t.saveJob(ctx)
 	}
 	var health Health
 	if _, err := t.get(ctx, t.healthKey(), &health); err != nil {
-		return t.outcome("failed", 0), err
+		return t.outcome(NextFailed, 0), err
 	}
-	t.Job.Status = "failed"
-	outcome := "failed"
+	t.Job.Status = StatusFailed
+	outcome := NextFailed
 	notify := !health.Failing || health.Kind != f.Kind || f.Kind == bank.Challenge
 	switch f.Kind {
 	case bank.Credentials:
@@ -338,7 +338,7 @@ func (t *task) failure(ctx context.Context, cause error) (Outcome, error) {
 		if t.Job.Source == "scheduled" {
 			health.Maintenance++
 			notify = !health.Failing && health.Maintenance >= 2
-			t.Job.Status, outcome = "complete", "complete"
+			t.Job.Status, outcome = StatusComplete, NextComplete
 		}
 	case bank.Capacity, bank.Authentication, bank.Throttled, bank.Temporary, bank.Invalid:
 	}
@@ -353,10 +353,10 @@ func (t *task) failure(ctx context.Context, cause error) (Outcome, error) {
 	}
 	// Save first: the push is best-effort and must not use up the cleanup time.
 	if err := t.put(ctx, t.healthKey(), health, t.Job.ID); err != nil {
-		return t.outcome("failed", 0), err
+		return t.outcome(NextFailed, 0), err
 	}
 	if err := t.saveJob(ctx); err != nil {
-		return t.outcome("failed", 0), err
+		return t.outcome(NextFailed, 0), err
 	}
 	if notify {
 		registration, _ := banks.Find(t.Job.Bank)
@@ -389,10 +389,10 @@ func (t *task) deferCapacity(ctx context.Context) (Outcome, error) {
 	}
 	t.Job.CapacityWaits++
 	t.Job.BrowserAttempted = false
-	t.Job.Status = "waiting"
+	t.Job.Status = StatusWaiting
 	t.Job.Error = ""
 	t.Job.Operation = ""
-	return t.outcome("deferred", 120), t.saveJob(ctx)
+	return t.outcome(NextDeferred, 120), t.saveJob(ctx)
 }
 
 // historyStart is the first day a retrieval fetches: the last 60 days, never

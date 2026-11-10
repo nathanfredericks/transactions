@@ -29,7 +29,7 @@ type Job struct {
 	AccountID        string      `json:"accountId,omitempty"`
 	Text             string      `json:"text,omitempty"`
 	OccurredAt       time.Time   `json:"occurredAt"`
-	Status           string      `json:"status"`
+	Status           Status      `json:"status"`
 	Attempt          int         `json:"attempt"`
 	MissingAttempt   int         `json:"missingAttempt"`
 	BrowserDeadline  time.Time   `json:"browserDeadline"`
@@ -49,18 +49,43 @@ type Request struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+// Status is where a job stands.
+type Status string
+
+const (
+	StatusAccepted Status = "accepted"
+	StatusRunning  Status = "running"
+	StatusWaiting  Status = "waiting"
+	StatusBrowser  Status = "browser"
+	StatusComplete Status = "complete"
+	StatusFailed   Status = "failed"
+	StatusPaused   Status = "paused"
+	// statusReviewRequired is the status earlier releases gave failed jobs.
+	statusReviewRequired Status = "review-required"
+)
+
+// Next tells the workflow what to do after a run.
+type Next string
+
+const (
+	NextComplete Next = "complete"
+	NextPaused   Next = "paused"
+	NextFailed   Next = "failed"
+	NextDeferred Next = "deferred"
+	NextBrowser  Next = "authentication-required"
+)
+
 type Outcome struct {
-	Outcome     string      `json:"outcome"`
+	Outcome     Next        `json:"outcome"`
 	Bank        string      `json:"bank"`
 	JobID       string      `json:"jobId"`
 	WaitSeconds int         `json:"waitSeconds"`
 	Lease       state.Lease `json:"lease"`
 }
 
-// finished reports a job that no run should resume. review-required is the
-// status earlier releases gave failed jobs.
+// finished reports a job that no run should resume.
 func (j Job) finished() bool {
-	return j.Status == "complete" || j.Status == "failed" || j.Status == "paused" || j.Status == "review-required"
+	return j.Status == StatusComplete || j.Status == StatusFailed || j.Status == StatusPaused || j.Status == statusReviewRequired
 }
 
 func (t *task) loadJob(ctx context.Context, id, bankID string) error {
@@ -86,8 +111,8 @@ func (t *task) put(ctx context.Context, key string, value any, _ string) error {
 	return t.Store.Put(ctx, t.Lease, key, value)
 }
 
-func (t *task) outcome(status string, wait int) Outcome {
-	return Outcome{Outcome: status, Bank: t.Job.Bank, JobID: t.Job.ID, WaitSeconds: wait, Lease: t.Lease}
+func (t *task) outcome(next Next, wait int) Outcome {
+	return Outcome{Outcome: next, Bank: t.Job.Bank, JobID: t.Job.ID, WaitSeconds: wait, Lease: t.Lease}
 }
 
 func (e *Engine) Submit(ctx context.Context, j Job) (string, error) {
@@ -100,7 +125,7 @@ func (e *Engine) Submit(ctx context.Context, j Job) (string, error) {
 	if j.ReceivedAt.IsZero() {
 		j.ReceivedAt = time.Now()
 	}
-	j.Status = "accepted"
+	j.Status = StatusAccepted
 	created, err := e.Store.Create(ctx, "BANK#"+j.Bank, "JOB#"+j.ID, j)
 	if err != nil {
 		return "", err

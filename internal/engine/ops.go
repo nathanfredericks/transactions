@@ -30,11 +30,11 @@ func (t *task) admin(ctx context.Context, r Request) (any, error) {
 			return nil, err
 		}
 		// Only a finished job is retried, so its earlier workflow has ended.
-		if t.Job.Status == "complete" || !t.Job.finished() {
+		if t.Job.Status == StatusComplete || !t.Job.finished() {
 			return nil, errors.New("only a failed or paused job can be retried")
 		}
 		t.Lease = l
-		t.Job.Status = "accepted"
+		t.Job.Status = StatusAccepted
 		t.Job.Attempt = 0
 		t.Job.CapacityWaits = 0
 		t.Job.BrowserAttempted = false
