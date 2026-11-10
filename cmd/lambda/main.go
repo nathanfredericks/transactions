@@ -9,6 +9,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/smithy-go"
@@ -17,7 +21,7 @@ import (
 	"github.com/nathanfredericks/transactions/internal/engine"
 )
 
-func handle(ctx context.Context, raw json.RawMessage) (any, error) {
+func handle(ctx context.Context, cfg aws.Config, raw json.RawMessage) (any, error) {
 	started := time.Now()
 	// Stop work 20 s before the Lambda deadline, leaving time to save the job
 	// and release its lease; the workflow then re-runs it.
@@ -26,14 +30,10 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 		ctx, cancel = context.WithDeadline(ctx, deadline.Add(-20*time.Second))
 		defer cancel()
 	}
-	settings, err := config.Load(ctx)
+	app, _, err := open(ctx, cfg)
 	if err != nil {
+		slog.Error("configuration unavailable", "error", err)
 		return nil, errors.New("configuration unavailable")
-	}
-	ctx = config.WithInvocationCache(config.WithSettings(ctx, settings))
-	app, err := engine.New(ctx)
-	if err != nil {
-		return nil, errors.New("backend unavailable")
 	}
 	defer func() {
 		slog.Info("invocation", "role", os.Getenv("ROLE"), "durationMs", time.Since(started).Milliseconds())
@@ -88,8 +88,13 @@ func handle(ctx context.Context, raw json.RawMessage) (any, error) {
 }
 
 func main() {
+	cfg, err := config.AWS(context.Background())
+	if err != nil {
+		slog.Error("aws configuration unavailable", "error", err)
+		os.Exit(1)
+	}
 	lambda.Start(func(ctx context.Context, raw json.RawMessage) (any, error) {
-		result, err := handle(ctx, raw)
+		result, err := handle(ctx, cfg, raw)
 		if err != nil {
 			code := "backend-operation"
 			if api, ok := errors.AsType[smithy.APIError](err); ok {
@@ -100,4 +105,20 @@ func main() {
 		}
 		return result, nil
 	})
+}
+
+// open loads the settings and the secret and builds the engine. The AWS
+// configuration is loaded once per process; the rest on every call, so a
+// settings change applies to the next invocation.
+func open(ctx context.Context, cfg aws.Config) (*engine.Engine, *config.Secrets, error) {
+	settings, err := config.Load(ctx, ssm.NewFromConfig(cfg), os.Getenv("SETTINGS_PARAMETER"))
+	if err != nil {
+		return nil, nil, err
+	}
+	secrets, err := config.LoadSecrets(ctx, secretsmanager.NewFromConfig(cfg), os.Getenv("AWS_SECRET_ARN"))
+	if err != nil {
+		return nil, nil, err
+	}
+	env := engine.Env{Table: os.Getenv("STATE_TABLE"), Bucket: os.Getenv("STATE_BUCKET"), Workflow: os.Getenv("WORKFLOW_ARN"), Commit: os.Getenv("DEPLOYMENT_COMMIT")}
+	return engine.New(cfg, env, settings, secrets), secrets, nil
 }

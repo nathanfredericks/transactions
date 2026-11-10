@@ -10,6 +10,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 	"github.com/aws/smithy-go"
@@ -27,8 +31,8 @@ import (
 	"github.com/nathanfredericks/transactions/internal/state"
 )
 
-func run(ctx context.Context) error {
-	app, err := engine.New(ctx)
+func run(ctx context.Context, cfg aws.Config) error {
+	app, secrets, err := open(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -58,7 +62,7 @@ func run(ctx context.Context) error {
 	}
 	authCtx, cancel := context.WithDeadline(ctx, authDeadline)
 	defer cancel()
-	session, authErr := authenticate(authCtx, app, registration, lease)
+	session, authErr := authenticate(authCtx, app, secrets, registration, lease)
 	if authErr != nil {
 		result.Error = bank.Classify(authErr)
 	} else {
@@ -81,9 +85,9 @@ func run(ctx context.Context) error {
 	return err
 }
 
-func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, l state.Lease) (session bank.Session, err error) {
+func authenticate(ctx context.Context, app *engine.Engine, secrets *config.Secrets, r bank.Registration, l state.Lease) (session bank.Session, err error) {
 	settings := app.Settings.Banks[r.ID]
-	stored, err := config.BankCredentials(ctx, r.ID)
+	stored, err := secrets.Bank(r.ID)
 	if err != nil {
 		return session, bank.Fail(bank.Invalid, "credentials-config")
 	}
@@ -272,7 +276,12 @@ func authenticate(ctx context.Context, app *engine.Engine, r bank.Registration, 
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 270*time.Second)
 	defer cancel()
-	operation := run
+	cfg, err := config.AWS(ctx)
+	if err != nil {
+		slog.Error("aws configuration unavailable", "error", err)
+		os.Exit(1)
+	}
+	operation := func(ctx context.Context) error { return run(ctx, cfg) }
 	if len(os.Args) > 1 {
 		if len(os.Args) != 3 {
 			slog.Error("expected verification mode and bank ID")
@@ -280,10 +289,10 @@ func main() {
 		}
 		switch os.Args[1] {
 		case "--verify-bank":
-			operation = func(ctx context.Context) error { return verifyBank(ctx, os.Args[2]) }
+			operation = func(ctx context.Context) error { return verifyBank(ctx, cfg, os.Args[2]) }
 		case "--verify-api", "--verify-renew":
 			operation = func(ctx context.Context) error {
-				app, err := engine.New(ctx)
+				app, _, err := open(ctx, cfg)
 				if err != nil {
 					return err
 				}
@@ -314,8 +323,8 @@ func main() {
 
 // verifyBank is an operator-only real-browser check using the same worker and lease.
 // It validates account access and saves authentication, with no import or notification path.
-func verifyBank(ctx context.Context, bankID string) error {
-	app, err := engine.New(ctx)
+func verifyBank(ctx context.Context, cfg aws.Config, bankID string) error {
+	app, secrets, err := open(ctx, cfg)
 	if err != nil {
 		// Configuration validation errors contain only fixed messages or timezone names.
 		slog.Error("verification setup failed", "error", err)
@@ -338,7 +347,7 @@ func verifyBank(ctx context.Context, bankID string) error {
 		_ = app.Store.Release(cleanup, l)
 	}()
 	slog.Info("verification browser starting", "bank", bankID)
-	s, err := authenticate(ctx, app, registration, l)
+	s, err := authenticate(ctx, app, secrets, registration, l)
 	if err != nil {
 		return err
 	}
@@ -347,4 +356,20 @@ func verifyBank(ctx context.Context, bankID string) error {
 		return err
 	}
 	return app.Store.Put(ctx, l, "SESSION", engine.SessionPointer{Key: key, RenewAt: s.RenewAt})
+}
+
+// open loads the settings and the secret and builds the engine. The AWS
+// configuration is loaded once per process; the rest on every call, so a
+// settings change applies to the next invocation.
+func open(ctx context.Context, cfg aws.Config) (*engine.Engine, *config.Secrets, error) {
+	settings, err := config.Load(ctx, ssm.NewFromConfig(cfg), os.Getenv("SETTINGS_PARAMETER"))
+	if err != nil {
+		return nil, nil, err
+	}
+	secrets, err := config.LoadSecrets(ctx, secretsmanager.NewFromConfig(cfg), os.Getenv("AWS_SECRET_ARN"))
+	if err != nil {
+		return nil, nil, err
+	}
+	env := engine.Env{Table: os.Getenv("STATE_TABLE"), Bucket: os.Getenv("STATE_BUCKET"), Workflow: os.Getenv("WORKFLOW_ARN"), Commit: os.Getenv("DEPLOYMENT_COMMIT")}
+	return engine.New(cfg, env, settings, secrets), secrets, nil
 }

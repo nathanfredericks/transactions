@@ -1,4 +1,5 @@
-package service
+// Package ynab is the YNAB API client.
+package ynab
 
 import (
 	"bytes"
@@ -9,9 +10,6 @@ import (
 	"io"
 	"net/http"
 	"time"
-
-	"github.com/nathanfredericks/transactions/internal/config"
-	"github.com/nathanfredericks/transactions/internal/types"
 )
 
 const (
@@ -19,10 +17,15 @@ const (
 	ynabClearingStatusUncleared = "uncleared"
 )
 
-type ynabClient struct {
-	accessToken string
-	budgetID    string
-	httpClient  *http.Client
+// Client calls the YNAB API for one budget.
+type Client struct {
+	token, budget string
+	http          *http.Client
+}
+
+// New returns a client for the budget, authorized by the access token.
+func New(token, budget string) *Client {
+	return &Client{token: token, budget: budget, http: &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
 // ErrDuplicateImport means YNAB already has a transaction with the write's
@@ -60,24 +63,7 @@ type ynabPayloadTransaction struct {
 	Memo       *string `json:"memo,omitempty"`
 }
 
-func newYNABClient(ctx context.Context) (*ynabClient, error) {
-	secrets, err := config.GetSecrets(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting secrets: %w", err)
-	}
-
-	settings, err := config.Load(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &ynabClient{
-		budgetID:    settings.BudgetID,
-		accessToken: secrets.YNABAccessToken,
-		httpClient:  &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
-	}, nil
-}
-
-func (c *ynabClient) do(ctx context.Context, method string, path string, requestBody any, responseBody any) error {
+func (c *Client) do(ctx context.Context, method string, path string, requestBody any, responseBody any) error {
 	var bodyReader io.Reader
 	if requestBody != nil {
 		buf, err := json.Marshal(requestBody)
@@ -93,12 +79,12 @@ func (c *ynabClient) do(ctx context.Context, method string, path string, request
 	}
 
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 	if requestBody != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	res, err := c.httpClient.Do(req)
+	res, err := c.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("sending request: %w", err)
 	}
@@ -134,12 +120,7 @@ func (c *ynabClient) do(ctx context.Context, method string, path string, request
 	return nil
 }
 
-func createTransaction(ctx context.Context, budgetID string, payload ynabPayloadTransaction) (*types.YNABTransaction, error) {
-	client, err := newYNABClient(ctx)
-	if err != nil {
-		return nil, err
-	}
-
+func (c *Client) create(ctx context.Context, payload ynabPayloadTransaction) (*Transaction, error) {
 	request := struct {
 		Transactions []ynabPayloadTransaction `json:"transactions"`
 	}{
@@ -148,14 +129,13 @@ func createTransaction(ctx context.Context, budgetID string, payload ynabPayload
 
 	response := struct {
 		Data struct {
-			DuplicateImportIDs []string                 `json:"duplicate_import_ids"`
-			Transaction        *types.YNABTransaction   `json:"transaction"`
-			Transactions       []*types.YNABTransaction `json:"transactions"`
+			DuplicateImportIDs []string       `json:"duplicate_import_ids"`
+			Transaction        *Transaction   `json:"transaction"`
+			Transactions       []*Transaction `json:"transactions"`
 		} `json:"data"`
 	}{}
 
-	path := fmt.Sprintf("/budgets/%s/transactions", budgetID)
-	if err := client.do(ctx, http.MethodPost, path, &request, &response); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/budgets/"+c.budget+"/transactions", &request, &response); err != nil {
 		return nil, err
 	}
 
@@ -171,4 +151,9 @@ func createTransaction(ctx context.Context, budgetID string, payload ynabPayload
 		}
 	}
 	return nil, errors.New("ynab api returned no created transaction")
+}
+
+// Get reads a path within the budget, such as "/payees?last_knowledge_of_server=5".
+func (c *Client) Get(ctx context.Context, path string, out any) error {
+	return c.do(ctx, http.MethodGet, "/budgets/"+c.budget+path, nil, out)
 }

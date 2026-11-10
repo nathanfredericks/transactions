@@ -4,8 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+
+	"github.com/nathanfredericks/transactions/internal/llm"
+	"github.com/nathanfredericks/transactions/internal/notify"
+	"github.com/nathanfredericks/transactions/internal/ynab"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -77,24 +82,41 @@ type Health struct {
 	Kind        bank.Kind `json:"kind,omitempty"`
 	Maintenance int       `json:"maintenance,omitempty"`
 }
+
+// Engine runs jobs. Its dependencies are built once per invocation by main;
+// Lease and Job are the job being run.
 type Engine struct {
 	Store    *state.Store
 	Settings *config.Settings
 	SFN      *sfn.Client
+	YNAB     *ynab.Client
+	Push     notify.Pushover
+	Model    llm.Config
+	Env      Env
 	Lease    state.Lease
 	Job      Job
 }
 
-func New(ctx context.Context) (*Engine, error) {
-	cfg, e := config.GetAWSConfig(ctx)
-	if e != nil {
-		return nil, e
+// Env is the deployment the engine runs in.
+type Env struct {
+	Table, Bucket string
+	// Workflow is the Step Functions state machine ARN.
+	Workflow string
+	// Commit is the deployed revision, recorded with each suggestion.
+	Commit string
+}
+
+// New builds an engine from the AWS configuration, settings and secrets.
+func New(cfg aws.Config, env Env, settings *config.Settings, secrets *config.Secrets) *Engine {
+	return &Engine{
+		Store:    &state.Store{DB: dynamodb.NewFromConfig(cfg), S3: s3.NewFromConfig(cfg), Table: env.Table, Bucket: env.Bucket},
+		Settings: settings,
+		SFN:      sfn.NewFromConfig(cfg),
+		YNAB:     ynab.New(secrets.YNABAccessToken, settings.BudgetID),
+		Push:     notify.Pushover{Token: secrets.PushoverToken, User: secrets.PushoverUser},
+		Model:    llm.Config{Endpoint: settings.OpenAIEndpoint, Key: secrets.OpenAIAPIKey, Model: settings.OpenAIModel, Effort: settings.OpenAIEffort, Timeout: 45 * time.Second},
+		Env:      env,
 	}
-	settings, e := config.Load(ctx)
-	if e != nil {
-		return nil, e
-	}
-	return &Engine{Store: &state.Store{DB: dynamodb.NewFromConfig(cfg), S3: s3.NewFromConfig(cfg), Table: os.Getenv("STATE_TABLE"), Bucket: os.Getenv("STATE_BUCKET")}, Settings: settings, SFN: sfn.NewFromConfig(cfg)}, nil
 }
 
 func (e *Engine) get(ctx context.Context, key string, out any) (bool, error) {

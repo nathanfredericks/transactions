@@ -23,7 +23,7 @@ func (e *Engine) send(ctx context.Context, title, message string, purchase bool)
 	}
 	var err error
 	for attempt := range 3 {
-		if err = notify.SendNotification(ctx, message, options); err == nil {
+		if err = e.Push.Send(ctx, message, options); err == nil {
 			return
 		}
 		select {

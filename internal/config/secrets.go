@@ -5,72 +5,58 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-
-	"github.com/nathanfredericks/transactions/internal/types"
 )
 
-func loadSecretPayload(ctx context.Context, secretARN string) ([]byte, error) {
-	cfg, err := GetAWSConfig(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("loading AWS config: %w", err)
+// Secrets is the JSON stored in the single Transactions secret. The Lambdas
+// use the first four keys; the browser task uses the browser and bank keys.
+type Secrets struct {
+	YNABAccessToken        string                     `json:"YNAB_ACCESS_TOKEN"`
+	OpenAIAPIKey           string                     `json:"OPENAI_API_KEY"`
+	PushoverToken          string                     `json:"PUSHOVER_TOKEN"`
+	PushoverUser           string                     `json:"PUSHOVER_USER"`
+	CloakBrowserLicenseKey string                     `json:"CLOAKBROWSER_LICENSE_KEY"`
+	BrowserBrokerToken     string                     `json:"BROWSER_BROKER_TOKEN"`
+	Banks                  map[string]BankCredentials `json:"BANKS"`
+}
+
+// BankCredentials is one bank's login under the secret's BANKS map.
+type BankCredentials struct {
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+	MailToken string `json:"mailToken"`
+}
+
+// LoadSecrets reads the Transactions secret.
+func LoadSecrets(ctx context.Context, client *secretsmanager.Client, arn string) (*Secrets, error) {
+	if arn == "" {
+		return nil, errors.New("secret ARN is required")
 	}
-	client := secretsmanager.NewFromConfig(cfg)
-	out, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
-		SecretId: &secretARN,
-	})
+	out, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: &arn})
 	if err != nil {
 		return nil, fmt.Errorf("getting secret value: %w", err)
 	}
-	payload, err := parseSecretPayload(out.SecretString, out.SecretBinary)
-	if err != nil {
-		return nil, err
+	payload := out.SecretBinary
+	if out.SecretString != nil && *out.SecretString != "" {
+		payload = []byte(*out.SecretString)
 	}
-	return payload, nil
-}
-
-func GetSecrets(ctx context.Context) (*types.Secrets, error) {
-	if cache := getInvocationCache(ctx); cache != nil && cache.secrets != nil {
-		return cache.secrets, nil
+	if len(payload) == 0 {
+		return nil, errors.New("secret has no usable payload")
 	}
-	payload, err := loadSecretPayload(ctx, os.Getenv("AWS_SECRET_ARN"))
-	if err != nil {
-		return nil, err
-	}
-
-	var s types.Secrets
-	if err := json.Unmarshal(payload, &s); err != nil {
-		return nil, fmt.Errorf("parsing secret JSON: %w", err)
-	}
-	if cache := getInvocationCache(ctx); cache != nil {
-		cache.secrets = &s
+	var s Secrets
+	// The parse error could quote the secret, so it is not passed on.
+	if json.Unmarshal(payload, &s) != nil {
+		return nil, errors.New("secret is not valid JSON")
 	}
 	return &s, nil
 }
 
-func parseSecretPayload(secretString *string, secretBinary []byte) ([]byte, error) {
-	if secretString != nil && *secretString != "" {
-		return []byte(*secretString), nil
-	}
-	if len(secretBinary) > 0 {
-		return secretBinary, nil
-	}
-	return nil, errors.New("secret has no usable payload")
-}
-
-// BankCredentials returns one bank's login from the Transactions secret.
-// A missing bank or any empty field is an error, so callers can keep
-// treating it as a configuration failure.
-func BankCredentials(ctx context.Context, bankID string) (types.BankCredentials, error) {
-	s, err := GetSecrets(ctx)
-	if err != nil {
-		return types.BankCredentials{}, err
-	}
-	c, ok := s.Banks[bankID]
+// Bank returns one bank's login, which must be complete.
+func (s *Secrets) Bank(id string) (BankCredentials, error) {
+	c, ok := s.Banks[id]
 	if !ok || c.Username == "" || c.Password == "" || c.MailToken == "" {
-		return types.BankCredentials{}, fmt.Errorf("bank %q credentials incomplete", bankID)
+		return BankCredentials{}, fmt.Errorf("bank %q credentials incomplete", id)
 	}
 	return c, nil
 }

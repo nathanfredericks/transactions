@@ -1,4 +1,5 @@
-package service
+// Package alert reads bank purchase alerts.
+package alert
 
 import (
 	"context"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nathanfredericks/transactions/internal/bank"
+	"github.com/nathanfredericks/transactions/internal/llm"
 )
 
 // Alert is what a purchase alert states. Amount is positive milliunits, Descriptor
@@ -49,9 +51,9 @@ var alertLayouts = []alertLayout{
 	},
 }
 
-// ParseAlert reads a recognized alert layout. It reports false when no layout
+// Parse reads a recognized alert layout. It reports false when no layout
 // matches exactly once, so an unfamiliar or ambiguous alert is never guessed.
-func ParseAlert(text string) (Alert, bool) {
+func Parse(text string) (Alert, bool) {
 	text = strings.Join(strings.Fields(text), " ")
 	for _, l := range alertLayouts {
 		matches := l.re.FindAllStringSubmatch(text, -1)
@@ -90,17 +92,18 @@ var alertSchema = map[string]any{
 	"additionalProperties": false,
 }
 
-// ExtractAlert reads an alert. Recognized layouts are parsed by code; the model
+// Extract reads an alert. Recognized layouts are parsed by code; the model
 // reads only unfamiliar layouts, and both values it returns must appear verbatim
 // in the alert or the extraction is rejected.
-func ExtractAlert(ctx context.Context, text string) (Alert, error) {
-	if a, ok := ParseAlert(text); ok {
+func Extract(ctx context.Context, text string, model llm.Config) (Alert, error) {
+	if a, ok := Parse(text); ok {
 		return a, nil
 	}
-	raw, err := callResponsesAPI(ctx, "Read the purchase alert. Copy the purchase amount and the merchant descriptor exactly as they appear. Do not shorten, expand, translate or rename the descriptor.", text, "alert", alertSchema)
+	res, err := llm.Call(ctx, model, "Read the purchase alert. Copy the purchase amount and the merchant descriptor exactly as they appear. Do not shorten, expand, translate or rename the descriptor.", text, "alert", alertSchema)
 	if err != nil {
 		return Alert{}, fmt.Errorf("calling AI for alert details: %w", err)
 	}
+	raw := res.Text
 	var result struct {
 		Amount     string `json:"amount"`
 		Descriptor string `json:"descriptor"`

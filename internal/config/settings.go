@@ -4,16 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"time"
 
 	// Embeds the zone database, so time zones load in any runtime image.
 	_ "time/tzdata"
 
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
-
-	"github.com/nathanfredericks/transactions/internal/types"
 )
+
+// EmailConfig routes a bank's alert mail to a YNAB account.
+type EmailConfig struct {
+	Bank          string   `json:"bank"`
+	YNABAccountID string   `json:"ynabAccountId"`
+	EmailAddress  string   `json:"emailAddress"`
+	EmailSubject  string   `json:"emailSubject"`
+	Last4         []string `json:"last4"`
+}
 
 type BankSettings struct {
 	ExpectedAccounts []string `json:"expectedAccounts"`
@@ -38,7 +44,7 @@ type Settings struct {
 	OpenAIEffort   string                  `json:"openaiEffort,omitempty"`
 	ImportsEnabled bool                    `json:"importsEnabled"`
 	Banks          map[string]BankSettings `json:"banks"`
-	Email          []types.EmailConfig     `json:"email"`
+	Email          []EmailConfig           `json:"email"`
 	location       *time.Location
 }
 
@@ -56,25 +62,12 @@ func (s *Settings) Today() time.Time {
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, s.Location())
 }
 
-type settingsKey struct{}
-
-func WithSettings(ctx context.Context, s *Settings) context.Context {
-	return context.WithValue(ctx, settingsKey{}, s)
-}
-
-func Load(ctx context.Context) (*Settings, error) {
-	if s, ok := ctx.Value(settingsKey{}).(*Settings); ok {
-		return s, nil
-	}
-	cfg, e := GetAWSConfig(ctx)
-	if e != nil {
-		return nil, e
-	}
-	name := os.Getenv("SETTINGS_PARAMETER")
+// Load reads and validates the settings document from the named parameter.
+func Load(ctx context.Context, params *ssm.Client, name string) (*Settings, error) {
 	if name == "" {
-		return nil, errors.New("SETTINGS_PARAMETER is required")
+		return nil, errors.New("settings parameter name is required")
 	}
-	r, e := ssm.NewFromConfig(cfg).GetParameter(ctx, &ssm.GetParameterInput{Name: &name})
+	r, e := params.GetParameter(ctx, &ssm.GetParameterInput{Name: &name})
 	if e != nil {
 		return nil, e
 	}

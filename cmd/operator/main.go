@@ -26,7 +26,7 @@ func main() {
 	flag.Parse()
 	ctx, cancel := context.WithTimeout(context.Background(), 190*time.Second)
 	defer cancel()
-	cfg, err := config.GetAWSConfig(ctx)
+	cfg, err := config.AWS(ctx)
 	check(err)
 	r := engine.Request{Action: *action, Bank: *bank, JobID: *job}
 	if *payload != "" {

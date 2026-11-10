@@ -1,17 +1,16 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/nathanfredericks/transactions/internal/learn"
-	"github.com/nathanfredericks/transactions/internal/service"
-	"github.com/nathanfredericks/transactions/internal/types"
+	"github.com/nathanfredericks/transactions/internal/ynab"
 )
 
 // learningPK holds the importer's suggestion records by YNAB transaction ID.
@@ -84,7 +83,7 @@ func loadLearning(ctx context.Context, e *Engine) (*learning, error) {
 	if live.mirror == nil || live.budget != e.Settings.BudgetID {
 		live.mirror, live.budget = learn.NewMirror(), e.Settings.BudgetID
 	}
-	changed, err := service.SyncMirror(ctx, live.mirror, e.today())
+	changed, err := e.syncMirror(ctx, live.mirror, e.today())
 	if err != nil {
 		live.mirror = nil
 		return nil, err
@@ -107,19 +106,12 @@ func loadLearning(ctx context.Context, e *Engine) (*learning, error) {
 
 // Decision is what an import writes and the record of why.
 type Decision struct {
-	Enrichment types.Enrichment
+	Enrichment ynab.Fields
 	Suggestion learn.Suggestion
 }
 
 // Source is the payee's source, for logs and the write ledger.
 func (d Decision) Source() string { return d.Suggestion.PayeeSource }
-
-func version() string {
-	if v := os.Getenv("DEPLOYMENT_COMMIT"); v != "" {
-		return v
-	}
-	return "dev"
-}
 
 // enrich decides payee, category and memo for one bank transaction. The user's
 // approved history decides when it agrees; otherwise the model chooses among
@@ -127,10 +119,10 @@ func version() string {
 // if evidence or the model is unavailable, the descriptor is kept and the
 // unapproved transaction waits for review in YNAB.
 func (e *Engine) enrich(ctx context.Context, cache **learning, descriptor string, amount int64, date, account string) Decision {
-	d := Decision{Suggestion: learn.Suggestion{Descriptor: descriptor, AccountID: account, Date: date, Amount: amount, Bank: e.Job.Bank, JobID: e.Job.ID, Version: version(), At: time.Now().UTC()}}
+	d := Decision{Suggestion: learn.Suggestion{Descriptor: descriptor, AccountID: account, Date: date, Amount: amount, Bank: e.Job.Bank, JobID: e.Job.ID, Version: cmp.Or(e.Env.Commit, "dev"), At: time.Now().UTC()}}
 	fallback := func(reason string, err error) Decision {
 		slog.Warn("enrichment unavailable", "job", e.Job.ID, "reason", reason, "error", err)
-		d.Enrichment = types.Enrichment{Payee: types.PayeeChoice{Name: descriptor}}
+		d.Enrichment = ynab.Fields{Payee: ynab.PayeeChoice{Name: descriptor}}
 		d.Suggestion.PayeeName, d.Suggestion.PayeeSource = descriptor, "fallback"
 		return d
 	}
@@ -143,25 +135,25 @@ func (e *Engine) enrich(ctx context.Context, cache **learning, descriptor string
 	}
 	l := *cache
 	q := learn.Query{Descriptor: descriptor, Amount: amount, Date: date, AccountID: account}
-	var payee types.PayeeChoice
+	var payee ynab.PayeeChoice
 	modelCategory := ""
 	if r, ok := l.model.Payee(descriptor, date); ok {
-		payee = types.PayeeChoice{ID: r.ID, Name: r.Name}
+		payee = ynab.PayeeChoice{ID: r.ID, Name: r.Name}
 		d.Suggestion.PayeeSource = r.Source
 	} else {
 		candidates := l.model.Candidates(descriptor, 20)
-		out, model, err := service.ChooseWithModel(ctx, l.model.Input(q, "", candidates))
+		out, model, err := e.chooseWithModel(ctx, l.model.Input(q, "", candidates))
 		d.Suggestion.Model = model
 		if err != nil {
 			return fallback("model", err)
 		}
 		if out.PayeeID == "none" {
-			payee = types.PayeeChoice{Name: out.NewPayeeName}
+			payee = ynab.PayeeChoice{Name: out.NewPayeeName}
 			d.Suggestion.PayeeSource = "model-new"
 		} else {
 			for _, c := range candidates {
 				if c.ID == out.PayeeID {
-					payee = types.PayeeChoice{ID: c.ID, Name: c.Name}
+					payee = ynab.PayeeChoice{ID: c.ID, Name: c.Name}
 				}
 			}
 			if payee.ID == "" {
@@ -188,7 +180,7 @@ func (e *Engine) enrich(ctx context.Context, cache **learning, descriptor string
 // recordSuggestion stores the suggestion for a written transaction, so the
 // mirror can join it to the user's final approved state. It carries no
 // financial authority and never fails the import.
-func (e *Engine) recordSuggestion(ctx context.Context, d Decision, tx *types.YNABTransaction, importID string) {
+func (e *Engine) recordSuggestion(ctx context.Context, d Decision, tx *ynab.Transaction, importID string) {
 	if tx == nil || tx.ID == "" || e.Job.DryRun {
 		return
 	}

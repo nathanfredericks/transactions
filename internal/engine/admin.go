@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -48,7 +47,7 @@ func (e *Engine) Admin(ctx context.Context, r Request) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		_, err = e.SFN.StartExecution(ctx, &sfn.StartExecutionInput{StateMachineArn: aws.String(os.Getenv("WORKFLOW_ARN")), Name: aws.String("retry-" + uuid.NewString()), Input: aws.String(string(input))})
+		_, err = e.SFN.StartExecution(ctx, &sfn.StartExecutionInput{StateMachineArn: aws.String(e.Env.Workflow), Name: aws.String("retry-" + uuid.NewString()), Input: aws.String(string(input))})
 		return map[string]bool{"accepted": err == nil}, err
 	case "banks.list":
 		result := []map[string]any{}

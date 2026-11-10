@@ -1,39 +1,34 @@
-package service
+package engine
 
 import (
 	"context"
 	"fmt"
 	"maps"
-	"net/http"
 	"net/url"
 	"strconv"
 	"time"
 
 	"github.com/nathanfredericks/transactions/internal/learn"
-	"github.com/nathanfredericks/transactions/internal/types"
+	"github.com/nathanfredericks/transactions/internal/llm"
+	"github.com/nathanfredericks/transactions/internal/ynab"
 )
 
 // MirrorYears is how much approved history the mirror keeps for learning.
 const MirrorYears = 2
 
-// SyncMirror brings a mirror up to date with YNAB using delta requests: only
+// syncMirror brings a mirror up to date with YNAB using delta requests: only
 // what changed since each saved server knowledge is fetched. An empty mirror is
 // filled with MirrorYears of transactions. It returns the IDs of transactions
 // that changed.
-func SyncMirror(ctx context.Context, m *learn.Mirror, today string) ([]string, error) {
-	client, err := newYNABClient(ctx)
-	if err != nil {
-		return nil, err
-	}
+func (e *Engine) syncMirror(ctx context.Context, m *learn.Mirror, today string) ([]string, error) {
 	m.Fill()
-	base := "/budgets/" + client.budgetID
 	delta := func(kind, path string, extra url.Values, out any) error {
 		v := url.Values{}
 		maps.Copy(v, extra)
 		if k := m.Knowledge[kind]; k > 0 {
 			v.Set("last_knowledge_of_server", strconv.FormatInt(k, 10))
 		}
-		if err := client.do(ctx, http.MethodGet, base+path+"?"+v.Encode(), nil, out); err != nil {
+		if err := e.YNAB.Get(ctx, path+"?"+v.Encode(), out); err != nil {
 			return fmt.Errorf("fetching %s: %w", kind, err)
 		}
 		return nil
@@ -42,8 +37,8 @@ func SyncMirror(ctx context.Context, m *learn.Mirror, today string) ([]string, e
 
 	var tx struct {
 		Data struct {
-			Transactions    []*types.YNABTransaction `json:"transactions"`
-			ServerKnowledge int64                    `json:"server_knowledge"`
+			Transactions    []*ynab.Transaction `json:"transactions"`
+			ServerKnowledge int64               `json:"server_knowledge"`
 		} `json:"data"`
 	}
 	extra := url.Values{}
@@ -109,4 +104,17 @@ func SyncMirror(ctx context.Context, m *learn.Mirror, today string) ([]string, e
 		}
 	}
 	return changed, nil
+}
+
+// chooseWithModel asks the configured model to choose a payee (or name a new
+// one) and a category, using the same prompt the replay harness evaluated. It
+// returns the answer and the model that gave it.
+func (e *Engine) chooseWithModel(ctx context.Context, in learn.ModelInput) (learn.ModelOutput, string, error) {
+	instructions, message, schema := learn.Prompt(in)
+	res, err := llm.Call(ctx, e.Model, instructions, message, "transaction_choice", schema)
+	if err != nil {
+		return learn.ModelOutput{}, e.Model.Model, fmt.Errorf("calling model: %w", err)
+	}
+	out, err := learn.ParseOutput(res.Text, in)
+	return out, e.Model.Model, err
 }

@@ -18,7 +18,7 @@ import (
 	"strings"
 
 	"github.com/nathanfredericks/transactions/internal/learn"
-	"github.com/nathanfredericks/transactions/internal/types"
+	"github.com/nathanfredericks/transactions/internal/ynab"
 )
 
 func main() {
@@ -68,7 +68,7 @@ func load(dir, mirrorFile string) (*learn.Mirror, error) {
 	m := learn.NewMirror()
 	var tx struct {
 		Data struct {
-			Transactions []*types.YNABTransaction `json:"transactions"`
+			Transactions []*ynab.Transaction `json:"transactions"`
 		} `json:"data"`
 	}
 	var payees struct {

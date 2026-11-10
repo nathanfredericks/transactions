@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nathanfredericks/transactions/internal/types"
+	"github.com/nathanfredericks/transactions/internal/ynab"
 )
 
 // Payee is a YNAB payee.
@@ -83,12 +83,12 @@ type Suggestion struct {
 // Mirror is the budget as read from YNAB. A delta request updates it with only
 // what changed since its last read.
 type Mirror struct {
-	Version      int                               `json:"version"`
-	Knowledge    map[string]int64                  `json:"knowledge"`
-	Transactions map[string]*types.YNABTransaction `json:"transactions"`
-	Payees       map[string]*Payee                 `json:"payees"`
-	Categories   map[string]*Category              `json:"categories"`
-	Scheduled    map[string]*Scheduled             `json:"scheduled"`
+	Version      int                          `json:"version"`
+	Knowledge    map[string]int64             `json:"knowledge"`
+	Transactions map[string]*ynab.Transaction `json:"transactions"`
+	Payees       map[string]*Payee            `json:"payees"`
+	Categories   map[string]*Category         `json:"categories"`
+	Scheduled    map[string]*Scheduled        `json:"scheduled"`
 	// Suggestions are the importer's own records, keyed by YNAB transaction ID.
 	Suggestions map[string]*Suggestion `json:"suggestions"`
 	// CategorySeen is the date each category was first seen in the budget.
@@ -97,7 +97,7 @@ type Mirror struct {
 
 // NewMirror returns an empty mirror.
 func NewMirror() *Mirror {
-	return &Mirror{Version: 1, Knowledge: map[string]int64{}, Transactions: map[string]*types.YNABTransaction{}, Payees: map[string]*Payee{}, Categories: map[string]*Category{}, Scheduled: map[string]*Scheduled{}, Suggestions: map[string]*Suggestion{}, CategorySeen: map[string]string{}}
+	return &Mirror{Version: 1, Knowledge: map[string]int64{}, Transactions: map[string]*ynab.Transaction{}, Payees: map[string]*Payee{}, Categories: map[string]*Category{}, Scheduled: map[string]*Scheduled{}, Suggestions: map[string]*Suggestion{}, CategorySeen: map[string]string{}}
 }
 
 // Fill replaces nil maps after decoding an older or partial mirror.
@@ -106,7 +106,7 @@ func (m *Mirror) Fill() {
 		m.Knowledge = map[string]int64{}
 	}
 	if m.Transactions == nil {
-		m.Transactions = map[string]*types.YNABTransaction{}
+		m.Transactions = map[string]*ynab.Transaction{}
 	}
 	if m.Payees == nil {
 		m.Payees = map[string]*Payee{}
@@ -139,7 +139,7 @@ func (m *Mirror) Pending() []*Suggestion {
 
 // ApplyTransactions merges a delta. Deleted rows are kept, marked deleted, so a
 // suggestion for a removed transaction can still be told apart from a missing one.
-func (m *Mirror) ApplyTransactions(rows []*types.YNABTransaction) {
+func (m *Mirror) ApplyTransactions(rows []*ynab.Transaction) {
 	for _, t := range rows {
 		if t != nil && t.ID != "" {
 			m.Transactions[t.ID] = t
@@ -205,7 +205,7 @@ func str(s *string) string {
 // Descriptor returns the bank text for a transaction. The importer's own record
 // wins because, once a payee is written by ID, YNAB may keep no import payee name
 // or keep the chosen name instead of what the bank sent.
-func Descriptor(t *types.YNABTransaction, s *Suggestion) string {
+func Descriptor(t *ynab.Transaction, s *Suggestion) string {
 	if s != nil && strings.TrimSpace(s.Descriptor) != "" {
 		return strings.TrimSpace(s.Descriptor)
 	}

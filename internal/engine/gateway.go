@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -51,7 +50,7 @@ func (e *Engine) Submit(ctx context.Context, j Job) (string, error) {
 		}
 	}
 	b, _ := json.Marshal(Request{Action: "run", JobID: j.ID, Bank: j.Bank})
-	_, err = e.SFN.StartExecution(ctx, &sfn.StartExecutionInput{StateMachineArn: aws.String(os.Getenv("WORKFLOW_ARN")), Name: &j.ID, Input: aws.String(string(b))})
+	_, err = e.SFN.StartExecution(ctx, &sfn.StartExecutionInput{StateMachineArn: aws.String(e.Env.Workflow), Name: &j.ID, Input: aws.String(string(b))})
 	if _, ok := errors.AsType[*sfnt.ExecutionAlreadyExists](err); ok {
 		err = nil
 	}

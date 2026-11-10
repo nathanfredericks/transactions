@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/nathanfredericks/transactions/internal/config"
 )
 
 // client posts to Pushover and never follows a redirect.
@@ -24,13 +22,12 @@ type NotificationOptions struct {
 	URLTitle string
 }
 
-// SendNotification sends one Pushover message.
-func SendNotification(ctx context.Context, message string, opts NotificationOptions) error {
-	secrets, err := config.GetSecrets(ctx)
-	if err != nil {
-		return fmt.Errorf("getting secrets: %w", err)
-	}
-	form := url.Values{"token": {secrets.PushoverToken}, "user": {secrets.PushoverUser}, "message": {message}}
+// Pushover sends push notifications to one user.
+type Pushover struct{ Token, User string }
+
+// Send sends one message.
+func (p Pushover) Send(ctx context.Context, message string, opts NotificationOptions) error {
+	form := url.Values{"token": {p.Token}, "user": {p.User}, "message": {message}}
 	for name, value := range map[string]string{"title": opts.Title, "sound": opts.Sound, "url": opts.URL, "url_title": opts.URLTitle} {
 		if value != "" {
 			form.Set(name, value)
