@@ -61,7 +61,7 @@ func (t *task) verifySession(ctx context.Context, bankID string, renew bool) (an
 	if fetchErr != nil {
 		return nil, fetchErr
 	}
-	if err = ValidateSnapshot(snapshot, settings.ExpectedAccounts); err != nil {
+	if err = snapshot.Validate(settings.ExpectedAccounts); err != nil {
 		return nil, err
 	}
 	key, err := t.Store.Upload(ctx, "snapshots/"+bankID, snapshot)

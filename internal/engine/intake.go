@@ -2,8 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"net/url"
@@ -12,50 +10,11 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/sfn"
-	sfnt "github.com/aws/aws-sdk-go-v2/service/sfn/types"
 
 	"github.com/nathanfredericks/transactions/internal/bank"
 	"github.com/nathanfredericks/transactions/internal/email"
 )
-
-func (e *Engine) Submit(ctx context.Context, j Job) (string, error) {
-	if j.Version != 1 || j.ID == "" || j.Bank == "" || len(j.ID) > 80 || !regexp.MustCompile(`^[a-zA-Z0-9_-]+$`).MatchString(j.ID) {
-		return "", bank.Fail(bank.Invalid, "job")
-	}
-	if j.Purpose != "retrieve" {
-		return "", bank.Fail(bank.Invalid, "job-purpose")
-	}
-	if j.ReceivedAt.IsZero() {
-		j.ReceivedAt = time.Now()
-	}
-	j.Status = "accepted"
-	created, err := e.Store.Create(ctx, "BANK#"+j.Bank, "JOB#"+j.ID, j)
-	if err != nil {
-		return "", err
-	}
-	if !created {
-		var existing Job
-		_, err = e.Store.Get(ctx, "BANK#"+j.Bank, "JOB#"+j.ID, &existing)
-		if err != nil {
-			return "", err
-		}
-		if existing.Bank != j.Bank || existing.Source != j.Source || existing.Purpose != j.Purpose || existing.DryRun != j.DryRun || existing.MessageID != j.MessageID || existing.AlertAmount != j.AlertAmount || existing.AlertDate != j.AlertDate || existing.Text != j.Text || existing.AccountID != j.AccountID || !existing.OccurredAt.Equal(j.OccurredAt) {
-			return "", bank.Fail(bank.Invalid, "event-id-reused")
-		}
-		if existing.finished() {
-			return j.ID, nil
-		}
-	}
-	b, _ := json.Marshal(Request{Action: "run", JobID: j.ID, Bank: j.Bank})
-	_, err = e.SFN.StartExecution(ctx, &sfn.StartExecutionInput{StateMachineArn: aws.String(e.Env.Workflow), Name: &j.ID, Input: aws.String(string(b))})
-	if _, ok := errors.AsType[*sfnt.ExecutionAlreadyExists](err); ok {
-		err = nil
-	}
-	return j.ID, err
-}
 
 func (e *Engine) Email(ctx context.Context, event events.S3Event) (any, error) {
 	var ids []string

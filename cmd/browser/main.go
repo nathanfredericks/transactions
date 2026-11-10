@@ -259,7 +259,7 @@ func authenticate(ctx context.Context, app *engine.Engine, secrets *config.Secre
 	if err != nil {
 		return session, err
 	}
-	if err = engine.ValidateSnapshot(snapshot, settings.ExpectedAccounts); err != nil {
+	if err = snapshot.Validate(settings.ExpectedAccounts); err != nil {
 		return session, err
 	}
 	if err = app.Store.Assert(ctx, l); err != nil {

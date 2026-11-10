@@ -84,6 +84,39 @@ type Snapshot struct {
 	Records  []Record  `json:"records"`
 	At       time.Time `json:"at"`
 }
+
+// Validate checks a fetched snapshot: the expected accounts, each once, and
+// records with an identity, a description, a known status and a valid date.
+func (s Snapshot) Validate(expected []string) error {
+	if len(s.Accounts) == 0 {
+		return Fail(Invalid, "empty-accounts")
+	}
+	seen := map[string]bool{}
+	for _, a := range s.Accounts {
+		if a.ID == "" || seen[a.ID] {
+			return Fail(Invalid, "account-identity")
+		}
+		seen[a.ID] = true
+	}
+	if len(expected) != len(seen) {
+		return Fail(Invalid, "account-count")
+	}
+	for _, id := range expected {
+		if !seen[id] {
+			return Fail(Invalid, "account-identity")
+		}
+	}
+	for _, r := range s.Records {
+		if !seen[r.AccountID] || r.ProvisionalID == "" || r.Description == "" || (r.Status != "posted" && r.Status != "pending") {
+			return Fail(Invalid, "record")
+		}
+		if _, err := time.Parse("2006-01-02", r.Date); err != nil {
+			return Fail(Invalid, "record-date")
+		}
+	}
+	return nil
+}
+
 type FetchRequest struct {
 	AccountsOnly bool
 	StartDate    string
