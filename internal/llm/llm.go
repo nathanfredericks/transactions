@@ -42,9 +42,7 @@ func Call(ctx context.Context, cfg Config, instructions, input, schemaName strin
 	if timeout == 0 {
 		timeout = 45 * time.Second
 	}
-	httpClient := *http.DefaultClient
-	httpClient.Timeout = timeout
-	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	httpClient := http.Client{Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	client := openai.NewClient(
 		option.WithBaseURL(cfg.Endpoint),
 		option.WithAPIKey(cfg.Key),

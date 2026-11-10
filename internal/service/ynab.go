@@ -73,8 +73,7 @@ func newYNABClient(ctx context.Context) (*ynabClient, error) {
 	return &ynabClient{
 		budgetID:    settings.BudgetID,
 		accessToken: secrets.YNABAccessToken,
-		// Reuse the process transport so tests can substitute it.
-		httpClient: &http.Client{Transport: http.DefaultClient.Transport, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		httpClient:  &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}, nil
 }
 

@@ -16,7 +16,6 @@ require (
 	github.com/emersion/go-message v0.18.2
 	github.com/go-rod/rod v0.116.2
 	github.com/google/uuid v1.6.0
-	github.com/gregdel/pushover v1.4.0
 	github.com/k3a/html2text v1.3.0
 	github.com/openai/openai-go/v3 v3.22.0
 )
