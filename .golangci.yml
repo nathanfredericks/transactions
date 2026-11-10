@@ -111,11 +111,6 @@ linters:
       - path: ^(internal/banks|internal/bank|internal/signin|cmd/browser)/
         linters: [contextcheck, gocognit, gocritic, gosec, nestif]
 
-      # P6 simplifies the broker.
-      - path: ^internal/browserbroker/
-        linters: [contextcheck, forcetypeassert, gocognit, gosec, noctx]
-      - path: ^cmd/browser-broker/
-        linters: [gocritic]
 
       # The offline replay harness and the learner belong to the learning
       # work (D12); no phase restructures them.

@@ -126,7 +126,7 @@ func authenticate(ctx context.Context, app *engine.Engine, secrets *config.Secre
 	// The bank lease remains authoritative for bank data; this reservation only
 	// serializes CloakBrowser capacity across independent applications.
 	if r.Browser == "cloak" {
-		client, err := browserbroker.FromEnv()
+		client, err := browserbroker.NewClient(os.Getenv("BROWSER_BROKER_URL"), os.Getenv("BROWSER_BROKER_TOKEN"))
 		if err != nil {
 			return session, bank.Fail(bank.Capacity, "browser-broker-unavailable")
 		}

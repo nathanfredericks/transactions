@@ -14,106 +14,45 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sync"
 	"time"
 )
 
-type diskState struct {
-	Reservations []Reservation `json:"reservations"`
-	Uncertain    bool          `json:"uncertain"`
-}
+// Server grants the one CloakBrowser licence seat to a bank or to Hermes.
+// The vendor's seat count decides when the seat is free: a bank is granted it,
+// and Hermes's browser starts, only once the count is zero. Nothing is stored;
+// after a restart the count still keeps Hermes off a seat a bank is using.
 type Server struct {
-	mu               sync.Mutex
-	state            diskState
-	owner            string
-	failed           bool
-	rateMu           sync.Mutex
-	rateAt           time.Time
-	rateCount        int
-	StateFile, Token string
-	Supervisor       *Supervisor
-	Seats            func(context.Context) (int, error)
-	IdleTimeout      time.Duration
-	LeaseDuration    time.Duration
+	mu            sync.Mutex
+	queue         []Reservation // oldest first
+	granted       *Reservation
+	owner         string // idle, hermes or bank
+	Token         string
+	Supervisor    *Supervisor
+	Seats         func(context.Context) (int, error)
+	IdleTimeout   time.Duration
+	LeaseDuration time.Duration
 }
 
-func NewServer(path, token string, sup *Supervisor, seats func(context.Context) (int, error)) (*Server, error) {
+func NewServer(token string, sup *Supervisor, seats func(context.Context) (int, error)) (*Server, error) {
 	if len(token) < 32 {
 		return nil, errors.New("broker token must have at least 32 characters")
 	}
-	s := &Server{StateFile: path, Token: token, Supervisor: sup, Seats: seats, owner: "releasing", IdleTimeout: 30 * time.Second, LeaseDuration: 10 * time.Minute}
-	sup.BeforeStart = func(ctx context.Context) error {
-		check, cancel := context.WithTimeout(ctx, 8*time.Second)
-		defer cancel()
-		count, err := seats(check)
-		if err != nil || count != 0 {
-			return errors.New("license capacity unconfirmed")
-		}
-		return nil
-	}
-	data, err := os.ReadFile(path)
-	if err == nil {
-		if json.Unmarshal(data, &s.state) != nil {
-			return nil, errors.New("invalid broker state")
-		}
-	} else if !os.IsNotExist(err) {
-		return nil, err
-	}
-	// Startup never assumes the vendor seat is free; retain any remote reservation.
-	s.state.Uncertain = true
-	if err = s.persist(); err != nil {
-		return nil, err
-	}
+	s := &Server{Token: token, Supervisor: sup, Seats: seats, owner: "idle", IdleTimeout: 30 * time.Second, LeaseDuration: 10 * time.Minute}
+	sup.BeforeStart = func(ctx context.Context) error { return s.seatFree(ctx) }
 	return s, nil
 }
 
-func (s *Server) persist() error {
-	data, err := json.Marshal(s.state)
-	if err != nil {
-		return err
+// seatFree confirms the vendor counts no occupied seat.
+func (s *Server) seatFree(ctx context.Context) error {
+	check, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	count, err := s.Seats(check)
+	if err != nil || count != 0 {
+		return errors.New("license capacity unconfirmed")
 	}
-	dir := filepath.Dir(s.StateFile)
-	if err = os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(dir, ".broker-*")
-	if err != nil {
-		return err
-	}
-	name := f.Name()
-	defer os.Remove(name)
-	if err = f.Chmod(0o600); err == nil {
-		_, err = f.Write(data)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = os.Rename(name, s.StateFile)
-	}
-	if err == nil {
-		d, e := os.Open(dir)
-		if e != nil {
-			return e
-		}
-		err = d.Sync()
-		d.Close()
-	}
-	return err
-}
-
-func (s *Server) save() {
-	if s.persist() != nil {
-		s.failed = true
-		s.owner = "releasing"
-	}
+	return nil
 }
 
 func (s *Server) Run(ctx context.Context) {
@@ -130,106 +69,66 @@ func (s *Server) Run(ctx context.Context) {
 	}
 }
 
+// step expires stale reservations, stops an idle Hermes browser, and grants
+// the oldest waiting bank the seat once Hermes is stopped and the seat is free.
 func (s *Server) step(ctx context.Context) {
 	s.mu.Lock()
-	if s.failed {
-		s.mu.Unlock()
-		_ = s.Supervisor.Stop()
-		return
-	}
 	now := time.Now()
-	active := -1
-	pending := -1
-	for i := range s.state.Reservations {
-		r := &s.state.Reservations[i]
-		if (r.Status == "granted" || r.Status == "queued") && !r.ExpiresAt.After(now) {
-			if r.Status == "granted" {
-				s.state.Uncertain = true
-			}
-			r.Status = "expired"
-			s.save()
-		}
-		if r.Status == "granted" {
-			active = i
-		}
-		if r.Status == "queued" && pending < 0 {
-			pending = i
+	if s.granted != nil && !s.granted.ExpiresAt.After(now) {
+		s.granted = nil
+		s.owner = "idle"
+	}
+	live := s.queue[:0]
+	for _, r := range s.queue {
+		if r.ExpiresAt.After(now) {
+			live = append(live, r)
 		}
 	}
-	if active >= 0 {
-		s.owner = "bank"
+	s.queue = live
+	if s.granted != nil {
 		s.mu.Unlock()
 		return
 	}
-	needsRelease := s.state.Uncertain || pending >= 0
-	if !needsRelease && s.owner == "hermes" && s.Supervisor.Idle(s.IdleTimeout) {
-		needsRelease = true
-		s.state.Uncertain = true
-		s.save()
-	}
-	if !needsRelease {
-		s.mu.Unlock()
-		return
-	}
-	s.owner = "releasing"
+	stopHermes := len(s.queue) > 0 || (s.owner == "hermes" && s.Supervisor.Idle(s.IdleTimeout))
+	waiting := len(s.queue) > 0
 	s.mu.Unlock()
-	// Slow process/network operations never hold the API/state lock.
-	if s.Supervisor.Stop() != nil {
-		return
-	}
-	seatCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	count, err := s.Seats(seatCtx)
-	cancel()
-	if err != nil || count != 0 {
-		select {
-		case <-ctx.Done():
-		case <-time.After(4 * time.Second):
+	if stopHermes {
+		// Slow process and network work never holds the lock.
+		if s.Supervisor.Stop() != nil {
+			return
 		}
+		s.mu.Lock()
+		if s.owner == "hermes" {
+			s.owner = "idle"
+		}
+		s.mu.Unlock()
+	}
+	if !waiting || s.seatFree(ctx) != nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.failed {
-		return
+	// The head request may have been cancelled while the seat was checked.
+	if s.granted == nil && len(s.queue) > 0 {
+		r := s.queue[0]
+		s.queue = s.queue[1:]
+		r.Status, r.ExpiresAt = "granted", time.Now().Add(s.LeaseDuration)
+		s.granted, s.owner = &r, "bank"
 	}
-	s.state.Uncertain = false
-	s.owner = "idle"
-	// Re-evaluate after I/O: the queued request may have been cancelled.
-	for i := range s.state.Reservations {
-		r := &s.state.Reservations[i]
-		if r.Status == "queued" && r.ExpiresAt.After(time.Now()) {
-			r.Status = "granted"
-			r.ExpiresAt = time.Now().Add(s.LeaseDuration)
-			s.owner = "bank"
-			break
-		}
-	}
-	cutoff := time.Now().Add(-24 * time.Hour)
-	kept := s.state.Reservations[:0]
-	for _, r := range s.state.Reservations {
-		if r.CreatedAt.After(cutoff) || r.Status == "granted" || r.Status == "queued" {
-			kept = append(kept, r)
-		}
-	}
-	s.state.Reservations = kept
-	s.save()
 }
 
-// present distinguishes the head request waiting for a seat release from FIFO
-// followers, while retaining the durable queued state until a grant is safe.
+// find returns the reservation with the ID, if it is waiting or granted.
 // Caller holds s.mu.
-func (s *Server) present(v Reservation) Reservation {
-	if v.Status == "queued" && s.owner == "releasing" {
-		for _, pending := range s.state.Reservations {
-			if pending.Status == "queued" {
-				if pending.ID == v.ID {
-					v.Status = "releasing"
-				}
-				break
-			}
+func (s *Server) find(match func(Reservation) bool) (Reservation, bool) {
+	if s.granted != nil && match(*s.granted) {
+		return *s.granted, true
+	}
+	for _, r := range s.queue {
+		if match(r) {
+			return r, true
 		}
 	}
-	return v
+	return Reservation{}, false
 }
 
 func jsonResponse(w http.ResponseWriter, status int, v any) {
@@ -246,42 +145,21 @@ func (s *Server) Control() http.Handler {
 	mux.HandleFunc("GET /v1/status", func(w http.ResponseWriter, _ *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		n := 0
-		for _, v := range s.state.Reservations {
-			if v.Status == "queued" {
-				n++
-			}
-		}
-		jsonResponse(w, 200, Status{Owner: s.owner, Ready: !s.failed && s.owner != "releasing", Pending: n})
+		jsonResponse(w, 200, Status{Owner: s.owner, Ready: true, Pending: len(s.queue)})
 	})
 	mux.HandleFunc("POST /v1/reservations", func(w http.ResponseWriter, r *http.Request) {
 		var q Request
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 		decoder.DisallowUnknownFields()
-		if decoder.Decode(&q) != nil || (q.Bank != "nbdb" && q.Bank != "rogers-bank") || !identifier.MatchString(q.JobID) || !identifier.MatchString(q.Generation) {
+		if decoder.Decode(&q) != nil || !identifier.MatchString(q.Bank) || !identifier.MatchString(q.JobID) || !identifier.MatchString(q.Generation) {
 			http.Error(w, "invalid reservation", 400)
 			return
 		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if s.failed {
-			http.Error(w, "broker unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		for _, v := range s.state.Reservations {
-			if v.Request == q {
-				jsonResponse(w, 200, s.present(v))
-				return
-			}
-		}
-		live := 0
-		for _, v := range s.state.Reservations {
-			if v.Status == "queued" || v.Status == "granted" {
-				live++
-			}
-		}
-		if live >= 100 {
-			http.Error(w, "broker busy", http.StatusTooManyRequests)
+		// A retried request gets the reservation it already has.
+		if v, ok := s.find(func(v Reservation) bool { return v.Request == q }); ok {
+			jsonResponse(w, 200, v)
 			return
 		}
 		var b [24]byte
@@ -290,64 +168,36 @@ func (s *Server) Control() http.Handler {
 			return
 		}
 		v := Reservation{ID: hex.EncodeToString(b[:]), Request: q, Status: "queued", CreatedAt: time.Now(), ExpiresAt: time.Now().Add(75 * time.Second)}
-		s.state.Reservations = append(s.state.Reservations, v)
-		s.save()
-		if s.failed {
-			http.Error(w, "broker unavailable", http.StatusServiceUnavailable)
-			return
-		}
+		s.queue = append(s.queue, v)
 		jsonResponse(w, 202, v)
-		// New connections are blocked as soon as this request is persisted.
 	})
 	mux.HandleFunc("GET /v1/reservations/{id}", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		for _, v := range s.state.Reservations {
-			if v.ID == r.PathValue("id") {
-				jsonResponse(w, 200, s.present(v))
-				return
-			}
+		if v, ok := s.find(func(v Reservation) bool { return v.ID == r.PathValue("id") }); ok {
+			jsonResponse(w, 200, v)
+			return
 		}
 		http.NotFound(w, r)
 	})
 	mux.HandleFunc("DELETE /v1/reservations/{id}", func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		for i := range s.state.Reservations {
-			v := &s.state.Reservations[i]
-			if v.ID == r.PathValue("id") {
-				if v.Status == "granted" {
-					s.state.Uncertain = true
-					s.owner = "releasing"
-				}
-				if v.Status == "granted" || v.Status == "queued" {
-					v.Status = "released"
-					s.save()
-				}
-				if s.failed {
-					http.Error(w, "broker unavailable", http.StatusServiceUnavailable)
-					return
-				}
-				w.WriteHeader(204)
-				return
+		id := r.PathValue("id")
+		// A late DELETE only ever releases its own reservation.
+		if s.granted != nil && s.granted.ID == id {
+			s.granted, s.owner = nil, "idle"
+		}
+		kept := s.queue[:0]
+		for _, v := range s.queue {
+			if v.ID != id {
+				kept = append(kept, v)
 			}
 		}
+		s.queue = kept
 		w.WriteHeader(204)
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.rateMu.Lock()
-		if time.Since(s.rateAt) >= time.Second {
-			s.rateAt = time.Now()
-			s.rateCount = 0
-		}
-		s.rateCount++
-		limited := s.rateCount > 100
-		s.rateMu.Unlock()
-		if limited {
-			w.Header().Set("Retry-After", "1")
-			http.Error(w, "rate limited", http.StatusTooManyRequests)
-			return
-		}
 		supplied := r.Header.Get("Authorization")
 		expected := "Bearer " + s.Token
 		if subtle.ConstantTimeCompare([]byte(supplied), []byte(expected)) != 1 {
@@ -372,7 +222,11 @@ type proxyWriter struct {
 }
 
 func (w proxyWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	c, b, e := w.ResponseWriter.(http.Hijacker).Hijack()
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("connection cannot be hijacked")
+	}
+	c, b, e := h.Hijack()
 	if e != nil {
 		return nil, nil, e
 	}
@@ -393,13 +247,7 @@ func (s *Server) CDP() http.Handler {
 			return
 		}
 		s.mu.Lock()
-		blocked := s.failed || s.owner == "bank" || s.owner == "releasing"
-		for _, v := range s.state.Reservations {
-			if v.Status == "queued" {
-				blocked = true
-			}
-		}
-		if blocked {
+		if s.granted != nil || len(s.queue) > 0 {
 			s.mu.Unlock()
 			w.Header().Set("Retry-After", "5")
 			http.Error(w, "browser reserved; navigate again after release", http.StatusServiceUnavailable)
@@ -412,15 +260,7 @@ func (s *Server) CDP() http.Handler {
 		if s.Supervisor.Ensure(r.Context(), func() bool {
 			s.mu.Lock()
 			defer s.mu.Unlock()
-			if s.failed || s.owner != "hermes" {
-				return false
-			}
-			for _, v := range s.state.Reservations {
-				if v.Status == "queued" {
-					return false
-				}
-			}
-			return true
+			return s.owner == "hermes" && len(s.queue) == 0
 		}) != nil {
 			_ = s.Supervisor.Stop()
 			http.Error(w, "browser unavailable", http.StatusServiceUnavailable)
@@ -428,12 +268,7 @@ func (s *Server) CDP() http.Handler {
 		}
 		// A bank request can arrive while the launcher is starting.
 		s.mu.Lock()
-		blocked = s.failed || s.owner != "hermes"
-		for _, v := range s.state.Reservations {
-			if v.Status == "queued" {
-				blocked = true
-			}
-		}
+		blocked := s.owner != "hermes" || len(s.queue) > 0
 		s.mu.Unlock()
 		if blocked {
 			http.Error(w, "browser reserved", http.StatusServiceUnavailable)

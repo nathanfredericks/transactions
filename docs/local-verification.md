@@ -14,7 +14,7 @@ docker build --platform linux/arm64 --secret id=cloak_license,src="$HOME/.cloakb
 
 ## Edit, build, verify
 
-Each command below builds the current worker and runs a separate container. Login uses the same Rod flow and Chromium/CloakBrowser choice as ECS. API and renewal checks do not launch a browser. Credentials are passed through a temporary private environment file and removed when the command ends. Never enable shell tracing or print session objects.
+Each command below builds the current worker and runs a separate container. Login uses the same Playwright flow and Chromium/CloakBrowser choice as ECS. API and renewal checks do not launch a browser. Credentials are passed through a temporary private environment file and removed when the command ends. Never enable shell tracing or print session objects.
 
 ```sh
 python3 scripts/verify-bank.py eq-bank
@@ -62,20 +62,11 @@ AWS_REGION=ca-central-1 go run ./cmd/operator -function transactions-engine-proc
 
 Repeat for each bank. Compare the private normalized snapshots with browser observations. Verify a real ECS login once after the local selectors are stable. See [operations](cutover.md) for the operator commands.
 
-## Wrapper inspection
+## Browser stack
 
-`cmd/cloak-inspect` uses only a local non-secret event/geometry fixture; it never loads AWS configuration or bank credentials. Build it for the ARM64 image, then mount the executable and fixture into the existing browser image:
+The worker drives the browser with playwright-go (driver 1.64.1 on Node 24.21.0). EQ runs the image's stock Chromium with plain Playwright input. Rogers and NBDB run CloakBrowser `154.0.8037.57.1` from the pinned runtime image, with its stealth arguments, a temporary profile, the window's own size and `en-CA`, and `internal/human` input: the vendor's careful preset, sent as the same CDP mouse and key events the earlier Rod port sent. Control labels are read as the page renders them (aria-label, else rendered text), in Playwright's isolated world. Playwright's error text is never logged, since it can carry URLs, arguments and browser output.
 
-```sh
-GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o dist/cloak-inspect ./cmd/cloak-inspect
-docker run --rm --init --mount "type=bind,src=$PWD,dst=/workspace" --workdir /workspace --entrypoint xvfb-run transactions-engine-browser:cloak-rod -a /workspace/dist/cloak-inspect -full
-# Repeat with -profiles or -auth for persistent storage and HTTP auth/routing.
-docker build --platform linux/arm64 --target browsers --secret id=cloak_license,src="$HOME/.cloakbrowser/license.key" -t transactions-cloak-reference:inspect .
-docker run --rm --init --mount "type=bind,src=$PWD,dst=/workspace" --workdir /workspace --entrypoint xvfb-run transactions-cloak-reference:inspect -a node scripts/cloak/inspect-reference.mjs
-scripts/cloak/binary.sh info
-```
-
-The reference script imports the installed pinned wrapper from the browsers stage. `binary.sh` also supports deliberate `install`, `update` and `clear-cache`, with an optional operator cache directory. These commands are never invoked by production; do not update the pinned validation image while comparing behavior.
+On 9 November 2026 each bank passed a real local login and a separate native API check on this stack: EQ (email code, 2 accounts), Rogers (first run on 154, email code, 1 account) and NBDB (remembered device restored, email code, wealth session correlated, 2 accounts).
 
 ## NBDB browser identity
 
@@ -85,9 +76,9 @@ OAuth capture matches a completed authorization-code exchange to the bearer on a
 
 MFA email polling queries recent timestamps, checks exact sender/subject metadata, and fetches bodies only for matching messages. This avoids relying on a text-search index having updated immediately after delivery.
 
-The 2026-10-08 incident was an authentication POST returning HTTP 403 with `AK000001`, before MFA. Bank page creation replaced the Rod context and discarded the CloakBrowser runtime, silently routing input through ordinary Rod actions despite the startup log. Page creation now retains the runtime while applying the caller’s deadline. Isolated element handles also remain in their isolated world instead of being resolved into the main world. A fixed browser identity does not guarantee bank acceptance; an explicit browser-access rejection still pauses authentication for investigation, rather than triggering repeated login attempts.
+The 2026-10-08 incident was an authentication POST returning HTTP 403 with `AK000001`, before MFA, while input had silently bypassed the humanizer. With playwright-go the humanizer is a field of the sign-in's browser, not a context value, so that cannot recur. A fixed browser identity does not guarantee bank acceptance; an explicit browser-access rejection still pauses authentication for investigation, rather than triggering repeated login attempts.
 
-NBDB uses Chromium `154.0.8037.57.1`, downloaded by the pinned `0.6.0` wrapper with its official signature/checksum verification and an additional executable hash pin. The Rod interaction port remains based on `0.3.25`. Headed NBDB runs use a normal browser context with the actual display, without CDP viewport emulation, and Chromium’s CDP pipe transport. The temporary on-disk profile is removed after browser shutdown; only the scoped remembered-device cookies and identity are persisted. An upgrade establishes a fresh device instead of reusing cookies with changed native fingerprint profiles.
+Rogers and NBDB use CloakBrowser `154.0.8037.57.1`, which the pinned runtime image carries; the vendor's download no longer serves that build, so changing it is a deliberate runtime rebuild and live verification. Headed runs use a normal browser context with the actual display, without viewport emulation, over Playwright's pipe. The temporary on-disk profile is removed after browser shutdown; only the scoped remembered-device cookies and identity are persisted. An upgrade establishes a fresh device instead of reusing cookies with changed native fingerprint profiles.
 
 The Docker build receives the key through a BuildKit secret. CDK defaults to `~/.cloakbrowser/license.key`; set `CLOAKBROWSER_LICENSE_FILE` to another private file when needed. The running task's copy is the `CLOAKBROWSER_LICENSE_KEY` key of the Secrets Manager secret `Transactions`; ECS injects it at task startup using the execution role. The key does not enter Git, image layers, CloudFormation values, workflow inputs or command arguments. Local NBDB verification reads the same private key into its temporary environment file.
 

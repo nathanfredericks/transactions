@@ -12,7 +12,7 @@ initialization remain with that launcher. No Docker socket is mounted.
 
 The control API is HTTPS at https://browser-broker.fredericks.app through the
 separate Cloudflare tunnel. Tunnel ingress reaches only port 8080. All control
-routes require `Authorization: Bearer ...`, are rate limited, and return no
+routes require `Authorization: Bearer ...` and return no
 browser URLs, cookies, license keys or credentials. The bearer lives in the
 `BROWSER_BROKER_TOKEN` key of the Secrets Manager secret `Transactions` and the
 protected server file `/srv/compose/secrets/hermes-browser-broker.env`.
@@ -25,25 +25,26 @@ WebSocket closes, the broker closes Chromium. Hermes's own 120-second idle
 session cleanup disconnects its browser clients.
 
 A bank reservation immediately denies new Hermes connections, closes existing
-connections, stops the launcher and confirms the vendor reports zero occupied
-seats. It then grants the oldest live request. Banks never preempt each other.
-A licensed-seat count that is unavailable or nonzero keeps the broker in
-`releasing`; it never guesses that a seat is free.
+connections and stops the launcher. The oldest waiting bank is granted the
+seat only once the vendor counts zero occupied seats; Hermes's browser starts
+only on the same check. An unavailable or nonzero count means waiting, never a
+guess that the seat is free. Banks never preempt each other.
 
-Reservations are keyed by bank, durable job ID and bank-lease generation.
-Queued requests expire after 75 seconds. Workers wait at most 60 seconds and
-cancel abandoned requests with an independent cleanup context. A grant lasts ten
-minutes, longer than the worker's five-minute hard limit. Explicit release,
-expiry and broker restart all require a fresh zero-seat confirmation before
-reusing capacity. Ownership and request history are atomically persisted under
-`/srv/compose/hermes/browser/broker-state`; terminal history is retained for a day.
-A late DELETE is scoped to its old reservation and cannot release a newer grant.
+Reservations are keyed by bank, durable job ID and bank-lease generation, so a
+retried request gets the reservation it already has. Queued requests expire
+after 75 seconds. Workers wait at most 60 seconds and cancel abandoned requests
+with an independent cleanup context. A grant lasts ten minutes, longer than the
+worker's five-minute hard limit. Nothing is stored: after a broker restart a
+worker's poll gets 404 and its job waits for capacity, while the vendor's count
+keeps Hermes off a seat a bank still uses. A late DELETE only releases its own
+reservation. `BROWSER_BROKER_STATE` and the `broker-state` volume are no longer
+used.
 
 Bank workers reserve immediately before CloakBrowser startup, close their
 browser before release, and use the same path during local verification.
-Capacity failures defer with 30/60/120/240/300-second backoff, preserve financial
-health, and do not consume an authentication attempt. After 15 minutes the
-normal durable notification workflow sends a Pushover notice. No YNAB write is
+A busy seat defers the job 120 seconds at a time, five times, without
+consuming its authentication attempt; then the job fails as temporary and the
+next schedule retries. No YNAB write is
 retried by capacity handling.
 
 ## API

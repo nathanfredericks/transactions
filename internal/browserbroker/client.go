@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
@@ -20,9 +19,8 @@ type Client struct {
 	HTTP       *http.Client
 }
 
-func FromEnv() (*Client, error) {
-	u := os.Getenv("BROWSER_BROKER_URL")
-	token := os.Getenv("BROWSER_BROKER_TOKEN")
+// NewClient returns a client for the broker's HTTPS control API.
+func NewClient(u, token string) (*Client, error) {
 	parsed, e := url.Parse(u)
 	if e != nil || parsed.Scheme != "https" || parsed.Host == "" || len(token) < 32 {
 		return nil, ErrCapacity
@@ -66,7 +64,7 @@ func (c *Client) Acquire(ctx context.Context, q Request) (Reservation, error) {
 	granted := false
 	defer func() {
 		if !granted && r.ID != "" {
-			clean, stop := context.WithTimeout(context.Background(), 12*time.Second)
+			clean, stop := context.WithTimeout(context.WithoutCancel(ctx), 12*time.Second)
 			defer stop()
 			_ = c.Release(clean, r.ID)
 		}

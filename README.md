@@ -14,7 +14,7 @@ flowchart TD
   Engine --> Lease[Acquire bank lease and generation]
   Lease --> Session[Load encrypted saved session]
   Session --> Adapter[Bank API: renew and fetch]
-  Adapter -->|Authentication required| Browser[One Fargate task: browser sign-in]
+  Adapter -->|Authentication required| Browser[One Fargate task: Playwright sign-in]
   Browser -->|Validate accounts, save session, clean up, callback| Workflow
   Adapter -->|Validated normalized snapshot| Strategy[Posted / balances]
   Strategy -->|Imports enabled| YNAB[Shared YNAB client]
@@ -34,7 +34,7 @@ flowchart TD
 - `internal/ynab`, `internal/alert`, `internal/email`, `internal/notify`, `internal/llm`, `internal/learn`: the YNAB client, purchase-alert parsing, MIME parsing, Pushover, the model client and the learned enrichment.
 - `internal/config`: settings and secrets, loaded by each binary's `main` and passed in.
 - `cmd/lambda`: gateway and processor roles from the same Go binary.
-- `cmd/browser`: bounded Rod authentication worker; no YNAB secret permission.
+- `cmd/browser`: the bounded browser sign-in worker on playwright-go (`internal/chromium`, `internal/human`, `internal/signin`).
 - `cmd/operator`: administrative API client; no session-reading operation.
 - `cdk`: Go CDK definition for the complete runtime. No NAT gateway or always-running worker.
 

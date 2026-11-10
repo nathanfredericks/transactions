@@ -14,8 +14,6 @@ import (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	token, key := os.Getenv("BROWSER_BROKER_TOKEN"), os.Getenv("CLOAKBROWSER_LICENSE_KEY")
 	if key == "" {
 		slog.Error("license configuration missing")
@@ -27,15 +25,13 @@ func main() {
 	}
 	supervisor := &browserbroker.Supervisor{Command: command, Upstream: "http://127.0.0.1:9223"}
 	vendor := &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	state := os.Getenv("BROWSER_BROKER_STATE")
-	if state == "" {
-		state = "/state/broker.json"
-	}
-	broker, err := browserbroker.NewServer(state, token, supervisor, browserbroker.VendorSeats(key, vendor))
+	broker, err := browserbroker.NewServer(token, supervisor, browserbroker.VendorSeats(key, vendor))
 	if err != nil {
 		slog.Error("broker initialization failed")
 		os.Exit(1)
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	control := &http.Server{Addr: ":8080", Handler: broker.Control(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16384}
 	cdp := &http.Server{Addr: ":9222", Handler: broker.CDP(), ReadHeaderTimeout: 5 * time.Second, MaxHeaderBytes: 16384}
 	go broker.Run(ctx)

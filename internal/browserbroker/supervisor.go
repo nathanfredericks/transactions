@@ -27,20 +27,6 @@ type Supervisor struct {
 	lastActivity time.Time
 }
 
-func (s *Supervisor) Running() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.done == nil {
-		return false
-	}
-	select {
-	case <-s.done:
-		return false
-	default:
-		return true
-	}
-}
-
 func (s *Supervisor) Ensure(ctx context.Context, allowed func() bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -67,7 +53,7 @@ func (s *Supervisor) Ensure(ctx context.Context, allowed func() bool) error {
 	if len(s.Command) == 0 {
 		return errors.New("launcher not configured")
 	}
-	cmd := exec.Command(s.Command[0], s.Command[1:]...)
+	cmd := exec.Command(s.Command[0], s.Command[1:]...) //nolint:gosec,noctx // the operator sets the command; the browser outlives the request that starts it
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// Launcher diagnostics may contain private URLs or license material.
 	cmd.Stdout = io.Discard
@@ -104,7 +90,13 @@ func (s *Supervisor) Ensure(ctx context.Context, allowed func() bool) error {
 }
 
 func (s *Supervisor) CloseConnections() {
-	s.connections.Range(func(k, _ any) bool { _ = k.(net.Conn).Close(); s.connections.Delete(k); return true })
+	s.connections.Range(func(k, _ any) bool {
+		if c, ok := k.(net.Conn); ok {
+			_ = c.Close()
+		}
+		s.connections.Delete(k)
+		return true
+	})
 }
 
 func (s *Supervisor) Stop() error {
